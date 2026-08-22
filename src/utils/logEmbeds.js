@@ -21,6 +21,59 @@ function baseLogEmbed({ color = NEUTRAL_COLOR, title, description, fields = [] }
   return embed;
 }
 
+// ---- Bans / kicks / timeouts / clear ----
+
+export function createBanLogEmbed({ user, executor, reason }) {
+  return baseLogEmbed({
+    color: LOG_COLOR,
+    title: '🔨 Usuario baneado',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: 'Baneado por', value: executorText(executor), inline: true },
+      { name: 'Motivo', value: reason || 'Sin motivo especificado' },
+    ],
+  });
+}
+
+export function createKickLogEmbed({ user, executor, reason }) {
+  return baseLogEmbed({
+    color: '#F4A261',
+    title: '👢 Usuario expulsado (kick)',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: 'Expulsado por', value: executorText(executor), inline: true },
+      { name: 'Motivo', value: reason || 'Sin motivo especificado' },
+    ],
+  });
+}
+
+export function createTimeoutLogEmbed({ user, executor, reason, until, removed }) {
+  const fields = [
+    { name: 'Usuario', value: userTag(user), inline: true },
+    { name: removed ? 'Removido por' : 'Aplicado por', value: executorText(executor), inline: true },
+  ];
+  if (!removed && until) fields.push({ name: 'Hasta', value: `<t:${Math.floor(until / 1000)}:F>` });
+  fields.push({ name: 'Motivo', value: reason || 'Sin motivo especificado' });
+
+  return baseLogEmbed({
+    color: removed ? OK_COLOR : WARN_COLOR,
+    title: removed ? '🔊 Timeout removido' : '🔇 Usuario silenciado (timeout)',
+    fields,
+  });
+}
+
+export function createBulkDeleteLogEmbed({ cantidad, channel, executor, viaComando }) {
+  return baseLogEmbed({
+    color: LOG_COLOR,
+    title: '🧹 Mensajes eliminados en masa',
+    fields: [
+      { name: 'Cantidad', value: `${cantidad}`, inline: true },
+      { name: 'Canal', value: channel ? `<#${channel.id}>` : 'Desconocido', inline: true },
+      { name: viaComando ? 'Ejecutado con /clear por' : 'Eliminado por', value: executorText(executor), inline: true },
+    ],
+  });
+}
+
 // ---- Warnings ----
 
 export function createWarnLogEmbed({ user, executor, reason, total }) {
