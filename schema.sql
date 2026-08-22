@@ -77,8 +77,8 @@ create table if not exists economy (
   guild_id text not null,
   user_id text not null,
   balance bigint not null default 0,
-  last_daily timestamptz,
-  last_work timestamptz,
+  last_daily bigint not null default 0, -- epoch ms, no timestamptz: el bot hace Date.now() - last_daily
+  last_work bigint not null default 0,  -- idem
   inventory jsonb not null default '{}',
   primary key (guild_id, user_id)
 );
@@ -104,7 +104,7 @@ create table if not exists xp (
   user_id text not null,
   xp bigint not null default 0,
   level integer not null default 0,
-  last_xp_ts timestamptz,
+  last_xp_ts bigint not null default 0, -- epoch ms, no timestamptz: Date.now() - last_xp_ts
   last_content text,
   primary key (guild_id, user_id)
 );
@@ -170,7 +170,7 @@ create table if not exists reputation (
   guild_id text not null,
   user_id text not null,
   total bigint not null default 0,
-  last_given timestamptz,
+  last_given bigint not null default 0, -- epoch ms, no timestamptz: Date.now() - last_given
   primary key (guild_id, user_id)
 );
 
@@ -306,10 +306,10 @@ as $$
 declare
   v_new_total bigint;
 begin
-  insert into reputation (guild_id, user_id, total, last_given)
-  values (p_guild_id, p_user_id, p_amount, now())
+  insert into reputation (guild_id, user_id, total)
+  values (p_guild_id, p_user_id, p_amount)
   on conflict (guild_id, user_id)
-  do update set total = reputation.total + p_amount, last_given = now()
+  do update set total = reputation.total + p_amount
   returning total into v_new_total;
 
   return v_new_total;
