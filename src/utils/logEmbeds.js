@@ -8,11 +8,11 @@ const WARN_COLOR = '#E9C46A';
 const userTag = (user) => (user ? `${user.tag} (\`${user.id}\`)` : 'Desconocido');
 const executorText = (executor) => (executor ? userTag(executor) : 'No se pudo determinar con certeza');
 
-function baseLogEmbed({ color = NEUTRAL_COLOR, title, description, fields = [] }) {
+function baseLogEmbed({ color = NEUTRAL_COLOR, title, description, fields = [], footer = 'Logs de moderación' }) {
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(title)
-    .setFooter({ text: `${BRAND_NAME} • Logs de moderación` })
+    .setFooter({ text: `${BRAND_NAME} • ${footer}` })
     .setTimestamp();
 
   if (description) embed.setDescription(description);
@@ -70,6 +70,22 @@ export function createBulkDeleteLogEmbed({ cantidad, channel, executor, viaComan
       { name: 'Cantidad', value: `${cantidad}`, inline: true },
       { name: 'Canal', value: channel ? `<#${channel.id}>` : 'Desconocido', inline: true },
       { name: viaComando ? 'Ejecutado con /clear por' : 'Eliminado por', value: executorText(executor), inline: true },
+    ],
+  });
+}
+
+// ---- Tienda ----
+
+export function createShopPurchaseLogEmbed({ user, item }) {
+  return baseLogEmbed({
+    color: '#F4A261',
+    title: '🛍️ Compra pendiente de entrega',
+    footer: 'Tienda',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: 'Ítem', value: item.name, inline: true },
+      { name: 'Precio', value: `${item.price.toLocaleString('es-ES')} monedas`, inline: true },
+      { name: 'Qué hay que hacer', value: item.description },
     ],
   });
 }
