@@ -1,5 +1,6 @@
 import { routeButton } from '../components/buttons.js';
 import { routeModal } from '../components/modals.js';
+import { routeSelect } from '../components/selects.js';
 
 export const name = 'interactionCreate';
 export const once = false;
@@ -22,10 +23,11 @@ export async function execute(interaction, client) {
     return;
   }
 
-  if (interaction.isButton() || interaction.isModalSubmit()) {
+  if (interaction.isButton() || interaction.isModalSubmit() || interaction.isAnySelectMenu()) {
     try {
       if (interaction.isButton()) await routeButton(interaction);
-      else await routeModal(interaction);
+      else if (interaction.isModalSubmit()) await routeModal(interaction);
+      else await routeSelect(interaction);
     } catch (error) {
       console.error(`Error procesando interacción ${interaction.customId}:`, error);
       const payload = { content: 'Hubo un error procesando esto.', ephemeral: true };
