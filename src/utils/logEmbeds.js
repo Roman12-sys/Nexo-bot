@@ -21,6 +21,33 @@ function baseLogEmbed({ color = NEUTRAL_COLOR, title, description, fields = [] }
   return embed;
 }
 
+// ---- Warnings ----
+
+export function createWarnLogEmbed({ user, executor, reason, total }) {
+  return baseLogEmbed({
+    color: WARN_COLOR,
+    title: '⚠️ Advertencia aplicada',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: 'Advertido por', value: userTag(executor), inline: true },
+      { name: 'Total de advertencias', value: `${total}`, inline: true },
+      { name: 'Motivo', value: reason || 'Sin motivo especificado' },
+    ],
+  });
+}
+
+export function createUnwarnLogEmbed({ user, executor, detail }) {
+  return baseLogEmbed({
+    color: OK_COLOR,
+    title: '✅ Advertencia removida',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: 'Removida por', value: userTag(executor), inline: true },
+      { name: 'Detalle', value: detail },
+    ],
+  });
+}
+
 // ---- Miembros ----
 
 export function createNicknameChangeLogEmbed({ member, executor, oldNick, newNick }) {
