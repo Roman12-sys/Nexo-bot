@@ -105,7 +105,11 @@ export async function toggleParticipant(guildId, messageId, userId) {
   }
 
   const { error } = await supabase.from(ENTRIES_TABLE).insert({ guild_id: guildId, message_id: messageId, user_id: userId });
-  if (error) throw error;
+  // Doble-click casi simultáneo: dos toggles del mismo usuario pueden pasar el SELECT
+  // de arriba (todavía sin fila) antes de que ninguno inserte. El segundo INSERT choca
+  // con la primary key (guild_id, message_id, user_id) — eso significa que YA está
+  // participando (el primer click ganó), no un error real.
+  if (error && error.code !== '23505') throw error;
   return { joined: true };
 }
 

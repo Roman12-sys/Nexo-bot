@@ -25,6 +25,21 @@ export async function execute(interaction) {
   const guildId = interaction.guild.id;
   const userId = interaction.user.id;
 
+  // Chequeo previo ANTES de deferir: mismo motivo que /daily — permite responder
+  // ephemeral en cooldown y evita arriesgar la ventana de 3s de Discord con el
+  // round-trip a Supabase antes de la primera respuesta.
+  const preCheck = await getUserEconomy(guildId, userId);
+  if (Date.now() - preCheck.lastWork < COOLDOWN_MS) {
+    const readyTimestamp = Math.floor((preCheck.lastWork + COOLDOWN_MS) / 1000);
+    await interaction.reply({
+      content: `⏳ Ya trabajaste hace poco. Podés volver a trabajar <t:${readyTimestamp}:R>.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.deferReply();
+
   const result = await withLock(`work:${guildId}:${userId}`, async () => {
     const economy = await getUserEconomy(guildId, userId);
     const now = Date.now();
@@ -46,9 +61,8 @@ export async function execute(interaction) {
 
   if (result.onCooldown) {
     const readyTimestamp = Math.floor((result.now + result.remaining) / 1000);
-    await interaction.reply({
+    await interaction.editReply({
       content: `⏳ Ya trabajaste hace poco. Podés volver a trabajar <t:${readyTimestamp}:R>.`,
-      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -61,7 +75,7 @@ export async function execute(interaction) {
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 
-  await interaction.reply({ embeds: [embed] });
+  await interaction.editReply({ embeds: [embed] });
 
   await announceUnlockedAchievements(interaction, userId, [
     isFirstWork ? unlockAchievement(guildId, userId, 'a_laburar') : null,

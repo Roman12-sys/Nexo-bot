@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
-import { transferBalance, recordTransaction } from '../../utils/economyStore.js';
+import { getUserEconomy, transferBalance, recordTransaction } from '../../utils/economyStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { createGiveSuspiciousLogEmbed } from '../../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
@@ -27,6 +27,17 @@ export async function execute(interaction) {
 
   const guildId = interaction.guild.id;
 
+  // Chequeo previo ANTES de deferir: así el error de "no te alcanza" puede responderse
+  // ephemeral (una vez deferido en público, ya no se puede cambiar). transferBalance
+  // sigue siendo la autoridad atómica real — esto es solo para elegir cómo responder.
+  const senderEconomy = await getUserEconomy(guildId, interaction.user.id);
+  if (senderEconomy.balance < cantidad) {
+    await interaction.reply({ content: '❌ No tenés suficientes monedas para esa transferencia.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  await interaction.deferReply();
+
   // transferBalance hace el chequeo de fondos + resta + suma en una sola transacción
   // atómica (RPC transfer_balance) — si no alcanza, no se descuenta nada de nadie.
   let result;
@@ -34,7 +45,7 @@ export async function execute(interaction) {
     result = await transferBalance(guildId, interaction.user.id, targetUser.id, cantidad);
   } catch (error) {
     if (error.code === 'insufficient_funds') {
-      await interaction.reply({ content: '❌ No tenés suficientes monedas para esa transferencia.', flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: '❌ No tenés suficientes monedas para esa transferencia.' });
       return;
     }
     throw error;
@@ -64,7 +75,7 @@ export async function execute(interaction) {
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 
-  await interaction.reply({ embeds: [embed] });
+  await interaction.editReply({ embeds: [embed] });
 
   // Señal de patrón sospechoso (lavado entre alts / cuenta comprometida repartiendo
   // balance) — no bloquea ni avisa al usuario, solo un heads-up silencioso al staff.

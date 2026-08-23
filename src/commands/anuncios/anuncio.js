@@ -74,18 +74,22 @@ function importJsonToDraft(jsonString, currentDraft) {
       obj = parsed.embeds[0];
     }
 
+    // String(...) en cada campo de texto: un JSON pegado a mano puede traer un valor
+    // no-string en cualquier campo (ej. "title": 123) — sin esto, ese valor pasaba
+    // los chequeos de longitud de más abajo ((123).length es undefined) y recién
+    // explotaba en EmbedBuilder.setTitle/etc., que solo acepta strings.
     const merged = {
-      title: obj.title || currentDraft.title || '',
-      description: obj.description || currentDraft.description || '',
-      url: obj.url || currentDraft.url || '',
+      title: String(obj.title || currentDraft.title || ''),
+      description: String(obj.description || currentDraft.description || ''),
+      url: String(obj.url || currentDraft.url || ''),
       color: colorToHex(obj.color) || currentDraft.color || BRAND_COLOR,
-      authorName: obj.author?.name || obj.authorName || currentDraft.authorName || '',
-      authorIconURL: obj.author?.icon_url || obj.authorIconURL || currentDraft.authorIconURL || '',
-      authorURL: obj.author?.url || obj.authorURL || currentDraft.authorURL || '',
-      thumbnailURL: obj.thumbnail?.url || obj.thumbnailURL || currentDraft.thumbnailURL || '',
-      imageURL: obj.image?.url || obj.imageURL || currentDraft.imageURL || '',
-      footerText: obj.footer?.text || obj.footerText || currentDraft.footerText || '',
-      footerIconURL: obj.footer?.icon_url || obj.footerIconURL || currentDraft.footerIconURL || '',
+      authorName: String(obj.author?.name || obj.authorName || currentDraft.authorName || ''),
+      authorIconURL: String(obj.author?.icon_url || obj.authorIconURL || currentDraft.authorIconURL || ''),
+      authorURL: String(obj.author?.url || obj.authorURL || currentDraft.authorURL || ''),
+      thumbnailURL: String(obj.thumbnail?.url || obj.thumbnailURL || currentDraft.thumbnailURL || ''),
+      imageURL: String(obj.image?.url || obj.imageURL || currentDraft.imageURL || ''),
+      footerText: String(obj.footer?.text || obj.footerText || currentDraft.footerText || ''),
+      footerIconURL: String(obj.footer?.icon_url || obj.footerIconURL || currentDraft.footerIconURL || ''),
       timestamp: obj.timestamp !== undefined ? Boolean(obj.timestamp) : currentDraft.timestamp,
       fields: [],
       mention: currentDraft.mention,

@@ -55,10 +55,18 @@ export async function execute(interaction) {
       .setFooter({ text: BRAND_NAME })
       .setTimestamp();
 
-    embed.setDescription(
+    const description =
       list.length === 0
         ? 'Este usuario no tiene advertencias.'
-        : list.map((w, i) => `**#${i + 1}** — ${w.reason}\n<t:${Math.floor(w.timestamp / 1000)}:f> · por <@${w.moderatorId}>`).join('\n\n'),
+        : list.map((w, i) => `**#${i + 1}** — ${w.reason}\n<t:${Math.floor(w.timestamp / 1000)}:f> · por <@${w.moderatorId}>`).join('\n\n');
+
+    // Con muchas advertencias (motivos de hasta 512 caracteres) esto puede superar el
+    // límite de 4096 de un embed — se corta y se avisa usar `exportar:true` para la
+    // lista completa en vez de romper el comando con un error genérico.
+    embed.setDescription(
+      description.length > 4096
+        ? `${description.slice(0, 3950)}...\n\n⚠️ Se cortó la lista — usá \`/warns exportar:true\` para verlas todas.`
+        : description,
     );
 
     await interaction.editReply({ embeds: [embed] });

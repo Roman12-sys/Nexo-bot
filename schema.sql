@@ -356,10 +356,14 @@ as $$
 declare
   v_new_xp bigint;
 begin
+  -- greatest(0, ...) igual que increment_balance: sin este piso atómico, dos /xp
+  -- quitar concurrentes sobre el mismo usuario podían dejar la XP en negativo (el
+  -- clamp que hace xpStaff.js en JS antes de llamar esto no protege contra la carrera,
+  -- solo contra XP orgánica ganada en el medio).
   insert into xp (guild_id, user_id, xp)
-  values (p_guild_id, p_user_id, p_amount)
+  values (p_guild_id, p_user_id, greatest(0, p_amount))
   on conflict (guild_id, user_id)
-  do update set xp = xp.xp + p_amount
+  do update set xp = greatest(0, xp.xp + p_amount)
   returning xp into v_new_xp;
 
   return v_new_xp;
