@@ -1,0 +1,153 @@
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
+import { getUserXp, getLevelProgress, getRank } from '../../utils/xpStore.js';
+import { getUserEconomy } from '../../utils/economyStore.js';
+import { getUserTrivia } from '../../utils/triviaStore.js';
+import { getUserReputation } from '../../utils/reputationStore.js';
+import { getUserWarns } from '../../utils/warnsStore.js';
+import { getUserWinCount } from '../../utils/giveawaysStore.js';
+import { buildInventoryEmbed } from '../economia/inventory.js';
+import { BRAND_COLOR, BRAND_NAME, buildProgressBar, progressPercent } from '../../utils/embeds.js';
+import { registerButtonPrefix } from '../../components/buttons.js';
+
+// Vista principal: solo lo esencial de un vistazo. El detalle (trivia %, cuenta creada,
+// etc.) queda atrás del botón "📊 Estadísticas" para no convertir esto en una pared de texto.
+async function buildPerfilEmbed(guild, targetUser, member) {
+  const guildId = guild.id;
+  // Las 7 lecturas son independientes entre sí — en paralelo en vez de una por una
+  // ahorra la suma de las 7 latencias de red y deja solo la del más lento.
+  const [xp, rank, economy, trivia, reputation, warns, wins] = await Promise.all([
+    getUserXp(guildId, targetUser.id),
+    getRank(guildId, targetUser.id),
+    getUserEconomy(guildId, targetUser.id),
+    getUserTrivia(guildId, targetUser.id),
+    getUserReputation(guildId, targetUser.id),
+    getUserWarns(guildId, targetUser.id),
+    getUserWinCount(guildId, targetUser.id),
+  ]);
+  const progress = getLevelProgress(xp.xp);
+
+  const joinedTimestamp = member?.joinedTimestamp ? Math.floor(member.joinedTimestamp / 1000) : null;
+  const pct = progressPercent(progress.currentLevelXp, progress.xpForNextLevel);
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setAuthor({ name: targetUser.tag, iconURL: targetUser.displayAvatarURL() })
+    .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
+    .setTitle(`👤 Perfil de ${BRAND_NAME}`)
+    .addFields(
+      { name: '⭐ Nivel', value: `${progress.level}${rank ? ` · #${rank} del ranking` : ''}`, inline: true },
+      {
+        name: '✨ XP',
+        value: `${progress.currentLevelXp.toLocaleString('es-ES')} / ${progress.xpForNextLevel.toLocaleString('es-ES')}`,
+        inline: true,
+      },
+      { name: '💰 Balance', value: `${economy.balance.toLocaleString('es-ES')} monedas`, inline: true },
+      { name: 'Progreso de nivel', value: `${buildProgressBar(progress.currentLevelXp, progress.xpForNextLevel)} ${pct}%` },
+      { name: '🧠 Trivia', value: `${trivia.points} puntos`, inline: true },
+      { name: '❤️ Reputación', value: `${reputation.total}`, inline: true },
+      { name: '⚠️ Warns activos', value: `${warns.length}`, inline: true },
+      { name: '🎉 Sorteos ganados', value: `${wins}`, inline: true },
+      { name: '🏅 Logros', value: 'Próximamente', inline: true },
+    );
+
+  if (joinedTimestamp) {
+    embed.addFields({ name: '📥 Miembro desde', value: `<t:${joinedTimestamp}:D> (<t:${joinedTimestamp}:R>)` });
+  }
+
+  embed.setFooter({ text: BRAND_NAME }).setTimestamp();
+  return embed;
+}
+
+function buildPerfilRow(targetUserId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`perfil_stats_${targetUserId}`).setLabel('📊 Estadísticas').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`perfil_logros_${targetUserId}`).setLabel('🏅 Logros').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`perfil_inventario_${targetUserId}`).setLabel('🎒 Inventario').setStyle(ButtonStyle.Secondary),
+  );
+}
+
+async function buildStatsEmbed(guildId, targetUser) {
+  const [xp, trivia, reputation, warns, wins] = await Promise.all([
+    getUserXp(guildId, targetUser.id),
+    getUserTrivia(guildId, targetUser.id),
+    getUserReputation(guildId, targetUser.id),
+    getUserWarns(guildId, targetUser.id),
+    getUserWinCount(guildId, targetUser.id),
+  ]);
+  const progress = getLevelProgress(xp.xp);
+  const accountCreated = Math.floor(targetUser.createdTimestamp / 1000);
+  const ratio = trivia.answered > 0 ? Math.round((trivia.correct / trivia.answered) * 100) : 0;
+
+  return new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle(`📊 Estadísticas de ${targetUser.tag}`)
+    .addFields(
+      { name: '⭐ Nivel', value: `${progress.level}`, inline: true },
+      { name: '✨ XP total', value: `${progress.totalXp.toLocaleString('es-ES')}`, inline: true },
+      { name: '🧠 Trivia', value: `${trivia.correct}/${trivia.answered} correctas (${ratio}%)`, inline: true },
+      { name: '❤️ Reputación', value: `${reputation.total}`, inline: true },
+      { name: '⚠️ Warns activos', value: `${warns.length}`, inline: true },
+      { name: '🎉 Sorteos ganados', value: `${wins}`, inline: true },
+      { name: '📅 Cuenta creada', value: `<t:${accountCreated}:D>`, inline: true },
+    )
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
+}
+
+// Placeholder a propósito: deja el espacio/formato ya listo para cuando exista un
+// sistema de logros real (lista de IDs desbloqueados en algún store nuevo).
+function buildLogrosEmbed(targetUser) {
+  return new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle(`🏅 Logros de ${targetUser.tag}`)
+    .setDescription('El sistema de logros todavía no está implementado. ¡Pronto vas a poder desbloquearlos acá!')
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
+}
+
+export const data = new SlashCommandBuilder()
+  .setName('perfil')
+  .setDescription(`Muestra tu perfil completo de ${BRAND_NAME} (o el de otro usuario).`)
+  .addUserOption((o) => o.setName('usuario').setDescription('Usuario a consultar (opcional)').setRequired(false))
+  .setDMPermission(false);
+
+export async function execute(interaction) {
+  const targetUser = interaction.options.getUser('usuario') || interaction.user;
+  const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+
+  if (!member) {
+    await interaction.reply({ content: '❌ No se pudo encontrar a ese usuario en este servidor.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  await interaction.deferReply();
+
+  const embed = await buildPerfilEmbed(interaction.guild, targetUser, member);
+  await interaction.editReply({
+    embeds: [embed],
+    components: [buildPerfilRow(targetUser.id)],
+  });
+}
+
+registerButtonPrefix('perfil_stats_', async (i) => {
+  const targetUserId = i.customId.slice('perfil_stats_'.length);
+  const targetUser = await i.client.users.fetch(targetUserId).catch(() => null);
+  if (!targetUser) return i.reply({ content: '❌ No se pudo encontrar a ese usuario.', flags: MessageFlags.Ephemeral });
+  const statsEmbed = await buildStatsEmbed(i.guild.id, targetUser);
+  await i.reply({ embeds: [statsEmbed], flags: MessageFlags.Ephemeral });
+});
+
+registerButtonPrefix('perfil_logros_', async (i) => {
+  const targetUserId = i.customId.slice('perfil_logros_'.length);
+  const targetUser = await i.client.users.fetch(targetUserId).catch(() => null);
+  if (!targetUser) return i.reply({ content: '❌ No se pudo encontrar a ese usuario.', flags: MessageFlags.Ephemeral });
+  await i.reply({ embeds: [buildLogrosEmbed(targetUser)], flags: MessageFlags.Ephemeral });
+});
+
+registerButtonPrefix('perfil_inventario_', async (i) => {
+  const targetUserId = i.customId.slice('perfil_inventario_'.length);
+  const targetUser = await i.client.users.fetch(targetUserId).catch(() => null);
+  if (!targetUser) return i.reply({ content: '❌ No se pudo encontrar a ese usuario.', flags: MessageFlags.Ephemeral });
+  const inventoryEmbed = await buildInventoryEmbed(i.guild.id, targetUser);
+  await i.reply({ embeds: [inventoryEmbed], flags: MessageFlags.Ephemeral });
+});

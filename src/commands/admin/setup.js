@@ -3,27 +3,43 @@ import {
   PermissionFlagsBits,
   ChannelType,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  RoleSelectMenuBuilder,
+  MessageFlags,
 } from 'discord.js';
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
 import { BRAND_COLOR } from '../../utils/embeds.js';
+import { registerButtonPrefix } from '../../components/buttons.js';
+import { registerSelectPrefix } from '../../components/selects.js';
 
 const CATEGORY_NAME = 'Nexo Bot';
+const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutos
 
 const LOG_CHANNELS = [
-  { feature: 'moderacion', column: 'log_channel_moderation_id', name: 'registro-moderacion' },
-  { feature: 'moderacion', column: 'log_channel_activity_id', name: 'registro-actividad' },
-  { feature: 'economia', column: 'log_channel_economy_id', name: 'registro-economia' },
+  { column: 'log_channel_moderation_id', name: 'registro-moderacion' },
+  { column: 'log_channel_activity_id', name: 'registro-actividad' },
+  { column: 'log_channel_economy_id', name: 'registro-economia' },
 ];
+
+// Sesión en memoria del panel interactivo, una por usuario (mismo patrón que
+// anuncio.js) — solo importa mientras dura la conversación de botones, nunca se
+// persiste. Lo que sí se persiste es guild_config, recién al confirmar.
+const sessions = new Map();
+
+function refreshSession(userId, state) {
+  const existing = sessions.get(userId);
+  if (existing?.timeoutHandle) clearTimeout(existing.timeoutHandle);
+  const timeoutHandle = setTimeout(() => sessions.delete(userId), SESSION_TTL_MS);
+  sessions.set(userId, { state, timeoutHandle });
+}
 
 export const data = new SlashCommandBuilder()
   .setName('setup')
   .setDescription('Configura Nexo Bot para este servidor (roles, canales de log, features activas).')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-  .setDMPermission(false)
-  .addBooleanOption((opt) => opt.setName('moderacion').setDescription('Activar moderación (warnings, logs de moderación/actividad). Default: sí.'))
-  .addBooleanOption((opt) => opt.setName('economia').setDescription('Activar economía (balance, daily, work, logs de economía). Default: sí.'))
-  .addBooleanOption((opt) => opt.setName('xp').setDescription('Activar sistema de XP/niveles. Default: sí.'))
-  .addRoleOption((opt) => opt.setName('rol_staff').setDescription('Rol de staff. Si no se indica, se crea o reusa uno llamado "Staff".'));
+  .setDMPermission(false);
 
 // No se puede usar isStaff() acá: la primera vez que se corre /setup todavía no
 // hay guild_config, así que el único gate posible es "sos el dueño o tenés
@@ -35,6 +51,56 @@ function canRunSetup(interaction) {
     interaction.member.permissions.has(PermissionFlagsBits.Administrator)
   );
 }
+
+// ---------- Panel interactivo ----------
+
+function buildSetupPanel(state) {
+  const toggleLabel = (enabled, label) => `${enabled ? '✅' : '⬜'} ${label}`;
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('⚙️ Configurar Nexo Bot')
+    .setDescription(
+      'Elegí qué activar y, si querés, un rol de staff ya existente. Tocá **Confirmar** cuando esté listo — ' +
+        'se puede volver a correr /setup las veces que hagan falta, nunca duplica lo que ya existe.',
+    )
+    .addFields({
+      name: 'Rol de staff',
+      value: state.roleId ? `<@&${state.roleId}>` : 'Automático — crea o reusa uno llamado "Staff"',
+    });
+
+  const rowToggles = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('setup_toggle_moderacion')
+      .setLabel(toggleLabel(state.moderacion, 'Moderación'))
+      .setStyle(state.moderacion ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('setup_toggle_economia')
+      .setLabel(toggleLabel(state.economia, 'Economía'))
+      .setStyle(state.economia ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('setup_toggle_xp')
+      .setLabel(toggleLabel(state.xp, 'XP'))
+      .setStyle(state.xp ? ButtonStyle.Success : ButtonStyle.Secondary),
+  );
+
+  const rowRole = new ActionRowBuilder().addComponents(
+    new RoleSelectMenuBuilder()
+      .setCustomId('setup_role_select')
+      .setPlaceholder('Elegí un rol de staff existente (opcional)')
+      .setMinValues(0)
+      .setMaxValues(1),
+  );
+
+  const rowConfirm = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('setup_confirm').setLabel('✅ Confirmar').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId('setup_cancel').setLabel('❌ Cancelar').setStyle(ButtonStyle.Danger),
+  );
+
+  return { embeds: [embed], components: [rowToggles, rowRole, rowConfirm] };
+}
+
+// ---------- Creación/reuso de recursos (sin cambios de lógica) ----------
 
 async function resolveStaffRole(interaction, cfg, requestedRole) {
   if (requestedRole) return { role: requestedRole, created: false };
@@ -100,26 +166,17 @@ async function resolveLogChannel(interaction, cfg, category, staffRole, { column
   return { channel, created: true };
 }
 
-export async function execute(interaction) {
-  if (!canRunSetup(interaction)) {
-    await interaction.reply({ content: '❌ Solo el dueño del servidor o un administrador puede correr /setup.', ephemeral: true });
-    return;
-  }
-
-  await interaction.deferReply({ ephemeral: true });
-
-  const enableModeracion = interaction.options.getBoolean('moderacion') ?? true;
-  const enableEconomia = interaction.options.getBoolean('economia') ?? true;
-  const enableXp = interaction.options.getBoolean('xp') ?? true;
-  const requestedStaffRole = interaction.options.getRole('rol_staff');
-
+// Corre la creación real a partir del estado elegido en el panel. Devuelve el embed
+// de resumen final — se llama solo al tocar "Confirmar".
+async function runSetup(interaction, state) {
   const cfg = await getGuildConfig(interaction.guildId);
   const summary = [];
 
+  const requestedStaffRole = state.roleId ? await interaction.guild.roles.fetch(state.roleId).catch(() => null) : null;
   const { role: staffRole, created: staffCreated } = await resolveStaffRole(interaction, cfg, requestedStaffRole);
   summary.push(`${staffCreated ? '🆕 Creado' : '♻️ Reusado'} rol de staff: ${staffRole}`);
 
-  const needsCategory = enableModeracion || enableEconomia;
+  const needsCategory = state.moderacion || state.economia;
   let category = null;
   if (needsCategory) {
     const result = await resolveCategory(interaction, cfg);
@@ -130,14 +187,14 @@ export async function execute(interaction) {
   const patch = {
     admin_role_id: cfg.admin_role_id ?? staffRole.id,
     moderator_role_id: staffRole.id,
-    features: { moderacion: enableModeracion, economia: enableEconomia, xp: enableXp },
+    features: { moderacion: state.moderacion, economia: state.economia, xp: state.xp },
     setup_category_id: category?.id ?? cfg.setup_category_id ?? null,
     setup_completed_at: new Date().toISOString(),
   };
 
   for (const logChannel of LOG_CHANNELS) {
-    const isModColumn = logChannel.column !== 'log_channel_economy_id';
-    const featureEnabled = isModColumn ? enableModeracion : enableEconomia;
+    const isEconomyColumn = logChannel.column === 'log_channel_economy_id';
+    const featureEnabled = isEconomyColumn ? state.economia : state.moderacion;
     if (!featureEnabled) continue;
 
     const { channel, created } = await resolveLogChannel(interaction, cfg, category, staffRole, logChannel);
@@ -145,17 +202,88 @@ export async function execute(interaction) {
     summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} canal: ${channel}`);
   }
 
-  if (enableXp) {
+  if (state.xp) {
     summary.push('⭐ XP activado (sin canal de anuncio de nivel — configurable más adelante).');
   }
 
   await setGuildConfig(interaction.guildId, patch);
 
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('✅ Nexo Bot configurado')
     .setDescription(summary.join('\n'))
     .setFooter({ text: 'Podés volver a correr /setup cuando quieras — no duplica lo que ya existe.' });
-
-  await interaction.editReply({ embeds: [embed] });
 }
+
+// ---------- Entrada del comando ----------
+
+export async function execute(interaction) {
+  if (!canRunSetup(interaction)) {
+    await interaction.reply({ content: '❌ Solo el dueño del servidor o un administrador puede correr /setup.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  const state = { moderacion: true, economia: true, xp: true, roleId: null };
+  refreshSession(interaction.user.id, state);
+
+  await interaction.reply({ ...buildSetupPanel(state), flags: MessageFlags.Ephemeral });
+}
+
+function requireSession(interaction) {
+  return sessions.get(interaction.user.id) || null;
+}
+
+const SESSION_EXPIRED = '❌ Esta sesión de /setup expiró. Iniciá de nuevo con `/setup`.';
+
+registerButtonPrefix('setup_toggle_moderacion', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.state.moderacion = !session.state.moderacion;
+  refreshSession(i.user.id, session.state);
+  await i.update(buildSetupPanel(session.state));
+});
+
+registerButtonPrefix('setup_toggle_economia', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.state.economia = !session.state.economia;
+  refreshSession(i.user.id, session.state);
+  await i.update(buildSetupPanel(session.state));
+});
+
+registerButtonPrefix('setup_toggle_xp', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.state.xp = !session.state.xp;
+  refreshSession(i.user.id, session.state);
+  await i.update(buildSetupPanel(session.state));
+});
+
+registerSelectPrefix('setup_role_select', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.state.roleId = i.values[0] || null;
+  refreshSession(i.user.id, session.state);
+  await i.update(buildSetupPanel(session.state));
+});
+
+registerButtonPrefix('setup_confirm', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  await i.update({ content: '⏳ Configurando...', embeds: [], components: [] });
+
+  try {
+    const summaryEmbed = await runSetup(i, session.state);
+    sessions.delete(i.user.id);
+    await i.editReply({ content: null, embeds: [summaryEmbed], components: [] });
+  } catch (error) {
+    console.error('❌ Error al confirmar /setup:', error);
+    await i.editReply({ content: '❌ Ocurrió un error configurando el servidor. Probá de nuevo.', embeds: [], components: [] });
+  }
+});
+
+registerButtonPrefix('setup_cancel', async (i) => {
+  sessions.delete(i.user.id);
+  await i.update({ content: '❌ /setup cancelado.', embeds: [], components: [] });
+});

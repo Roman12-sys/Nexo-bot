@@ -9,11 +9,16 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "deploy": "node src/deploy-commands.js"
+    "deploy": "node src/deploy-commands.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
     "discord.js": "^14.16.0",
     "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
   }
 }
