@@ -82,3 +82,20 @@ feature nueva. Ver [`CLAUDE.md`](CLAUDE.md) para el resto de las decisiones de d
 | `npm run dev` | Arranca con `--watch` (reinicia al guardar) |
 | `npm run deploy -- dev` | Registra los slash commands solo en `GUILD_ID_DEV` |
 | `npm run deploy` | Registra los slash commands globalmente |
+| `npm test` | Corre la suite de tests (Vitest) |
+| `npm run test:watch` | Tests en modo watch |
+
+## Legal / publicación
+
+- [Landing page](https://claude.ai/code/artifact/3b37f4fd-16d5-475b-9d41-135833fc3039)
+- [Términos de Servicio](https://claude.ai/code/artifact/8f9bbee4-665a-4245-93f3-e0329c8760a4)
+- [Política de Privacidad](https://claude.ai/code/artifact/89a893fb-8fa2-40d6-8b42-cf3e9fb7c646)
+
+Estas 3 páginas son plantillas de referencia (no revisadas legalmente) publicadas como
+Artifacts — no requieren infraestructura propia. Las URLs de ToS/Privacidad van en el
+Developer Portal de Discord (tu app → General Information) y son uno de los requisitos
+para pedir verificación cuando el bot supere 100 servidores. Eso último es una acción
+que solo puede hacer el dueño de la cuenta de Discord de la app (Developer Portal → tu
+app → pestaña de verificación), con 2FA activado — no es algo que se pueda automatizar.
+Tené en cuenta también que el bot usa 2 intents privilegiados (`GuildMembers`,
+`MessageContent`), que Discord revisa con más atención en ese proceso.
