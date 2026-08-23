@@ -1,9 +1,10 @@
-import { Events, AuditLogEvent } from 'discord.js';
-import { createWelcomeEmbed } from '../utils/embeds.js';
+import { Events, AuditLogEvent, EmbedBuilder } from 'discord.js';
 import { createBotAddedLogEmbed } from '../utils/logEmbeds.js';
 import { findExecutor } from '../utils/auditLog.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { getGuildConfig } from '../utils/guildConfigStore.js';
+import { buildWelcomeImageAttachment } from '../utils/welcomeImage.js';
+import { BRAND_COLOR } from '../utils/embeds.js';
 
 export const name = Events.GuildMemberAdd;
 export const once = false;
@@ -69,11 +70,13 @@ export async function execute(member, client) {
       return;
     }
 
-    const embed = createWelcomeEmbed({ member });
+    const attachment = await buildWelcomeImageAttachment(member);
+    const embed = new EmbedBuilder().setColor(BRAND_COLOR).setImage('attachment://welcome.png');
 
     await channel.send({
       content: `${member}`,
       embeds: [embed],
+      files: [attachment],
       allowedMentions: { users: [member.id] },
     });
   } catch (error) {
