@@ -205,6 +205,20 @@ create table if not exists achievements_unlocked (
 );
 
 -- =========================================================
+-- Recordatorios (/recordatorio) — se entregan por DM, guild_id es solo referencia
+-- de desde dónde se creó, no acota la entrega.
+-- =========================================================
+create table if not exists reminders (
+  id bigint generated always as identity primary key,
+  guild_id text not null,
+  user_id text not null,
+  message text not null,
+  remind_at bigint not null, -- epoch ms, igual criterio que los cooldowns: aritmética cruda con Date.now()
+  created_at timestamptz not null default now()
+);
+create index if not exists reminders_remind_at_idx on reminders (remind_at);
+
+-- =========================================================
 -- Confesiones (contador correlativo por servidor)
 -- =========================================================
 create table if not exists confession_counters (

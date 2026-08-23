@@ -1,5 +1,6 @@
 import { rescheduleActiveGiveaways } from '../utils/giveawayEngine.js';
 import { reconcileOnStartup } from '../utils/tempVoiceEngine.js';
+import { rescheduleReminders } from '../utils/reminderEngine.js';
 
 export const name = 'clientReady';
 export const once = true;
@@ -14,4 +15,8 @@ export async function execute(client) {
   // Limpia registros de salas temporales cuyo canal ya no existe, y siembra las
   // estadísticas en vivo de las que sí siguen activas.
   await reconcileOnStartup(client).catch((error) => console.error('❌ Error reconciliando salas de voz temporales:', error));
+
+  // Mismo motivo que los sorteos: los setTimeout de /recordatorio viven solo en
+  // memoria, hay que volver a programarlos contra lo guardado en Supabase.
+  await rescheduleReminders(client).catch((error) => console.error('❌ Error reprogramando recordatorios:', error));
 }

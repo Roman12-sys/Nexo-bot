@@ -5,6 +5,7 @@ import { getGuildConfig } from '../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { detectSecret } from '../utils/secretDetector.js';
 import { createSecretLeakLogEmbed, createPunishFilterLogEmbed } from '../utils/logEmbeds.js';
+import { getAfk, clearAfk } from '../utils/afkStore.js';
 
 const URL_REGEX = /https?:\/\/\S+|www\.\S+/i;
 
@@ -39,7 +40,29 @@ export async function execute(message, client) {
     const cfg = await getGuildConfig(message.guild.id);
     const member = message.member;
 
-    // --- PARTE 1: XP por actividad ---
+    // --- PARTE 1: AFK (independiente de qué features tenga activas el server) ---
+
+    if (getAfk(message.guild.id, message.author.id)) {
+      clearAfk(message.guild.id, message.author.id);
+      await message.reply({ content: `👋 Bienvenido/a de vuelta ${message.author}, te quité el AFK.`, allowedMentions: { repliedUser: false } }).catch(() => {});
+    }
+
+    if (message.mentions.users.size > 0) {
+      const afkMentions = [];
+      for (const user of message.mentions.users.values()) {
+        if (user.id === message.author.id) continue;
+        const afk = getAfk(message.guild.id, user.id);
+        if (afk) {
+          const minutesAgo = Math.floor((Date.now() - afk.since) / 60000);
+          afkMentions.push(`💤 ${user} está ausente (${minutesAgo < 1 ? 'hace un momento' : `hace ${minutesAgo} min`}): ${afk.reason}`);
+        }
+      }
+      if (afkMentions.length > 0) {
+        await message.reply({ content: afkMentions.join('\n'), allowedMentions: { repliedUser: false, users: [] } }).catch(() => {});
+      }
+    }
+
+    // --- PARTE 2: XP por actividad ---
 
     if (cfg.features?.xp && member) {
       const result = await grantMessageXp(message.guild.id, message.author.id, message.content);
@@ -52,7 +75,7 @@ export async function execute(message, client) {
       }
     }
 
-    // --- PARTE 2: filtro de imágenes/enlaces para usuarios sancionados ---
+    // --- PARTE 3: filtro de imágenes/enlaces para usuarios sancionados ---
 
     if (!cfg.punish_role_id) return;
     if (!member || !member.roles.cache.has(cfg.punish_role_id)) return;

@@ -75,7 +75,7 @@ export function buildDiversionEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🎲 Diversión')
-    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/say` `/reputation` `/confession`')
+    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/say` `/reputation` `/confession` `/encuesta` `/afk` `/recordatorio`')
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
