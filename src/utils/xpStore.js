@@ -21,15 +21,23 @@ export const MESSAGE_XP_COOLDOWN_MS = 60 * 1000; // 60 segundos
 // Mensajes más cortos que esto no otorgan XP (evita "a", "xd", "jaja" farmeado)
 const MIN_CONTENT_LENGTH = 3;
 
+// Multiplicador del ítem de tienda type:'xp_boost' (ver buy.js) mientras xp_boost_until
+// no venció todavía.
+export const XP_BOOST_MULTIPLIER = 2;
+
 // La tabla usa snake_case (convención de Postgres); el resto del bot sigue trabajando
 // con camelCase. Estas dos funciones son el único lugar que conoce ambos formatos.
 function rowToRecord(row) {
-  if (!row) return { xp: 0, level: 0, lastXpTs: 0, lastContent: '' };
+  if (!row) return { xp: 0, level: 0, lastXpTs: 0, lastContent: '', xpBoostUntil: 0, prestige: 0 };
   return {
     xp: row.xp,
     level: row.level,
     lastXpTs: row.last_xp_ts,
     lastContent: row.last_content,
+    // Filas viejas (creadas antes de agregar impulsos/prestigio) no tienen estas
+    // columnas todavía si la migración no corrió — 0 es "sin impulso activo"/"nunca prestigió".
+    xpBoostUntil: row.xp_boost_until || 0,
+    prestige: row.prestige || 0,
   };
 }
 
@@ -41,13 +49,15 @@ function recordToRow(guildId, userId, record) {
     level: record.level,
     last_xp_ts: record.lastXpTs,
     last_content: record.lastContent,
+    xp_boost_until: record.xpBoostUntil || 0,
+    prestige: record.prestige || 0,
   };
 }
 
 export async function getUserXp(guildId, userId) {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('xp, level, last_xp_ts, last_content')
+    .select('xp, level, last_xp_ts, last_content, xp_boost_until, prestige')
     .eq('guild_id', guildId)
     .eq('user_id', userId)
     .maybeSingle();
@@ -70,7 +80,7 @@ export async function saveUserXp(guildId, userId, data) {
 export async function getGuildXp(guildId, { limit } = {}) {
   let query = supabase
     .from(TABLE)
-    .select('user_id, xp, level, last_xp_ts, last_content')
+    .select('user_id, xp, level, last_xp_ts, last_content, xp_boost_until, prestige')
     .eq('guild_id', guildId)
     .order('xp', { ascending: false });
 
@@ -187,7 +197,11 @@ export async function setXp(guildId, userId, amount) {
 //  - mensajes muy cortos (spam de "a"/"xd"/emojis sueltos)
 //  - el mismo contenido repetido de forma consecutiva (copy-paste en loop)
 //  - cooldown de 60s desde el último mensaje que SÍ dio XP
-export async function grantMessageXp(guildId, userId, content) {
+// "externalMultiplier" lo decide el CALLER (messageCreate.js, que sí conoce guild_config
+// — ej. el toggle de finde) — xpStore.js se mantiene sin depender de guild_config, ver el
+// comentario del archivo. El impulso comprado en la tienda (xp_boost_until) en cambio se
+// resuelve ACÁ porque es un dato propio de esta misma tabla, no de guild_config.
+export async function grantMessageXp(guildId, userId, content, externalMultiplier = 1) {
   const record = await getUserXp(guildId, userId);
   const now = Date.now();
   const trimmed = (content || '').trim();
@@ -196,8 +210,39 @@ export async function grantMessageXp(guildId, userId, content) {
   if (trimmed === record.lastContent) return null;
   if (now - record.lastXpTs < MESSAGE_XP_COOLDOWN_MS) return null;
 
-  const gained = Math.floor(Math.random() * (XP_MAX_PER_MESSAGE - XP_MIN_PER_MESSAGE + 1)) + XP_MIN_PER_MESSAGE;
+  const boostActive = record.xpBoostUntil > now;
+  const multiplier = (boostActive ? XP_BOOST_MULTIPLIER : 1) * externalMultiplier;
+  const base = Math.floor(Math.random() * (XP_MAX_PER_MESSAGE - XP_MIN_PER_MESSAGE + 1)) + XP_MIN_PER_MESSAGE;
+  const gained = Math.floor(base * multiplier);
   return addXp(guildId, userId, gained, { lastXpTs: now, lastContent: trimmed });
+}
+
+// Ítem de tienda type:'xp_boost' (ver buy.js) — extiende (no reemplaza) el impulso: si ya
+// tenía uno activo, la nueva compra se SUMA al tiempo restante en vez de desperdiciarlo.
+export async function extendXpBoost(guildId, userId, durationMs) {
+  const record = await getUserXp(guildId, userId);
+  const now = Date.now();
+  const newUntil = Math.max(record.xpBoostUntil, now) + durationMs;
+
+  const { error } = await supabase.from(TABLE).update({ xp_boost_until: newUntil }).eq('guild_id', guildId).eq('user_id', userId);
+  if (error) throw error;
+  return newUntil;
+}
+
+// /prestigio: resetea nivel y XP a 0 a cambio de una insignia permanente (⭐×N) — el
+// mínimo de nivel para poder hacerlo se valida en el comando, no acá (esta función solo
+// aplica el reset, no decide si el usuario tiene permitido pedirlo).
+export async function applyPrestige(guildId, userId) {
+  const record = await getUserXp(guildId, userId);
+  const newPrestige = record.prestige + 1;
+
+  const { error } = await supabase
+    .from(TABLE)
+    .update({ xp: 0, level: 0, prestige: newPrestige })
+    .eq('guild_id', guildId)
+    .eq('user_id', userId);
+  if (error) throw error;
+  return newPrestige;
 }
 
 // Posición (1-based) de un usuario en el ranking de XP del servidor, o null si nunca ganó XP.

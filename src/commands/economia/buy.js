@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { getGuildShopItems, getShopItem } from '../../utils/shopStore.js';
 import { getUserEconomy, deductBalanceIfSufficient, incrementInventoryItem, addBalance, recordTransaction } from '../../utils/economyStore.js';
+import { extendXpBoost } from '../../utils/xpStore.js';
 import { createShopPurchaseLogEmbed } from '../../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
@@ -8,6 +9,7 @@ import { withLock } from '../../utils/asyncLock.js';
 
 const MIN_MYSTERY = 50;
 const MAX_MYSTERY = 600;
+const XP_BOOST_DURATION_MS = 24 * 60 * 60 * 1000;
 
 export const data = new SlashCommandBuilder()
   .setName('buy')
@@ -100,6 +102,16 @@ export async function execute(interaction) {
 
       await interaction.editReply({
         content: `🎁 Abriste la caja misteriosa...\n${resultText}\nBalance actual: **${finalBalance.toLocaleString('es-ES')}**.`,
+      });
+      await announceUnlockedAchievements(interaction, userId, [firstPurchaseAchievement]);
+      return;
+    }
+
+    // --- Caso especial: impulso de XP (x2 por 24hs, se extiende si ya tenía uno activo) ---
+    if (item.type === 'xp_boost') {
+      const until = await extendXpBoost(guildId, userId, XP_BOOST_DURATION_MS);
+      await interaction.editReply({
+        content: `⚡ ¡Impulso de XP activado! Ganás el doble de XP hasta <t:${Math.floor(until / 1000)}:f>.\nBalance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`,
       });
       await announceUnlockedAchievements(interaction, userId, [firstPurchaseAchievement]);
       return;

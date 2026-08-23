@@ -11,6 +11,7 @@ async function handleAgregar(interaction) {
   const category = interaction.options.getString('categoria') || 'General';
   const role = interaction.options.getRole('rol');
   const manual = interaction.options.getBoolean('entrega_manual') ?? false;
+  const tipo = interaction.options.getString('tipo') || null;
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -23,6 +24,7 @@ async function handleAgregar(interaction) {
     price,
     roleId: role?.id || null,
     fulfillment: manual ? 'manual' : null,
+    type: tipo,
   });
 
   if (!itemId) {
@@ -70,7 +72,7 @@ function buildListarEmbed(items, page) {
     embed.addFields(
       slice.map((i) => ({
         name: i.name,
-        value: `${i.price.toLocaleString('es-ES')} monedas · \`${i.id}\`${i.roleId ? ` · rol <@&${i.roleId}>` : ''}${i.fulfillment === 'manual' ? ' · entrega manual' : ''}`,
+        value: `${i.price.toLocaleString('es-ES')} monedas · \`${i.id}\`${i.roleId ? ` · rol <@&${i.roleId}>` : ''}${i.fulfillment === 'manual' ? ' · entrega manual' : ''}${i.type === 'xp_boost' ? ' · ⚡ impulso de XP' : ''}${i.type === 'mystery_box' ? ' · 🎁 caja misteriosa' : ''}`,
       })),
     );
   }
@@ -153,7 +155,17 @@ export const data = new SlashCommandBuilder()
       .addStringOption((o) => o.setName('descripcion').setDescription('Descripción que se ve en /shop').setRequired(false).setMaxLength(200))
       .addStringOption((o) => o.setName('categoria').setDescription('Categoría para agrupar en /shop (default: General)').setRequired(false).setMaxLength(40))
       .addRoleOption((o) => o.setName('rol').setDescription('Si lo completás, el rol se asigna solo al comprarlo').setRequired(false))
-      .addBooleanOption((o) => o.setName('entrega_manual').setDescription('Si es true, el staff recibe un aviso para entregarlo a mano en vez de ser automático').setRequired(false)),
+      .addBooleanOption((o) => o.setName('entrega_manual').setDescription('Si es true, el staff recibe un aviso para entregarlo a mano en vez de ser automático').setRequired(false))
+      .addStringOption((o) =>
+        o
+          .setName('tipo')
+          .setDescription('Comportamiento especial al comprarlo (dejalo vacío para un ítem normal)')
+          .setRequired(false)
+          .addChoices(
+            { name: 'Impulso de XP (x2 por 24hs)', value: 'xp_boost' },
+            { name: 'Caja misteriosa (monedas al azar)', value: 'mystery_box' },
+          ),
+      ),
   )
   .addSubcommand((sub) =>
     sub

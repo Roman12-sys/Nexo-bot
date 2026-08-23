@@ -8,6 +8,19 @@ import { getGuildLogChannel } from './guildLogChannels.js';
 import { createLevelUpLogEmbed, createLevelRoleAssignedLogEmbed, createLevelRoleErrorLogEmbed } from './logEmbeds.js';
 import { unlockAchievement, buildAchievementUnlockedEmbed } from './achievements.js';
 
+// Multiplicador de XP a nivel de servidor (guild_config.xp_weekend_boost) — vive acá y no
+// en xpStore.js porque xpStore.js se mantiene deliberadamente sin depender de
+// guild_config (ver su propio comentario de archivo). sábado/domingo en UTC, no en hora
+// local del server de Discord (no hay forma de saber la zona horaria de una comunidad).
+export function isWeekendUTC() {
+  const day = new Date().getUTCDay();
+  return day === 0 || day === 6;
+}
+
+export function getGuildXpMultiplier(cfg) {
+  return cfg.xp_weekend_boost && isWeekendUTC() ? 2 : 1;
+}
+
 const LEVEL_ACHIEVEMENTS = [
   { level: 5, id: 'nivel_5' },
   { level: 10, id: 'nivel_10' },

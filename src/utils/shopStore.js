@@ -17,6 +17,7 @@ function rowToItem(row) {
     price: row.price,
     roleId: row.role_id || null,
     fulfillment: row.fulfillment || undefined,
+    type: row.type || undefined,
   };
 }
 
@@ -44,7 +45,7 @@ export async function hasCustomShopItems(guildId) {
 export async function getGuildShopItems(guildId) {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('item_id, name, description, category, price, role_id, fulfillment')
+    .select('item_id, name, description, category, price, role_id, fulfillment, type')
     .eq('guild_id', guildId)
     .order('created_at', { ascending: true });
 
@@ -73,6 +74,7 @@ export async function addShopItem(guildId, item) {
     price: item.price,
     role_id: item.roleId || null,
     fulfillment: item.fulfillment || null,
+    type: item.type || null,
   });
 
   if (error) {

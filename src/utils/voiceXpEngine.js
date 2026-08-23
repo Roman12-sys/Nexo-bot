@@ -4,8 +4,8 @@
 // trackear join/leave exactos por usuario, a costa de granularidad (si alguien entra y
 // sale antes del próximo tick, no suma nada) — trade-off aceptable para esto.
 import { getGuildConfig } from './guildConfigStore.js';
-import { addXp } from './xpStore.js';
-import { processLevelUp } from './xpEngine.js';
+import { addXp, getUserXp, XP_BOOST_MULTIPLIER } from './xpStore.js';
+import { processLevelUp, getGuildXpMultiplier } from './xpEngine.js';
 
 const TICK_MS = 5 * 60 * 1000; // 5 minutos
 const XP_MIN = 10;
@@ -32,13 +32,22 @@ async function grantVoiceXpTick(client) {
       const humanMembers = [...channel.members.values()].filter((m) => !m.user.bot);
       if (humanMembers.length < MIN_HUMANS_IN_CHANNEL) continue;
 
+      const externalMultiplier = getGuildXpMultiplier(cfg);
+
       for (const member of humanMembers) {
         // Ensordecido (por sí mismo o por el server) = no está participando de
         // verdad, no debería sumar lo mismo que alguien activo en la conversación.
         if (member.voice.deaf || member.voice.selfDeaf) continue;
 
-        const amount = Math.floor(Math.random() * (XP_MAX - XP_MIN + 1)) + XP_MIN;
+        const base = Math.floor(Math.random() * (XP_MAX - XP_MIN + 1)) + XP_MIN;
         try {
+          // Mismo impulso que grantMessageXp (item de tienda type:'xp_boost') — se
+          // resuelve acá y no en xpStore.js por el mismo motivo que el multiplicador de
+          // finde: requiere leer el registro de XP antes de decidir el monto a sumar.
+          const xpRecord = await getUserXp(guild.id, member.id);
+          const boostActive = xpRecord.xpBoostUntil > Date.now();
+          const amount = Math.floor(base * (boostActive ? XP_BOOST_MULTIPLIER : 1) * externalMultiplier);
+
           const result = await addXp(guild.id, member.id, amount);
           if (result.leveledUp) {
             await processLevelUp(

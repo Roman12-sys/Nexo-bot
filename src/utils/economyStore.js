@@ -8,11 +8,19 @@ const TRANSACTIONS_TABLE = 'economy_transactions';
 
 // La tabla usa snake_case; el resto del bot sigue trabajando con camelCase.
 function rowToRecord(row) {
-  if (!row) return { balance: 0, lastDaily: 0, lastWork: 0, inventory: {} };
+  if (!row) return { balance: 0, lastDaily: 0, lastWork: 0, dailyStreak: 0, bank: 0, lastInterestTs: 0, lastRob: 0, lastRobbed: 0, inventory: {} };
   return {
     balance: row.balance,
     lastDaily: row.last_daily,
     lastWork: row.last_work,
+    // Filas viejas (creadas antes de agregar estas columnas) no las tienen todavía en el
+    // objeto que devuelve Supabase si la migración correspondiente no corrió — 0 es "sin
+    // banco/racha/robo todavía".
+    dailyStreak: row.daily_streak || 0,
+    bank: row.bank || 0,
+    lastInterestTs: row.last_interest_ts || 0,
+    lastRob: row.last_rob || 0,
+    lastRobbed: row.last_robbed || 0,
     // inventory viene como jsonb; por las dudas (fila vieja sin este campo) se
     // rellena vacío, mismo fallback que tenía getUserEconomy() con el JSON.
     inventory: row.inventory || {},
@@ -26,6 +34,11 @@ function recordToRow(guildId, userId, record) {
     balance: record.balance,
     last_daily: record.lastDaily,
     last_work: record.lastWork,
+    daily_streak: record.dailyStreak || 0,
+    bank: record.bank || 0,
+    last_interest_ts: record.lastInterestTs || 0,
+    last_rob: record.lastRob || 0,
+    last_robbed: record.lastRobbed || 0,
     inventory: record.inventory || {},
   };
 }
@@ -36,7 +49,7 @@ function recordToRow(guildId, userId, record) {
 export async function getUserEconomy(guildId, userId) {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('balance, last_daily, last_work, inventory')
+    .select('balance, last_daily, last_work, daily_streak, bank, last_interest_ts, last_rob, last_robbed, inventory')
     .eq('guild_id', guildId)
     .eq('user_id', userId)
     .maybeSingle();
@@ -89,6 +102,132 @@ export async function setCooldown(guildId, userId, field, timestamp) {
     .eq('user_id', userId);
 
   if (error) throw error;
+}
+
+// Igual que setCooldown pero para /daily puntualmente, que además de mover el cooldown
+// necesita guardar la racha calculada (daily.js decide el número, esto solo lo persiste)
+// — una sola escritura de 2 columnas en vez de 2 llamadas separadas.
+export async function setDailyClaim(guildId, userId, { timestamp, streak }) {
+  const { error } = await supabase
+    .from(TABLE)
+    .update({ last_daily: timestamp, daily_streak: streak })
+    .eq('guild_id', guildId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+}
+
+// --- Banco: guarda plata "a salvo" (fuera de /rob), a cambio de un interés chico ---
+// Depósito/retiro son transacciones atómicas (RPCs deposit_to_bank/withdraw_from_bank)
+// por el mismo motivo que transfer_balance: mover plata entre dos columnas de la MISMA
+// fila también necesita ser una sola sentencia, si no dos depósitos casi simultáneos
+// del mismo usuario podrían leer el balance "viejo" y perder uno de los dos movimientos.
+export async function depositToBank(guildId, userId, amount) {
+  const { data, error } = await supabase.rpc('deposit_to_bank', {
+    p_guild_id: guildId,
+    p_user_id: userId,
+    p_amount: amount,
+  });
+  if (error) {
+    if (error.message?.includes('insufficient_funds')) {
+      const insufficientError = new Error('insufficient_funds');
+      insufficientError.code = 'insufficient_funds';
+      throw insufficientError;
+    }
+    throw error;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  await recordTransaction(guildId, userId, { type: 'bank_deposit', amount: -amount, balanceAfter: row.wallet, reason: 'Depósito al banco' });
+  return { wallet: row.wallet, bank: row.bank };
+}
+
+export async function withdrawFromBank(guildId, userId, amount) {
+  const { data, error } = await supabase.rpc('withdraw_from_bank', {
+    p_guild_id: guildId,
+    p_user_id: userId,
+    p_amount: amount,
+  });
+  if (error) {
+    if (error.message?.includes('insufficient_funds')) {
+      const insufficientError = new Error('insufficient_funds');
+      insufficientError.code = 'insufficient_funds';
+      throw insufficientError;
+    }
+    throw error;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  await recordTransaction(guildId, userId, { type: 'bank_withdraw', amount, balanceAfter: row.wallet, reason: 'Retiro del banco' });
+  return { wallet: row.wallet, bank: row.bank };
+}
+
+// Interés simple (no compuesto), aplicado solo cuando el usuario mira /bank — no hay
+// cron: se calcula acá con el tiempo transcurrido desde la última vez, tope de
+// INTEREST_CAP_DAYS para que dejar la cuenta "olvidada" un año no genere un pago gigante
+// de una sola vez. lastInterestTs === 0 (nunca se calculó) no paga nada la primera vez,
+// solo arranca a contar desde ahí — mismo criterio que lastDaily === 0 en /daily.
+const INTEREST_RATE_PER_DAY = 0.02;
+const INTEREST_CAP_DAYS = 14;
+
+export async function collectBankInterest(guildId, userId) {
+  const record = await getUserEconomy(guildId, userId);
+  const now = Date.now();
+
+  if (record.lastInterestTs === 0 || record.bank === 0) {
+    if (record.lastInterestTs === 0) {
+      const { error: initError } = await supabase.from(TABLE).update({ last_interest_ts: now }).eq('guild_id', guildId).eq('user_id', userId);
+      if (initError) throw initError;
+    }
+    return { interest: 0, bank: record.bank };
+  }
+
+  const daysElapsed = Math.min((now - record.lastInterestTs) / (24 * 60 * 60 * 1000), INTEREST_CAP_DAYS);
+  const interest = Math.floor(record.bank * INTEREST_RATE_PER_DAY * daysElapsed);
+
+  if (interest <= 0) return { interest: 0, bank: record.bank };
+
+  const newBank = record.bank + interest;
+  const { error } = await supabase
+    .from(TABLE)
+    .update({ bank: newBank, last_interest_ts: now })
+    .eq('guild_id', guildId)
+    .eq('user_id', userId);
+  if (error) throw error;
+
+  await recordTransaction(guildId, userId, { type: 'bank_interest', amount: interest, balanceAfter: record.balance, reason: `Interés (${daysElapsed.toFixed(1)} día(s))` });
+  return { interest, bank: newBank };
+}
+
+// --- /rob: robar del wallet (nunca del banco) de otro usuario ---
+// El % a robar y el tope se calculan DENTRO de la transacción atómica (RPC rob_wallet)
+// sobre el balance real de la víctima en ese instante — así no hay ventana entre "leer
+// cuánto tiene" y "robarle" donde el monto calculado quede desactualizado.
+export async function robWallet(guildId, robberId, victimId, percent, maxAmount) {
+  const { data, error } = await supabase.rpc('rob_wallet', {
+    p_guild_id: guildId,
+    p_robber_id: robberId,
+    p_victim_id: victimId,
+    p_percent: percent,
+    p_max_amount: maxAmount,
+  });
+  if (error) {
+    if (error.message?.includes('nothing_to_steal')) {
+      const nothingError = new Error('nothing_to_steal');
+      nothingError.code = 'nothing_to_steal';
+      throw nothingError;
+    }
+    throw error;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  return { stolen: row.stolen, robberBalance: row.robber_balance, victimBalance: row.victim_balance };
+}
+
+export async function setRobCooldowns(guildId, { robberId, robberTimestamp, victimId, victimTimestamp }) {
+  const [robberResult, victimResult] = await Promise.all([
+    supabase.from(TABLE).update({ last_rob: robberTimestamp }).eq('guild_id', guildId).eq('user_id', robberId),
+    supabase.from(TABLE).update({ last_robbed: victimTimestamp }).eq('guild_id', guildId).eq('user_id', victimId),
+  ]);
+  if (robberResult.error) throw robberResult.error;
+  if (victimResult.error) throw victimResult.error;
 }
 
 // Fija el balance de un usuario a un valor exacto (a diferencia de addBalance, que suma/resta).
@@ -182,7 +321,7 @@ export async function transferBalance(guildId, senderId, receiverId, amount) {
 export async function getGuildEconomy(guildId, { limit } = {}) {
   let query = supabase
     .from(TABLE)
-    .select('user_id, balance, last_daily, last_work, inventory')
+    .select('user_id, balance, last_daily, last_work, daily_streak, inventory')
     .eq('guild_id', guildId)
     .order('balance', { ascending: false });
 

@@ -19,7 +19,7 @@ export async function execute(interaction) {
     .setTitle(`💰 Balance de ${targetUser.tag}`)
     .setDescription(`**${economy.balance.toLocaleString('es-ES')}** monedas`)
     .setThumbnail(targetUser.displayAvatarURL())
-    .setFooter({ text: BRAND_NAME })
+    .setFooter({ text: economy.bank > 0 ? `${BRAND_NAME} • + ${economy.bank.toLocaleString('es-ES')} en el banco (usá /bank ver)` : BRAND_NAME })
     .setTimestamp();
 
   await interaction.editReply({ embeds: [embed] });

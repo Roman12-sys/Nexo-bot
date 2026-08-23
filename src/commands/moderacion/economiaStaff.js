@@ -22,6 +22,14 @@ const TYPE_LABELS = {
   admin_add: '➕ Staff agregó',
   admin_remove: '➖ Staff quitó',
   admin_set: '🛠️ Staff estableció',
+  gamble_bet: '🎲 Apuesta (coinflip)',
+  gamble_win: '🎉 Premio (coinflip)',
+  bank_deposit: '🏦 Depósito al banco',
+  bank_withdraw: '🏦 Retiro del banco',
+  bank_interest: '💰 Interés del banco',
+  rob_win: '🥷 Robo exitoso',
+  rob_loss: '💸 Te robaron',
+  rob_fine: '🚨 Multa por robo',
 };
 
 // Se llama SIEMPRE después de que el ajuste de balance ya se aplicó y ya se le confirmó

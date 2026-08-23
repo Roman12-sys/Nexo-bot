@@ -54,7 +54,11 @@ async function buildPerfilEmbed(guild, targetUser, member) {
     .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
     .setTitle(`👤 Perfil de ${BRAND_NAME}`)
     .addFields(
-      { name: '⭐ Nivel', value: `${progress.level}${rank ? ` · #${rank} del ranking` : ' · sin ranking todavía'}`, inline: true },
+      {
+        name: '⭐ Nivel',
+        value: `${progress.level}${xp.prestige > 0 ? ` ⭐×${xp.prestige}` : ''}${rank ? ` · #${rank} del ranking` : ' · sin ranking todavía'}`,
+        inline: true,
+      },
       {
         name: '✨ XP',
         value: `${progress.currentLevelXp.toLocaleString('es-ES')} / ${progress.xpForNextLevel.toLocaleString('es-ES')}`,
@@ -68,7 +72,7 @@ async function buildPerfilEmbed(guild, targetUser, member) {
       {
         name: '⏳ Al día',
         value: [
-          cooldownLine('/daily', economy.lastDaily, DAILY_COOLDOWN_MS),
+          cooldownLine('/daily', economy.lastDaily, DAILY_COOLDOWN_MS) + (economy.dailyStreak > 1 ? ` (🔥${economy.dailyStreak})` : ''),
           cooldownLine('/work', economy.lastWork, WORK_COOLDOWN_MS),
           triviaStatus.allowed ? '/trivia: ✅ Disponible' : `/trivia: <t:${Math.floor(triviaStatus.resetAt / 1000)}:R>`,
         ].join(' · '),

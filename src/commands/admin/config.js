@@ -91,6 +91,24 @@ export const data = new SlashCommandBuilder()
       .setDescription('Le devuelve a un usuario el acceso a /confession.')
       .addUserOption((o) => o.setName('usuario').setDescription('Usuario a desbloquear').setRequired(true)),
   )
+  .addSubcommand((sub) =>
+    sub
+      .setName('xp-finde-boost')
+      .setDescription('Si está activo, sábado y domingo se gana el doble de XP por mensaje y por voz.')
+      .addBooleanOption((o) => o.setName('activo').setDescription('Activar o desactivar el impulso de finde').setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('xp-canal-ignorar')
+      .setDescription('Ese canal deja de dar XP por mensajes (ej. un canal de bots o de spam).')
+      .addChannelOption((o) => o.setName('canal').setDescription('Canal a ignorar').setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('xp-canal-permitir')
+      .setDescription('Ese canal vuelve a dar XP por mensajes normalmente.')
+      .addChannelOption((o) => o.setName('canal').setDescription('Canal a permitir de nuevo').setRequired(true)),
+  )
   .addSubcommand((sub) => sub.setName('ver').setDescription('Muestra la configuración actual de estos campos.'))
   .addSubcommand((sub) => sub.setName('exportar').setDescription('Descarga la configuración actual como JSON (respaldo, o para clonarla a otro servidor).'))
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
@@ -208,6 +226,36 @@ export async function execute(interaction) {
     return;
   }
 
+  if (sub === 'xp-finde-boost') {
+    const activo = interaction.options.getBoolean('activo');
+    await setGuildConfig(guildId, { xp_weekend_boost: activo });
+    await interaction.reply({ content: activo ? '✅ Sábado y domingo ahora dan el doble de XP.' : '✅ Impulso de finde desactivado.', flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `🎉 Impulso de XP de finde → ${activo ? 'activado' : 'desactivado'}`);
+    return;
+  }
+
+  if (sub === 'xp-canal-ignorar') {
+    const canal = interaction.options.getChannel('canal');
+    const cfg = await getGuildConfig(guildId);
+    const ignored = new Set(cfg.xp_ignored_channel_ids || []);
+    ignored.add(canal.id);
+    await setGuildConfig(guildId, { xp_ignored_channel_ids: [...ignored] });
+    await interaction.reply({ content: `✅ ${canal} ya no da XP por mensajes.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `🔇 ${canal} agregado a canales sin XP`);
+    return;
+  }
+
+  if (sub === 'xp-canal-permitir') {
+    const canal = interaction.options.getChannel('canal');
+    const cfg = await getGuildConfig(guildId);
+    const ignored = new Set(cfg.xp_ignored_channel_ids || []);
+    ignored.delete(canal.id);
+    await setGuildConfig(guildId, { xp_ignored_channel_ids: [...ignored] });
+    await interaction.reply({ content: `✅ ${canal} vuelve a dar XP por mensajes.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `🔊 ${canal} quitado de canales sin XP`);
+    return;
+  }
+
   if (sub === 'ver') {
     await interaction.reply({ embeds: [await buildConfigSummaryEmbed(guildId)], flags: MessageFlags.Ephemeral });
     return;
@@ -252,7 +300,8 @@ export async function buildConfigSummaryEmbed(guildId) {
       { name: '🧩 XP', value: toggle(features.xp), inline: true },
       { name: '✨ Roles de nivel', value: levelRolesCount > 0 ? `${levelRolesCount} configurado(s) (modo: ${cfg.level_roles_mode})` : '— sin configurar', inline: true },
       { name: '📣 Anuncio de nivel', value: channel(cfg.xp_announce_channel_id), inline: true },
-      { name: '​', value: '​', inline: true },
+      { name: '🔇 Canales sin XP', value: `${(cfg.xp_ignored_channel_ids || []).length}`, inline: true },
+      { name: '🎉 Impulso de XP de finde', value: toggle(cfg.xp_weekend_boost), inline: true },
       { name: '🚫 Rol de castigo', value: role(cfg.punish_role_id), inline: true },
       { name: '🎫 Rol automático', value: role(cfg.auto_role_id), inline: true },
       { name: '🎉 Canal de bienvenida', value: channel(cfg.welcome_channel_id), inline: true },

@@ -87,7 +87,7 @@ create table if not exists economy_transactions (
   id bigint generated always as identity primary key,
   guild_id text not null,
   user_id text not null,
-  type text not null, -- 'daily' | 'work' | 'trivia' | 'guess' | 'purchase' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set'
+  type text not null, -- 'daily' | 'work' | 'trivia' | 'guess' | 'purchase' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set' | 'gamble_bet' | 'gamble_win' | 'bank_deposit' | 'bank_withdraw' | 'bank_interest' | 'rob_win' | 'rob_loss' | 'rob_fine'
   amount bigint not null,
   balance_after bigint not null,
   actor_id text,

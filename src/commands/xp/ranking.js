@@ -25,7 +25,8 @@ export async function buildRankingEmbed(guildId, page) {
     const lines = slice.map((data, i) => {
       const globalIndex = clampedPage * PAGE_SIZE + i;
       const medal = MEDALS[globalIndex] || `${globalIndex + 1}.`;
-      return `${medal} <@${data.userId}> — Nivel **${data.level}** — **${data.xp.toLocaleString('es-ES')}** XP`;
+      const prestigeTag = data.prestige > 0 ? ` ⭐×${data.prestige}` : '';
+      return `${medal} <@${data.userId}> — Nivel **${data.level}**${prestigeTag} — **${data.xp.toLocaleString('es-ES')}** XP`;
     });
     embed.setDescription(lines.join('\n'));
   }

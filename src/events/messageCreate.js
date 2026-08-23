@@ -1,6 +1,6 @@
 import { Events } from 'discord.js';
 import { grantMessageXp } from '../utils/xpStore.js';
-import { processLevelUp } from '../utils/xpEngine.js';
+import { processLevelUp, getGuildXpMultiplier } from '../utils/xpEngine.js';
 import { getGuildConfig } from '../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { detectSecret } from '../utils/secretDetector.js';
@@ -104,8 +104,9 @@ export async function execute(message, client) {
 
     // --- PARTE 3: XP por actividad ---
 
-    if (cfg.features?.xp && member) {
-      const result = await grantMessageXp(message.guild.id, message.author.id, message.content);
+    const xpIgnoredChannel = (cfg.xp_ignored_channel_ids || []).includes(message.channel.id);
+    if (cfg.features?.xp && member && !xpIgnoredChannel) {
+      const result = await grantMessageXp(message.guild.id, message.author.id, message.content, getGuildXpMultiplier(cfg));
       if (result?.leveledUp) {
         await processLevelUp(
           member,

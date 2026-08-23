@@ -127,8 +127,8 @@ export function buildEconomiaEmbed() {
       { name: '/economia-staff establecer <usuario> <cantidad> [motivo]', value: 'Fija un balance exacto.' },
       { name: '/economia-staff historial <usuario> [cantidad]', value: 'Últimos movimientos: tipo, monto, balance resultante, quién lo causó y motivo.' },
       { name: '/economia-staff perfil <usuario>', value: 'Balance + cooldowns de /daily y /work + inventario, todo junto.' },
-      { name: '/economia-staff pendientes', value: 'Últimas compras de ítems de entrega manual (cambio de apodo, etc.) — para no perderlas de vista en el log.' },
-      { name: '/shop-admin agregar/quitar/listar', value: 'Arma el catálogo de /shop propio de este servidor (nombre, precio, rol opcional, entrega manual o automática).' },
+      { name: '/economia-staff pendientes', value: 'Compras pendientes de ítems de entrega manual (cambio de apodo, etc.) — se pueden marcar como entregadas desde el mismo panel.' },
+      { name: '/shop-admin agregar/editar/quitar/listar', value: 'Arma el catálogo de /shop propio de este servidor. "editar" corrige un ítem sin romper el inventario de quien ya lo compró. "agregar" admite un tipo especial (impulso de XP o caja misteriosa) además del ítem normal.' },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();

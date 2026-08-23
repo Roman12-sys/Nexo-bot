@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
-import { getUserEconomy, addBalance, setCooldown } from '../../utils/economyStore.js';
+import { getUserEconomy, addBalance, setDailyClaim } from '../../utils/economyStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
@@ -7,6 +7,12 @@ import { unlockAchievement, announceUnlockedAchievements } from '../../utils/ach
 export const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MIN_REWARD = 100;
 const MAX_REWARD = 300;
+// Bonus por racha: +10 monedas por día consecutivo, tope en el día 31 (+300) para que
+// no crezca sin límite. La racha se corta si pasan más de 48hs desde el último /daily
+// (24hs de cooldown + 24hs de margen — un día de gracia antes de perderla del todo).
+const STREAK_BONUS_PER_DAY = 10;
+const STREAK_BONUS_CAP_DAYS = 30;
+const STREAK_GRACE_MS = COOLDOWN_MS * 2;
 
 export const data = new SlashCommandBuilder()
   .setName('daily')
@@ -44,12 +50,21 @@ export async function execute(interaction) {
     }
 
     const isFirstDaily = economy.lastDaily === 0;
-    const reward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
+    // Sigue la racha si el /daily anterior fue hace menos de 48hs (adentro de la ventana
+    // de gracia); si pasó más tiempo que eso, se perdió y arranca de nuevo en 1.
+    const continuesStreak = !isFirstDaily && elapsed < STREAK_GRACE_MS;
+    const streak = isFirstDaily ? 1 : continuesStreak ? economy.dailyStreak + 1 : 1;
+    const streakBonus = Math.min(streak - 1, STREAK_BONUS_CAP_DAYS) * STREAK_BONUS_PER_DAY;
+    const baseReward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
+    const reward = baseReward + streakBonus;
 
-    const newBalance = await addBalance(guildId, userId, reward, { type: 'daily' });
-    await setCooldown(guildId, userId, 'daily', now);
+    const newBalance = await addBalance(guildId, userId, reward, {
+      type: 'daily',
+      reason: streakBonus > 0 ? `Racha de ${streak} días (+${streakBonus} bonus)` : undefined,
+    });
+    await setDailyClaim(guildId, userId, { timestamp: now, streak });
 
-    return { onCooldown: false, reward, newBalance, isFirstDaily };
+    return { onCooldown: false, reward, streak, streakBonus, newBalance, isFirstDaily };
   });
 
   if (result.onCooldown) {
@@ -60,11 +75,12 @@ export async function execute(interaction) {
     return;
   }
 
-  const { reward, newBalance, isFirstDaily } = result;
+  const { reward, streak, streakBonus, newBalance, isFirstDaily } = result;
+  const streakLine = streak > 1 ? `\n🔥 Racha: **${streak}** días seguidos (+${streakBonus} de bonus)` : '';
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🎁 Recompensa diaria')
-    .setDescription(`Recibiste **${reward.toLocaleString('es-ES')}** monedas.\nTu nuevo balance: **${newBalance.toLocaleString('es-ES')}**.`)
+    .setDescription(`Recibiste **${reward.toLocaleString('es-ES')}** monedas.${streakLine}\nTu nuevo balance: **${newBalance.toLocaleString('es-ES')}**.`)
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 
