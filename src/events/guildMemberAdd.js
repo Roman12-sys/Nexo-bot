@@ -5,6 +5,7 @@ import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { getGuildConfig } from '../utils/guildConfigStore.js';
 import { buildWelcomeImageAttachment } from '../utils/welcomeImage.js';
 import { BRAND_COLOR } from '../utils/embeds.js';
+import { checkMemberCountAchievements } from '../utils/guildAchievements.js';
 
 export const name = Events.GuildMemberAdd;
 export const once = false;
@@ -60,6 +61,10 @@ export async function execute(member, client) {
   const cfg = await getGuildConfig(member.guild.id);
 
   await assignAutoRole(member, cfg.auto_role_id);
+
+  checkMemberCountAchievements(client, member.guild.id, member.guild.memberCount).catch((error) =>
+    console.error('❌ Error chequeando logros de servidor (miembros):', error),
+  );
 
   if (!cfg.welcome_channel_id) return;
 

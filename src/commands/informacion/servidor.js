@@ -1,5 +1,7 @@
-import { SlashCommandBuilder, EmbedBuilder, ChannelType, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ChannelType, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { getUnlockedGuildAchievementIds, buildGuildLogrosEmbed } from '../../utils/guildAchievements.js';
+import { registerButtonPrefix } from '../../components/buttons.js';
 
 export function buildServerEmbed(guild) {
   const createdTimestamp = Math.floor(guild.createdTimestamp / 1000);
@@ -22,6 +24,12 @@ export function buildServerEmbed(guild) {
     .setTimestamp();
 }
 
+export function buildServerRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('servidor_logros').setLabel('🏆 Logros del servidor').setStyle(ButtonStyle.Secondary),
+  );
+}
+
 export const data = new SlashCommandBuilder()
   .setName('servidor')
   .setDescription('Muestra información general sobre este servidor.')
@@ -30,7 +38,7 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction) {
   try {
     const embed = buildServerEmbed(interaction.guild);
-    await interaction.reply({ embeds: [embed] });
+    await interaction.reply({ embeds: [embed], components: [buildServerRow()] });
   } catch (error) {
     console.error('❌ Error al ejecutar /servidor:', error);
     const errorMsg = { content: '❌ Ocurrió un error al obtener la información del servidor.', flags: MessageFlags.Ephemeral };
@@ -41,3 +49,8 @@ export async function execute(interaction) {
     }
   }
 }
+
+registerButtonPrefix('servidor_logros', async (i) => {
+  const unlockedIds = await getUnlockedGuildAchievementIds(i.guildId);
+  await i.reply({ embeds: [buildGuildLogrosEmbed(i.guild, unlockedIds)], flags: MessageFlags.Ephemeral });
+});

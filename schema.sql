@@ -205,6 +205,17 @@ create table if not exists achievements_unlocked (
 );
 
 -- =========================================================
+-- Logros de servidor (colectivos) — mismo patrón que achievements_unlocked pero sin
+-- user_id: se desbloquean una sola vez para todo el servidor, no por miembro.
+-- =========================================================
+create table if not exists guild_achievements_unlocked (
+  guild_id text not null,
+  achievement_id text not null,
+  unlocked_at timestamptz not null default now(),
+  primary key (guild_id, achievement_id)
+);
+
+-- =========================================================
 -- Recordatorios (/recordatorio) — se entregan por DM, guild_id es solo referencia
 -- de desde dónde se creó, no acota la entrega.
 -- =========================================================

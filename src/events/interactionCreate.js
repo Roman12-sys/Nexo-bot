@@ -2,10 +2,25 @@ import { routeButton } from '../components/buttons.js';
 import { routeModal } from '../components/modals.js';
 import { routeSelect } from '../components/selects.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
-import { trackCommandUsage } from '../utils/commandUsageStore.js';
+import { trackCommandUsage, getTotalUsage } from '../utils/commandUsageStore.js';
+import { checkCommandUsageAchievements } from '../utils/guildAchievements.js';
 
 export const name = 'interactionCreate';
 export const once = false;
+
+// Fire-and-forget desde el dispatch de comandos: incrementa la métrica de uso y, con el
+// total ya actualizado, chequea si el servidor cruzó algún umbral de logro colectivo.
+// Nunca debe tirar ni demorar la respuesta real del comando.
+async function trackUsageAndCheckAchievements(guildId, commandName, client) {
+  try {
+    await trackCommandUsage(guildId, commandName);
+    if (!guildId) return;
+    const total = await getTotalUsage(guildId);
+    await checkCommandUsageAchievements(client, guildId, total);
+  } catch (error) {
+    console.error('❌ Error registrando uso de comando / logros de servidor:', error);
+  }
+}
 
 export async function execute(interaction, client) {
   // El autocomplete queda afuera a propósito: tipear en un campo con autocompletado
@@ -37,7 +52,7 @@ export async function execute(interaction, client) {
     if (!command) return;
     try {
       await command.execute(interaction, client);
-      trackCommandUsage(interaction.guildId, interaction.commandName);
+      trackUsageAndCheckAchievements(interaction.guildId, interaction.commandName, client);
     } catch (error) {
       console.error(`Error ejecutando /${interaction.commandName}:`, error);
       const payload = { content: 'Hubo un error ejecutando este comando.', ephemeral: true };

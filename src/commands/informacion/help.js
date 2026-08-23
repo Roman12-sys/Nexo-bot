@@ -2,7 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, But
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { buildInfoEmbed as buildUserInfoEmbed } from './info.js';
-import { buildServerEmbed } from './servidor.js';
+import { buildServerEmbed, buildServerRow } from './servidor.js';
 import { buildAvatarEmbed } from './avatar.js';
 
 export function getHelpButtonsRow() {
@@ -113,7 +113,7 @@ registerButtonPrefix('help_info', async (i) => {
   await i.reply({ embeds: [embed] });
 });
 registerButtonPrefix('help_servidor', async (i) => {
-  await i.reply({ embeds: [buildServerEmbed(i.guild)] });
+  await i.reply({ embeds: [buildServerEmbed(i.guild)], components: [buildServerRow()] });
 });
 registerButtonPrefix('help_avatar', async (i) => {
   const embed = await buildAvatarEmbed(i.guild, i.user);
