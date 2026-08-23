@@ -1,11 +1,21 @@
 import { routeButton } from '../components/buttons.js';
 import { routeModal } from '../components/modals.js';
 import { routeSelect } from '../components/selects.js';
+import { checkRateLimit } from '../utils/rateLimiter.js';
 
 export const name = 'interactionCreate';
 export const once = false;
 
 export async function execute(interaction, client) {
+  // El autocomplete queda afuera a propósito: tipear en un campo con autocompletado
+  // dispara una interacción por cada tecla — contarlo contra el mismo límite rompería
+  // la búsqueda-mientras-escribís de /buy y /shop-admin quitar en cualquier uso normal.
+  if (!interaction.isAutocomplete() && !checkRateLimit(interaction.user.id)) {
+    const payload = { content: '⏳ Estás usando comandos muy rápido. Esperá unos segundos y probá de nuevo.', ephemeral: true };
+    await interaction.reply(payload).catch(() => {});
+    return;
+  }
+
   if (interaction.isAutocomplete()) {
     const command = client.commands.get(interaction.commandName);
     if (!command?.autocomplete) return;
