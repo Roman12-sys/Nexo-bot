@@ -2,6 +2,8 @@ import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.
 import { createBulkDeleteLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, isStaffConfigured } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { buildConfirmation } from '../../utils/confirmations.js';
+import { describeError } from '../../utils/errorMessages.js';
 
 export async function runClear(interaction, cantidad) {
   if (!(await isStaffConfigured(interaction.guildId))) {
@@ -26,8 +28,26 @@ export async function runClear(interaction, cantidad) {
     return;
   }
 
+  const confirmation = buildConfirmation({
+    userId: interaction.user.id,
+    guildId: interaction.guildId,
+    description: `Vas a eliminar **${cantidad}** mensaje(s) del canal ${channel}.`,
+    run: (i) => confirmClear(i, channel, cantidad),
+  });
+  await interaction.reply({ ...confirmation, flags: MessageFlags.Ephemeral });
+}
+
+// Corre recién cuando el staff confirma. Revalida permisos por si cambiaron en la
+// ventana de confirmación — el canal y la cantidad no hace falta revalidarlos (no hay
+// jerarquía ni "bannable" involucrado, solo permiso de Gestionar mensajes).
+async function confirmClear(interaction, channel, cantidad) {
+  await interaction.update({ content: '⏳ Eliminando...', embeds: [], components: [] });
+
   try {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!(await isStaff(interaction))) {
+      await interaction.editReply({ content: '❌ Ya no tenés permisos para esta acción.' });
+      return;
+    }
 
     const deleted = await channel.bulkDelete(cantidad, true);
     const omitidos = cantidad - deleted.size;
@@ -54,13 +74,8 @@ export async function runClear(interaction, cantidad) {
       console.error('⚠️ No se pudo registrar el uso de /clear en el canal de logs:', logError);
     }
   } catch (error) {
-    console.error('❌ Error al ejecutar /clear:', error);
-    const errorMsg = { content: '❌ Ocurrió un error al intentar eliminar los mensajes.', flags: MessageFlags.Ephemeral };
-    if (interaction.deferred) {
-      await interaction.editReply(errorMsg);
-    } else {
-      await interaction.reply(errorMsg);
-    }
+    console.error('❌ Error al confirmar /clear:', error);
+    await interaction.editReply({ content: describeError(error, '❌ Ocurrió un error al intentar eliminar los mensajes.') }).catch(() => {});
   }
 }
 
