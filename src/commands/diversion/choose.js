@@ -7,6 +7,9 @@ export const data = new SlashCommandBuilder()
   .addStringOption((o) => o.setName('opciones').setDescription('Separá las opciones con comas. Ej: pizza, sushi, milanesa').setRequired(true))
   .setDMPermission(false);
 
+// Sin costo real — comparte el cupo de rate limit más laxo de los comandos livianos.
+export const rateLimitCategory = 'light';
+
 export async function execute(interaction) {
   const raw = interaction.options.getString('opciones');
   const opciones = raw.split(',').map((o) => o.trim()).filter((o) => o.length > 0);

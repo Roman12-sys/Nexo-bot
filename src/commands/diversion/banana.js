@@ -14,6 +14,9 @@ export const data = new SlashCommandBuilder()
   .setDescription('Comando sin ningún sentido, pero divertido.')
   .setDMPermission(false);
 
+// Sin costo real — comparte el cupo de rate limit más laxo de los comandos livianos.
+export const rateLimitCategory = 'light';
+
 export async function execute(interaction) {
   const mensaje = BANANA_MESSAGES[Math.floor(Math.random() * BANANA_MESSAGES.length)];
   await interaction.reply({ content: mensaje });

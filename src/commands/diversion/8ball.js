@@ -16,6 +16,9 @@ export const data = new SlashCommandBuilder()
   .addStringOption((o) => o.setName('pregunta').setDescription('Tu pregunta').setRequired(true))
   .setDMPermission(false);
 
+// Sin costo real — comparte el cupo de rate limit más laxo de los comandos livianos.
+export const rateLimitCategory = 'light';
+
 export async function execute(interaction) {
   const pregunta = interaction.options.getString('pregunta');
   const respuesta = RESPONSES[Math.floor(Math.random() * RESPONSES.length)];

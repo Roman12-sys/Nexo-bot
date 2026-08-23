@@ -6,6 +6,7 @@ import { createEconomyAdminLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { buildCsvAttachment } from '../../utils/csvExport.js';
+import { describeError } from '../../utils/errorMessages.js';
 
 const TYPE_LABELS = {
   daily: '🎁 Diaria',
@@ -285,7 +286,7 @@ export async function execute(interaction) {
     if (sub === 'perfil') return await handlePerfil(interaction);
   } catch (error) {
     console.error(`❌ Error al ejecutar /economia-staff ${sub}:`, error);
-    const errorMsg = { content: '❌ Ocurrió un error al ejecutar el comando.', flags: MessageFlags.Ephemeral };
+    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al ejecutar el comando.'), flags: MessageFlags.Ephemeral };
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp(errorMsg);
     } else {

@@ -5,6 +5,7 @@ import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { createXpAdminLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { describeError } from '../../utils/errorMessages.js';
 
 // Se llama SIEMPRE después de que el ajuste de XP ya se aplicó y ya se le confirmó al
 // staff — atrapa sus propios errores para que un log fallido (permisos, rate limit)
@@ -204,7 +205,7 @@ export async function execute(interaction) {
     if (sub === 'nivel') return await handleSetLevel(interaction);
   } catch (error) {
     console.error(`❌ Error al ejecutar /xp ${sub}:`, error);
-    const errorMsg = { content: '❌ Ocurrió un error al ejecutar el comando.', flags: MessageFlags.Ephemeral };
+    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al ejecutar el comando.'), flags: MessageFlags.Ephemeral };
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp(errorMsg);
     } else {

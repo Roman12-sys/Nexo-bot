@@ -48,47 +48,82 @@ export async function execute(interaction) {
   const sub = interaction.options.getSubcommand();
   const guildId = interaction.guildId;
 
+  // Las 4 confirmaciones de abajo son ephemeral — es configuración del bot en sí, no una
+  // acción con consecuencia visible sobre un usuario puntual (a diferencia de /ban, /warn,
+  // /punish, etc., que sí son públicas a propósito para dar transparencia). Mismo criterio
+  // que ya usa /setup, que trabaja sobre estos mismos campos de guild_config.
   if (sub === 'rol-castigo') {
     const rol = interaction.options.getRole('rol');
     await setGuildConfig(guildId, { punish_role_id: rol?.id ?? null });
-    await interaction.reply({ content: rol ? `✅ Rol de castigo configurado: ${rol}.` : '✅ Rol de castigo desactivado.' });
+    await interaction.reply({ content: rol ? `✅ Rol de castigo configurado: ${rol}.` : '✅ Rol de castigo desactivado.', flags: MessageFlags.Ephemeral });
     return;
   }
 
   if (sub === 'rol-automatico') {
     const rol = interaction.options.getRole('rol');
     await setGuildConfig(guildId, { auto_role_id: rol?.id ?? null });
-    await interaction.reply({ content: rol ? `✅ Rol automático configurado: ${rol}.` : '✅ Rol automático desactivado.' });
+    await interaction.reply({ content: rol ? `✅ Rol automático configurado: ${rol}.` : '✅ Rol automático desactivado.', flags: MessageFlags.Ephemeral });
     return;
   }
 
   if (sub === 'canal-bienvenida') {
     const canal = interaction.options.getChannel('canal');
     await setGuildConfig(guildId, { welcome_channel_id: canal?.id ?? null });
-    await interaction.reply({ content: canal ? `✅ Canal de bienvenida configurado: ${canal}.` : '✅ Canal de bienvenida desactivado.' });
+    await interaction.reply({ content: canal ? `✅ Canal de bienvenida configurado: ${canal}.` : '✅ Canal de bienvenida desactivado.', flags: MessageFlags.Ephemeral });
     return;
   }
 
   if (sub === 'canal-confesiones') {
     const canal = interaction.options.getChannel('canal');
     await setGuildConfig(guildId, { confession_channel_id: canal?.id ?? null });
-    await interaction.reply({ content: canal ? `✅ Canal de confesiones configurado: ${canal}.` : '✅ Canal de confesiones desactivado.' });
+    await interaction.reply({ content: canal ? `✅ Canal de confesiones configurado: ${canal}.` : '✅ Canal de confesiones desactivado.', flags: MessageFlags.Ephemeral });
     return;
   }
 
   if (sub === 'ver') {
-    const cfg = await getGuildConfig(guildId);
-    const embed = new EmbedBuilder()
-      .setColor(BRAND_COLOR)
-      .setTitle('⚙️ Configuración adicional')
-      .addFields(
-        { name: 'Rol de castigo', value: cfg.punish_role_id ? `<@&${cfg.punish_role_id}>` : '— sin configurar', inline: true },
-        { name: 'Rol automático', value: cfg.auto_role_id ? `<@&${cfg.auto_role_id}>` : '— sin configurar', inline: true },
-        { name: 'Canal de bienvenida', value: cfg.welcome_channel_id ? `<#${cfg.welcome_channel_id}>` : '— sin configurar', inline: true },
-        { name: 'Canal de confesiones', value: cfg.confession_channel_id ? `<#${cfg.confession_channel_id}>` : '— sin configurar', inline: true },
-      )
-      .setFooter({ text: BRAND_NAME })
-      .setTimestamp();
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [await buildConfigSummaryEmbed(guildId)], flags: MessageFlags.Ephemeral });
   }
+}
+
+const role = (id) => (id ? `<@&${id}>` : '— sin configurar');
+const channel = (id) => (id ? `<#${id}>` : '— sin configurar');
+const toggle = (on) => (on ? '✅ Activo' : '❌ Apagado');
+
+// Resumen completo de guild_config — no solo los 4 campos sueltos que /config puede
+// tocar, también lo que dejó armado /setup (rol de staff, logs, módulos, XP). Así no
+// hace falta volver a correr /setup solo para chequear qué quedó prendido.
+export async function buildConfigSummaryEmbed(guildId) {
+  const cfg = await getGuildConfig(guildId);
+  const features = cfg.features || {};
+  const levelRolesCount = Object.keys(cfg.level_roles || {}).length;
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('⚙️ Configuración del servidor')
+    .addFields(
+      { name: '👮 Rol de administrador', value: role(cfg.admin_role_id), inline: true },
+      { name: '🛡️ Rol de moderador', value: role(cfg.moderator_role_id), inline: true },
+      { name: '​', value: '​', inline: true },
+      { name: '📋 Log de moderación', value: channel(cfg.log_channel_moderation_id), inline: true },
+      { name: '📋 Log de actividad', value: channel(cfg.log_channel_activity_id), inline: true },
+      { name: '📋 Log de economía', value: channel(cfg.log_channel_economy_id), inline: true },
+      { name: '🧩 Moderación', value: toggle(features.moderacion), inline: true },
+      { name: '🧩 Economía', value: toggle(features.economia), inline: true },
+      { name: '🧩 XP', value: toggle(features.xp), inline: true },
+      { name: '✨ Roles de nivel', value: levelRolesCount > 0 ? `${levelRolesCount} configurado(s) (modo: ${cfg.level_roles_mode})` : '— sin configurar', inline: true },
+      { name: '📣 Anuncio de nivel', value: channel(cfg.xp_announce_channel_id), inline: true },
+      { name: '​', value: '​', inline: true },
+      { name: '🚫 Rol de castigo', value: role(cfg.punish_role_id), inline: true },
+      { name: '🎫 Rol automático', value: role(cfg.auto_role_id), inline: true },
+      { name: '🎉 Canal de bienvenida', value: channel(cfg.welcome_channel_id), inline: true },
+      { name: '🤫 Canal de confesiones', value: channel(cfg.confession_channel_id), inline: true },
+    )
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
+
+  if (cfg.setup_completed_at) {
+    embed.addFields({ name: '🛠️ Última vez que se corrió /setup', value: `<t:${Math.floor(new Date(cfg.setup_completed_at).getTime() / 1000)}:R>` });
+  }
+
+  return embed;
 }

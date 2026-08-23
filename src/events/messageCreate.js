@@ -55,8 +55,9 @@ export async function execute(message, client) {
         if (user.id === message.author.id) continue;
         const afk = getAfk(message.guild.id, user.id);
         if (afk) {
-          const minutesAgo = Math.floor((Date.now() - afk.since) / 60000);
-          afkMentions.push(`💤 ${user} está ausente (${minutesAgo < 1 ? 'hace un momento' : `hace ${minutesAgo} min`}): ${afk.reason}`);
+          // Timestamp nativo de Discord en vez de calcular "hace X min" a mano — se
+          // traduce solo al idioma del cliente de quien lo lee, no queda fijo en español.
+          afkMentions.push(`💤 ${user} está ausente (desde <t:${Math.floor(afk.since / 1000)}:R>): ${afk.reason}`);
         }
       }
       if (afkMentions.length > 0) {

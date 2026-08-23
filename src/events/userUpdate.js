@@ -12,22 +12,23 @@ export async function execute(oldUser, newUser, client) {
     // y filtraba por config.guildId). En NEXOBOT recorremos todos los servidores
     // donde el bot está y en los que el usuario está cacheado como miembro,
     // logueando el cambio en el canal de actividad configurado de cada uno.
+    // Se arman los embeds UNA sola vez (no dependen del guild, el cambio es el mismo
+    // para todos) y se mandan juntos en un solo send por guild — antes eran hasta 3
+    // sends separados por guild, y alguien en varios servidores mutuos con el bot podía
+    // multiplicar eso bastante para un solo cambio de perfil.
+    const embeds = [];
+    if (oldUser.avatar !== newUser.avatar) embeds.push(createAvatarChangeLogEmbed({ oldUser, newUser }));
+    if (oldUser.username !== newUser.username) embeds.push(createUsernameChangeLogEmbed({ oldUser, newUser, field: 'username' }));
+    if (oldUser.globalName !== newUser.globalName) embeds.push(createUsernameChangeLogEmbed({ oldUser, newUser, field: 'globalName' }));
+    if (embeds.length === 0) return;
+
     const guildsWithMember = client.guilds.cache.filter((guild) => guild.members.cache.has(newUser.id));
     if (guildsWithMember.size === 0) return;
 
     for (const guild of guildsWithMember.values()) {
       const logChannel = await getGuildLogChannel(client, guild.id, 'activity');
       if (!logChannel) continue;
-
-      if (oldUser.avatar !== newUser.avatar) {
-        await logChannel.send({ embeds: [createAvatarChangeLogEmbed({ oldUser, newUser })] });
-      }
-      if (oldUser.username !== newUser.username) {
-        await logChannel.send({ embeds: [createUsernameChangeLogEmbed({ oldUser, newUser, field: 'username' })] });
-      }
-      if (oldUser.globalName !== newUser.globalName) {
-        await logChannel.send({ embeds: [createUsernameChangeLogEmbed({ oldUser, newUser, field: 'globalName' })] });
-      }
+      await logChannel.send({ embeds });
     }
   } catch (error) {
     console.error('❌ Error registrando cambio de usuario:', error);

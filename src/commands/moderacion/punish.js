@@ -3,6 +3,7 @@ import { createPunishLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
+import { describeError } from '../../utils/errorMessages.js';
 
 export const data = new SlashCommandBuilder()
   .setName('punish')
@@ -70,7 +71,7 @@ export async function execute(interaction) {
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /punish:', error);
-    const errorMsg = { content: '❌ Ocurrió un error al aplicar la restricción.', flags: MessageFlags.Ephemeral };
+    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al aplicar la restricción.'), flags: MessageFlags.Ephemeral };
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp(errorMsg);
     } else {

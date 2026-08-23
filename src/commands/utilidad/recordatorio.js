@@ -1,7 +1,45 @@
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { createReminder, getUserReminders, deleteReminder } from '../../utils/remindersStore.js';
 import { scheduleReminder, cancelReminder } from '../../utils/reminderEngine.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { registerButtonPrefix } from '../../components/buttons.js';
+
+const PAGE_SIZE = 10;
+
+function buildReminderEmbed(reminders, page) {
+  const totalPages = Math.max(1, Math.ceil(reminders.length / PAGE_SIZE));
+  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
+  const slice = reminders.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('⏰ Tus recordatorios pendientes')
+    .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages}` })
+    .setTimestamp();
+
+  embed.setDescription(
+    reminders.length === 0
+      ? 'No tenés recordatorios pendientes.'
+      : slice.map((r) => `\`#${r.id}\` <t:${Math.floor(r.remindAt / 1000)}:R> — ${r.message}`).join('\n'),
+  );
+
+  return { embed, clampedPage, totalPages };
+}
+
+function buildReminderRow(userId, clampedPage, totalPages) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`recordatorio_page_${clampedPage - 1}_${userId}`)
+      .setLabel('◀️ Anterior')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(clampedPage <= 0),
+    new ButtonBuilder()
+      .setCustomId(`recordatorio_page_${clampedPage + 1}_${userId}`)
+      .setLabel('Siguiente ▶️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(clampedPage >= totalPages - 1),
+  );
+}
 
 const MAX_DAYS = 30;
 const DURATION_REGEX = /^(\d+)\s*(m|min|minutos?|h|horas?|d|d[ií]as?)$/i;
@@ -55,19 +93,9 @@ async function handleListar(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const reminders = await getUserReminders(interaction.guildId, interaction.user.id);
 
-  const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
-    .setTitle('⏰ Tus recordatorios pendientes')
-    .setFooter({ text: BRAND_NAME })
-    .setTimestamp();
-
-  const description =
-    reminders.length === 0
-      ? 'No tenés recordatorios pendientes.'
-      : reminders.map((r) => `\`#${r.id}\` <t:${Math.floor(r.remindAt / 1000)}:R> — ${r.message}`).join('\n');
-  embed.setDescription(description.length > 4096 ? `${description.slice(0, 4093)}...` : description);
-
-  await interaction.editReply({ embeds: [embed] });
+  const { embed, clampedPage, totalPages } = buildReminderEmbed(reminders, 0);
+  const components = reminders.length > PAGE_SIZE ? [buildReminderRow(interaction.user.id, clampedPage, totalPages)] : [];
+  await interaction.editReply({ embeds: [embed], components });
 }
 
 async function handleCancelar(interaction) {
@@ -100,7 +128,7 @@ export const data = new SlashCommandBuilder()
     sub
       .setName('cancelar')
       .setDescription('Cancela un recordatorio.')
-      .addIntegerOption((o) => o.setName('id').setDescription('ID del recordatorio (ver /recordatorio listar)').setRequired(true)),
+      .addIntegerOption((o) => o.setName('id').setDescription('ID del recordatorio (escribí para buscar)').setRequired(true).setAutocomplete(true)),
   )
   .setDMPermission(false);
 
@@ -110,3 +138,22 @@ export async function execute(interaction) {
   if (sub === 'listar') return handleListar(interaction);
   if (sub === 'cancelar') return handleCancelar(interaction);
 }
+
+export async function autocomplete(interaction) {
+  const reminders = await getUserReminders(interaction.guildId, interaction.user.id).catch(() => []);
+  const matches = reminders.slice(0, 25).map((r) => ({ name: `#${r.id} — ${r.message}`.slice(0, 100), value: r.id }));
+  await interaction.respond(matches);
+}
+
+registerButtonPrefix('recordatorio_page_', async (interaction) => {
+  const [pageRaw, userId] = interaction.customId.slice('recordatorio_page_'.length).split('_');
+  // Ephemeral: solo quien lo pidió puede llegar a ver/clickear este botón, pero se
+  // valida igual — mismo criterio que el resto de los paneles del proyecto.
+  if (interaction.user.id !== userId) {
+    return interaction.reply({ content: '❌ Esto no es tuyo.', flags: MessageFlags.Ephemeral });
+  }
+
+  const reminders = await getUserReminders(interaction.guildId, userId);
+  const { embed, clampedPage, totalPages } = buildReminderEmbed(reminders, parseInt(pageRaw, 10));
+  await interaction.update({ embeds: [embed], components: [buildReminderRow(userId, clampedPage, totalPages)] });
+});

@@ -15,6 +15,9 @@ export const data = new SlashCommandBuilder()
   .setDescription('Consultá tu número y frase de la suerte del día.')
   .setDMPermission(false);
 
+// Sin costo real — comparte el cupo de rate limit más laxo de los comandos livianos.
+export const rateLimitCategory = 'light';
+
 export async function execute(interaction) {
   const numero = Math.floor(Math.random() * 100) + 1;
   const frase = FORTUNES[Math.floor(Math.random() * FORTUNES.length)];

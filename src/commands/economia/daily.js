@@ -4,7 +4,7 @@ import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
 
-const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+export const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MIN_REWARD = 100;
 const MAX_REWARD = 300;
 

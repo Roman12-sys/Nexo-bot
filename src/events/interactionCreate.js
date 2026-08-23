@@ -23,15 +23,6 @@ async function trackUsageAndCheckAchievements(guildId, commandName, client) {
 }
 
 export async function execute(interaction, client) {
-  // El autocomplete queda afuera a propósito: tipear en un campo con autocompletado
-  // dispara una interacción por cada tecla — contarlo contra el mismo límite rompería
-  // la búsqueda-mientras-escribís de /buy y /shop-admin quitar en cualquier uso normal.
-  if (!interaction.isAutocomplete() && !checkRateLimit(interaction.user.id)) {
-    const payload = { content: '⏳ Estás usando comandos muy rápido. Esperá unos segundos y probá de nuevo.', ephemeral: true };
-    await interaction.reply(payload).catch(() => {});
-    return;
-  }
-
   if (interaction.isAutocomplete()) {
     const command = client.commands.get(interaction.commandName);
     if (!command?.autocomplete) return;
@@ -47,8 +38,17 @@ export async function execute(interaction, client) {
     return;
   }
 
+  // Comandos "livianos" (sin costo real — un gif, una tirada de dados) tienen su propio
+  // cupo, separado del resto — así jugar rápido a /8ball o /hug no gasta el cupo que
+  // hace falta para un /ban o un /clear real. Ver rateLimiter.js.
+  const command = interaction.isChatInputCommand() ? client.commands.get(interaction.commandName) : null;
+  if (!checkRateLimit(interaction.user.id, command?.rateLimitCategory)) {
+    const payload = { content: '⏳ Estás usando comandos muy rápido. Esperá unos segundos y probá de nuevo.', ephemeral: true };
+    await interaction.reply(payload).catch(() => {});
+    return;
+  }
+
   if (interaction.isChatInputCommand()) {
-    const command = client.commands.get(interaction.commandName);
     if (!command) return;
     try {
       await command.execute(interaction, client);

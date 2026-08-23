@@ -2,6 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.
 import { createKickLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { describeError } from '../../utils/errorMessages.js';
 
 export const data = new SlashCommandBuilder()
   .setName('kick')
@@ -53,7 +54,7 @@ export async function execute(interaction) {
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /kick:', error);
-    const errorMsg = { content: '❌ Ocurrió un error al expulsar al usuario.', flags: MessageFlags.Ephemeral };
+    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al expulsar al usuario.'), flags: MessageFlags.Ephemeral };
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp(errorMsg);
     } else {

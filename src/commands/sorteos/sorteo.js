@@ -6,7 +6,7 @@ import {
   ButtonStyle,
   MessageFlags,
 } from 'discord.js';
-import { saveGiveaway, getGiveaway, updateGiveaway, toggleParticipant } from '../../utils/giveawaysStore.js';
+import { saveGiveaway, getGiveaway, updateGiveaway, toggleParticipant, getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
 import { pickWinners, endGiveaway, scheduleGiveawayEnd } from '../../utils/giveawayEngine.js';
 import { createGiveawayEmbed } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
@@ -45,22 +45,38 @@ export const data = new SlashCommandBuilder()
     sub
       .setName('terminar')
       .setDescription('Termina un sorteo antes de tiempo y elige ganadores ya mismo.')
-      .addStringOption((o) => o.setName('mensaje_id').setDescription('ID del mensaje del sorteo').setRequired(true)),
+      .addStringOption((o) => o.setName('mensaje_id').setDescription('ID del mensaje del sorteo (escribí para buscar)').setRequired(true).setAutocomplete(true)),
   )
   .addSubcommand((sub) =>
     sub
       .setName('reroll')
       .setDescription('Vuelve a elegir ganador(es) de un sorteo ya finalizado.')
-      .addStringOption((o) => o.setName('mensaje_id').setDescription('ID del mensaje del sorteo').setRequired(true)),
+      .addStringOption((o) => o.setName('mensaje_id').setDescription('ID del mensaje del sorteo (escribí para buscar)').setRequired(true).setAutocomplete(true)),
   )
   .addSubcommand((sub) =>
     sub
       .setName('cancelar')
       .setDescription('Cancela un sorteo activo sin elegir ganadores.')
-      .addStringOption((o) => o.setName('mensaje_id').setDescription('ID del mensaje del sorteo').setRequired(true)),
+      .addStringOption((o) => o.setName('mensaje_id').setDescription('ID del mensaje del sorteo (escribí para buscar)').setRequired(true).setAutocomplete(true)),
   )
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setDMPermission(false);
+
+// reroll busca entre sorteos ya finalizados; terminar/cancelar entre los que siguen
+// activos — mismo campo "mensaje_id" en los 3 subcomandos, pero cada uno mira una
+// lista distinta de Supabase.
+export async function autocomplete(interaction) {
+  const sub = interaction.options.getSubcommand();
+  const focused = interaction.options.getFocused().toLowerCase();
+
+  const giveaways = await getGuildGiveawaysForAutocomplete(interaction.guildId, sub === 'reroll').catch(() => []);
+  const matches = giveaways
+    .filter((g) => g.prize.toLowerCase().includes(focused) || g.messageId.includes(focused))
+    .slice(0, 25)
+    .map((g) => ({ name: `${g.prize} (${g.messageId})`.slice(0, 100), value: g.messageId }));
+
+  await interaction.respond(matches);
+}
 
 export async function execute(interaction) {
   if (!(await isStaff(interaction))) {

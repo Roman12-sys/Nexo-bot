@@ -55,12 +55,15 @@ export async function endGiveaway(client, guildId, messageId) {
 }
 
 // Programa que, después de "delayMs" milisegundos, el sorteo termine solo.
+// .unref() (mismo criterio que reminderEngine.js): un timer de hasta una semana no debe
+// mantener vivo el proceso si Node ya no tiene nada más que hacer (ej. durante un
+// shutdown limpio de Railway).
 export function scheduleGiveawayEnd(client, guildId, messageId, delayMs) {
   setTimeout(async () => {
     const giveaway = await getGiveaway(guildId, messageId);
     if (!giveaway || giveaway.ended) return;
     await endGiveaway(client, guildId, messageId);
-  }, delayMs);
+  }, delayMs).unref();
 }
 
 // Se ejecuta UNA vez, cuando el bot arranca: revisa todos los sorteos guardados (de

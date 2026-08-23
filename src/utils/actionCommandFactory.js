@@ -12,6 +12,10 @@ export function createActionCommand({ name, description, category, selfText, tar
       .addUserOption((o) => o.setName('usuario').setDescription('A quién va dirigido (opcional)').setRequired(false))
       .setDMPermission(false),
 
+    // Sin costo real (un gif) — comparte un cupo de rate limit más laxo entre sí, en vez
+    // de competir por el mismo cupo que un comando de moderación real. Ver rateLimiter.js.
+    rateLimitCategory: 'light',
+
     async execute(interaction) {
       try {
         await interaction.deferReply();

@@ -126,6 +126,23 @@ export async function getActiveGiveaways() {
   return (data || []).map((row) => ({ guildId: row.guild_id, messageId: row.message_id, endTimestamp: row.end_timestamp }));
 }
 
+// Sorteos de UN servidor por estado (activos o ya finalizados) con su premio — a
+// diferencia de getActiveGiveaways (todos los servidores, sin premio, para reprogramar
+// timers al arrancar), esto es lo que necesita el autocomplete de /sorteo terminar,
+// reroll y cancelar para no tener que copiar/pegar un message_id a mano.
+export async function getGuildGiveawaysForAutocomplete(guildId, ended) {
+  const { data, error } = await supabase
+    .from(GIVEAWAYS_TABLE)
+    .select('message_id, prize')
+    .eq('guild_id', guildId)
+    .eq('ended', ended)
+    .order('end_timestamp', { ascending: false })
+    .limit(25);
+
+  if (error) throw error;
+  return (data || []).map((row) => ({ messageId: row.message_id, prize: row.prize }));
+}
+
 // Cuenta en cuántos sorteos ya finalizados salió ganador un usuario. Se calcula al
 // vuelo recorriendo los sorteos del servidor — no es un contador guardado aparte,
 // así nunca puede desincronizarse de la lista real de "winners" de cada uno.

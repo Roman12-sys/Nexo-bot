@@ -3,6 +3,7 @@ import { addWarn } from '../../utils/warnsStore.js';
 import { createWarnLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { describeError } from '../../utils/errorMessages.js';
 
 export const data = new SlashCommandBuilder()
   .setName('warn')
@@ -49,7 +50,7 @@ export async function execute(interaction) {
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /warn:', error);
-    const errorMsg = { content: '❌ Ocurrió un error al aplicar la advertencia.', flags: MessageFlags.Ephemeral };
+    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al aplicar la advertencia.'), flags: MessageFlags.Ephemeral };
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp(errorMsg);
     } else {

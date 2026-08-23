@@ -39,3 +39,32 @@ describe('checkRateLimit', () => {
     expect(checkRateLimit(userId)).toBe(true);
   });
 });
+
+describe('checkRateLimit — categorías separadas', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('la categoría "light" tiene su propio cupo, más alto que el default', () => {
+    const userId = `user-${Math.random()}`;
+    for (let i = 0; i < 10; i++) expect(checkRateLimit(userId, 'default')).toBe(true);
+    expect(checkRateLimit(userId, 'default')).toBe(false);
+
+    // El mismo usuario, categoría distinta — no se comparte el cupo.
+    expect(checkRateLimit(userId, 'light')).toBe(true);
+  });
+
+  it('agotar el cupo "light" no afecta el cupo "default" del mismo usuario', () => {
+    const userId = `user-${Math.random()}`;
+    for (let i = 0; i < 20; i++) checkRateLimit(userId, 'light');
+    expect(checkRateLimit(userId, 'light')).toBe(false);
+
+    expect(checkRateLimit(userId, 'default')).toBe(true);
+  });
+
+  it('sin categoría (comandos/componentes sin rateLimitCategory) usa el límite default', () => {
+    const userId = `user-${Math.random()}`;
+    for (let i = 0; i < 10; i++) checkRateLimit(userId);
+    expect(checkRateLimit(userId, 'default')).toBe(false);
+  });
+});

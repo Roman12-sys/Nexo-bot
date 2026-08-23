@@ -6,6 +6,9 @@ export const data = new SlashCommandBuilder()
   .setDescription('Muestra una foto random de un perro.')
   .setDMPermission(false);
 
+// Sin costo real — comparte el cupo de rate limit más laxo de los comandos livianos.
+export const rateLimitCategory = 'light';
+
 export async function execute(interaction) {
   try {
     await interaction.deferReply();

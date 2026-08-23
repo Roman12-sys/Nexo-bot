@@ -1,14 +1,25 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { getUserXp, getLevelProgress, getRank } from '../../utils/xpStore.js';
 import { getUserEconomy } from '../../utils/economyStore.js';
-import { getUserTrivia } from '../../utils/triviaStore.js';
+import { getUserTrivia, getPlayStatus } from '../../utils/triviaStore.js';
 import { getUserReputation } from '../../utils/reputationStore.js';
 import { getUserWarns } from '../../utils/warnsStore.js';
 import { getUserWinCount } from '../../utils/giveawaysStore.js';
+import { getUserReminders } from '../../utils/remindersStore.js';
 import { buildInventoryEmbed } from '../economia/inventory.js';
+import { COOLDOWN_MS as DAILY_COOLDOWN_MS } from '../economia/daily.js';
+import { COOLDOWN_MS as WORK_COOLDOWN_MS } from '../economia/work.js';
 import { getUnlockedAchievementIds, buildLogrosEmbed, ACHIEVEMENTS } from '../../utils/achievements.js';
+import { getUnlockedGuildAchievementIds, buildGuildLogrosEmbed } from '../../utils/guildAchievements.js';
 import { BRAND_COLOR, BRAND_NAME, buildProgressBar, progressPercent } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
+
+// "Podés volver a: ..." — <t:...:R> ya traducido por Discord si está listo, o el
+// timestamp de cuándo vuelve a estar disponible si no.
+function cooldownLine(label, lastTimestamp, cooldownMs) {
+  const readyAt = lastTimestamp + cooldownMs;
+  return readyAt <= Date.now() ? `${label}: ✅ Disponible` : `${label}: <t:${Math.floor(readyAt / 1000)}:R>`;
+}
 
 // Vista principal: solo lo esencial de un vistazo. El detalle (trivia %, cuenta creada,
 // etc.) queda atrás del botón "📊 Estadísticas" para no convertir esto en una pared de texto.
@@ -16,11 +27,12 @@ async function buildPerfilEmbed(guild, targetUser, member) {
   const guildId = guild.id;
   // Las 8 lecturas son independientes entre sí — en paralelo en vez de una por una
   // ahorra la suma de las 8 latencias de red y deja solo la del más lento.
-  const [xp, rank, economy, trivia, reputation, warns, wins, achievements] = await Promise.all([
+  const [xp, rank, economy, trivia, triviaStatus, reputation, warns, wins, achievements] = await Promise.all([
     getUserXp(guildId, targetUser.id),
     getRank(guildId, targetUser.id),
     getUserEconomy(guildId, targetUser.id),
     getUserTrivia(guildId, targetUser.id),
+    getPlayStatus(guildId, targetUser.id),
     getUserReputation(guildId, targetUser.id),
     getUserWarns(guildId, targetUser.id),
     getUserWinCount(guildId, targetUser.id),
@@ -50,6 +62,14 @@ async function buildPerfilEmbed(guild, targetUser, member) {
       { name: '⚠️ Warns activos', value: `${warns.length}`, inline: true },
       { name: '🎉 Sorteos ganados', value: `${wins}`, inline: true },
       { name: '🏅 Logros', value: `${achievements.size}/${ACHIEVEMENTS.length}`, inline: true },
+      {
+        name: '⏳ Cooldowns',
+        value: [
+          cooldownLine('/daily', economy.lastDaily, DAILY_COOLDOWN_MS),
+          cooldownLine('/work', economy.lastWork, WORK_COOLDOWN_MS),
+          triviaStatus.allowed ? '/trivia: ✅ Disponible' : `/trivia: <t:${Math.floor(triviaStatus.resetAt / 1000)}:R>`,
+        ].join(' · '),
+      },
     );
 
   if (joinedTimestamp) {
@@ -65,6 +85,10 @@ function buildPerfilRow(targetUserId) {
     new ButtonBuilder().setCustomId(`perfil_stats_${targetUserId}`).setLabel('📊 Estadísticas').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`perfil_logros_${targetUserId}`).setLabel('🏅 Logros').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId(`perfil_inventario_${targetUserId}`).setLabel('🎒 Inventario').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('perfil_servidorlogros').setLabel('🏆 Logros del servidor').setStyle(ButtonStyle.Secondary),
+    // Siempre son los recordatorios de quien CLICKEA, no los del perfil que se está
+    // mirando — un recordatorio es privado, no algo que se pueda consultar de otro.
+    new ButtonBuilder().setCustomId('perfil_recordatorios').setLabel('⏰ Mis recordatorios').setStyle(ButtonStyle.Secondary),
   );
 }
 
@@ -142,4 +166,26 @@ registerButtonPrefix('perfil_inventario_', async (i) => {
   if (!targetUser) return i.reply({ content: '❌ No se pudo encontrar a ese usuario.', flags: MessageFlags.Ephemeral });
   const inventoryEmbed = await buildInventoryEmbed(i.guild.id, targetUser);
   await i.reply({ embeds: [inventoryEmbed], flags: MessageFlags.Ephemeral });
+});
+
+registerButtonPrefix('perfil_servidorlogros', async (i) => {
+  const unlockedIds = await getUnlockedGuildAchievementIds(i.guildId);
+  await i.reply({ embeds: [buildGuildLogrosEmbed(i.guild, unlockedIds)], flags: MessageFlags.Ephemeral });
+});
+
+registerButtonPrefix('perfil_recordatorios', async (i) => {
+  const reminders = await getUserReminders(i.guildId, i.user.id);
+  const description =
+    reminders.length === 0
+      ? 'No tenés recordatorios pendientes. Creá uno con `/recordatorio crear`.'
+      : reminders.map((r) => `\`#${r.id}\` <t:${Math.floor(r.remindAt / 1000)}:R> — ${r.message}`).join('\n');
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('⏰ Tus recordatorios pendientes')
+    .setDescription(description.length > 4096 ? `${description.slice(0, 4000)}...\n\nUsá \`/recordatorio listar\` para verlos todos.` : description)
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
+
+  await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 });

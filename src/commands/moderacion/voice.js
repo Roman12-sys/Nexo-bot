@@ -4,6 +4,7 @@ import { getGuildVoiceConfig, upsertGuildVoiceConfig, disableGuildVoiceConfig } 
 import { getAllTempChannels } from '../../utils/tempVoiceStore.js';
 import { buildAdminRoomSelect } from '../../utils/tempVoicePanel.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { describeError } from '../../utils/errorMessages.js';
 
 async function handleSetup(interaction) {
   const canal = interaction.options.getChannel('canal');
@@ -116,7 +117,7 @@ export async function execute(interaction) {
     if (sub === 'admin') return await handleAdmin(interaction);
   } catch (error) {
     console.error(`❌ Error al ejecutar /voice ${sub}:`, error);
-    const errorMsg = { content: '❌ Ocurrió un error al ejecutar el comando.', flags: MessageFlags.Ephemeral };
+    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al ejecutar el comando.'), flags: MessageFlags.Ephemeral };
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp(errorMsg);
     } else {

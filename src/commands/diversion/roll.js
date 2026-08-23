@@ -8,6 +8,9 @@ export const data = new SlashCommandBuilder()
   .addIntegerOption((o) => o.setName('cantidad').setDescription('Cuántos dados tirar (por defecto 1)').setRequired(false).setMinValue(1).setMaxValue(20))
   .setDMPermission(false);
 
+// Sin costo real — comparte el cupo de rate limit más laxo de los comandos livianos.
+export const rateLimitCategory = 'light';
+
 export async function execute(interaction) {
   const caras = interaction.options.getInteger('caras') || 6;
   const cantidad = interaction.options.getInteger('cantidad') || 1;
