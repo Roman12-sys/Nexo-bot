@@ -10,6 +10,8 @@ import {
   MessageFlags,
 } from 'discord.js';
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
+import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
 import { BRAND_COLOR, LOG_COLOR } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
@@ -378,6 +380,18 @@ async function runSetup(interaction, state) {
   }
 
   await setGuildConfig(interaction.guildId, { setup_completed_at: new Date().toISOString() });
+
+  // Best-effort: /setup ya le mostró el resumen completo a quien lo corrió (ephemeral),
+  // esto es solo para que quede un rastro en el canal de logs — igual que cualquier otro
+  // cambio de configuración vía /config. Nunca debe romper la confirmación si falla.
+  try {
+    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'activity');
+    if (logChannel) {
+      await logChannel.send({ embeds: [createBotConfigLogEmbed({ executor: interaction.user, changes: summary })] });
+    }
+  } catch (error) {
+    console.error('⚠️ No se pudo registrar /setup en el canal de logs:', error);
+  }
 
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)

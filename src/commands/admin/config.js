@@ -1,6 +1,21 @@
-import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, AttachmentBuilder, MessageFlags } from 'discord.js';
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
+import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+
+// Best-effort: /config ya le confirmó el cambio a quien lo hizo — un log fallido acá
+// nunca debe aparentar que el cambio en sí no se aplicó.
+async function logConfigChange(interaction, changeText) {
+  try {
+    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'activity');
+    if (logChannel) {
+      await logChannel.send({ embeds: [createBotConfigLogEmbed({ executor: interaction.user, changes: [changeText] })] });
+    }
+  } catch (error) {
+    console.error('⚠️ No se pudo registrar un cambio de /config en el canal de logs:', error);
+  }
+}
 
 // Campos sueltos de guild_config que no tienen creación automática vía /setup — el
 // admin elige un rol/canal que YA existe en su servidor, a diferencia de /setup (que
@@ -34,6 +49,7 @@ export const data = new SlashCommandBuilder()
       .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para desactivar)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   )
   .addSubcommand((sub) => sub.setName('ver').setDescription('Muestra la configuración actual de estos campos.'))
+  .addSubcommand((sub) => sub.setName('exportar').setDescription('Descarga la configuración actual como JSON (respaldo, o para clonarla a otro servidor).'))
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .setDMPermission(false);
 
@@ -56,6 +72,7 @@ export async function execute(interaction) {
     const rol = interaction.options.getRole('rol');
     await setGuildConfig(guildId, { punish_role_id: rol?.id ?? null });
     await interaction.reply({ content: rol ? `✅ Rol de castigo configurado: ${rol}.` : '✅ Rol de castigo desactivado.', flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, rol ? `🚫 Rol de castigo → ${rol}` : '🚫 Rol de castigo desactivado');
     return;
   }
 
@@ -63,6 +80,7 @@ export async function execute(interaction) {
     const rol = interaction.options.getRole('rol');
     await setGuildConfig(guildId, { auto_role_id: rol?.id ?? null });
     await interaction.reply({ content: rol ? `✅ Rol automático configurado: ${rol}.` : '✅ Rol automático desactivado.', flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, rol ? `🎫 Rol automático → ${rol}` : '🎫 Rol automático desactivado');
     return;
   }
 
@@ -70,6 +88,7 @@ export async function execute(interaction) {
     const canal = interaction.options.getChannel('canal');
     await setGuildConfig(guildId, { welcome_channel_id: canal?.id ?? null });
     await interaction.reply({ content: canal ? `✅ Canal de bienvenida configurado: ${canal}.` : '✅ Canal de bienvenida desactivado.', flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, canal ? `🎉 Canal de bienvenida → ${canal}` : '🎉 Canal de bienvenida desactivado');
     return;
   }
 
@@ -77,11 +96,24 @@ export async function execute(interaction) {
     const canal = interaction.options.getChannel('canal');
     await setGuildConfig(guildId, { confession_channel_id: canal?.id ?? null });
     await interaction.reply({ content: canal ? `✅ Canal de confesiones configurado: ${canal}.` : '✅ Canal de confesiones desactivado.', flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, canal ? `🤫 Canal de confesiones → ${canal}` : '🤫 Canal de confesiones desactivado');
     return;
   }
 
   if (sub === 'ver') {
     await interaction.reply({ embeds: [await buildConfigSummaryEmbed(guildId)], flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  if (sub === 'exportar') {
+    // guild_id se excluye a propósito: es específico de ESTE server, no tiene sentido
+    // llevarlo si esto se usa para clonar la config a otro. Es solo lectura — no pasa
+    // por logConfigChange, no cambia nada.
+    const { guild_id, ...exportable } = await getGuildConfig(guildId);
+    const attachment = new AttachmentBuilder(Buffer.from(JSON.stringify(exportable, null, 2), 'utf-8'), {
+      name: `nexo-config-${guildId}.json`,
+    });
+    await interaction.reply({ content: '📄 Configuración exportada.', files: [attachment], flags: MessageFlags.Ephemeral });
   }
 }
 

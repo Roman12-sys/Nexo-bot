@@ -37,6 +37,15 @@ Dos comandos llenan `guild_config`:
 Cualquier comando/evento que en gNoX leía `config.js` ahora hace
 `await getGuildConfig(interaction.guildId)` y lee la columna correspondiente.
 
+`/config ver` no muestra solo los 4 campos que `/config` puede tocar — es el resumen
+completo de `guild_config` (`buildConfigSummaryEmbed`), incluido lo que dejó armado
+`/setup`. Y a diferencia de los cambios NATIVOS de Discord (roles, canales — logueados
+por los 32 listeners de `src/events/`), pisar un campo de `guild_config` no dejaba
+ningún rastro: `/setup` y las 4 subcommands de escritura de `/config` ahora mandan
+`createBotConfigLogEmbed` al canal de logs de **actividad** (nunca al de moderación —
+esto no es una sanción a un usuario). `/config exportar` es de solo lectura (un JSON
+descargable de respaldo) y a propósito NO loguea nada — no cambia nada.
+
 ## Arquitectura de componentes (botones/selects/modales)
 
 gNoX tenía un `components/buttons.js` gigante con un `if (customId === ...)` por cada
@@ -65,6 +74,15 @@ builders de embed de log (bans, kicks, warns, cambios de rol/canal/invite/emoji/
 sticker/hilo, mensajes editados/borrados, etc.) viven consolidados en
 `src/utils/logEmbeds.js` — a diferencia de gNoX, que los tenía repartidos entre
 `utils/embeds.js` y `utils/logEmbeds.js`.
+
+## /estado vs /metricas
+
+Dos comandos de staff que se pueden confundir: `/metricas` es popularidad de comandos
+(qué se usa más, vía `commandUsageStore.js`). `/estado` (`src/commands/admin/estado.js`)
+es salud del sistema — latencia del gateway, conectividad real a Supabase
+(`pingSupabase()` en `src/supabaseClient.js`, un round-trip real, nunca cacheado — a
+diferencia de `getGuildConfig`), y cuántos sorteos/salas de voz temporales siguen
+activos en ese server. Sirve para diagnosticar sin ir a mirar Railway.
 
 ## Voz: qué eventos se procesan
 

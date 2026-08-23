@@ -602,3 +602,18 @@ export function createGuildUpdateLogEmbed({ executor, changes }) {
     ],
   });
 }
+
+// Distinto de createGuildUpdateLogEmbed a propósito: ese es para cambios NATIVOS de
+// Discord (nombre/ícono/banner del server, vía guildUpdate.js); este es para cambios en
+// guild_config — la configuración propia de Nexo (/setup, /config) — para que en el
+// canal de logs quede claro de cuál de las dos cosas se trata.
+export function createBotConfigLogEmbed({ executor, changes }) {
+  return baseLogEmbed({
+    color: WARN_COLOR,
+    title: '⚙️ Configuración de Nexo actualizada',
+    fields: [
+      { name: 'Modificado por', value: executorText(executor), inline: true },
+      { name: 'Cambios', value: changes.join('\n').slice(0, 1024) },
+    ],
+  });
+}
