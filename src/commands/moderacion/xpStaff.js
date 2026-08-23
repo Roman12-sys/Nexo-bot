@@ -6,13 +6,20 @@ import { createXpAdminLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 
+// Se llama SIEMPRE después de que el ajuste de XP ya se aplicó y ya se le confirmó al
+// staff — atrapa sus propios errores para que un log fallido (permisos, rate limit)
+// nunca aparente que el ajuste en sí falló, lo que llevaría a reintentar uno ya aplicado.
 async function logStaffAction(interaction, { type, targetUser, amount, xpBefore, xpAfter, levelBefore, levelAfter, reason }) {
-  const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'activity');
-  if (!logChannel) return;
+  try {
+    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'activity');
+    if (!logChannel) return;
 
-  await logChannel.send({
-    embeds: [createXpAdminLogEmbed({ type, targetUser, executor: interaction.user, amount, xpBefore, xpAfter, levelBefore, levelAfter, reason })],
-  });
+    await logChannel.send({
+      embeds: [createXpAdminLogEmbed({ type, targetUser, executor: interaction.user, amount, xpBefore, xpAfter, levelBefore, levelAfter, reason })],
+    });
+  } catch (error) {
+    console.error('⚠️ No se pudo registrar un ajuste de /xp en el canal de logs:', error);
+  }
 }
 
 // Si la acción de staff hizo subir de nivel a alguien, dispara exactamente el mismo

@@ -14,6 +14,12 @@ import { renderLoginPage, renderGuildList, renderGuildDashboard } from './views.
 const app = express();
 app.disable('x-powered-by');
 
+// Snowflake de Discord: 17-20 dígitos. Sin este chequeo, un guildId con %2F/.. decodificado
+// por Express podía terminar armando una ruta de la REST API de Discord distinta a
+// /guilds/{id} (ej. /guilds/0/../../users/@me) usando el token del bot — el chequeo de
+// acceso posterior seguía bloqueando, pero esto cierra la primitiva por completo.
+const GUILD_ID_RE = /^\d{17,20}$/;
+
 app.get('/auth/login', (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
   res.setHeader('Set-Cookie', createStateCookie(state));
@@ -26,6 +32,7 @@ app.get('/auth/callback', async (req, res) => {
     const cookies = parseCookies(req.headers.cookie);
 
     if (!code || !state || state !== cookies.oauth_state) {
+      res.setHeader('Set-Cookie', clearStateCookie());
       res.status(400).send(layout({ title: 'Login inválido', body: '<div class="card"><p>El login expiró o es inválido. <a href="/auth/login">Volvé a intentar</a>.</p></div>' }));
       return;
     }
@@ -66,6 +73,11 @@ app.get('/guild/:guildId', async (req, res) => {
   const session = readSession(req);
   if (!session) {
     res.redirect('/auth/login');
+    return;
+  }
+
+  if (!GUILD_ID_RE.test(req.params.guildId)) {
+    res.status(400).send(layout({ title: 'ID inválido', body: '<div class="card"><p>Ese ID de servidor no es válido.</p></div>', loggedIn: true }));
     return;
   }
 

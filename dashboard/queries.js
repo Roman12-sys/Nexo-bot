@@ -5,32 +5,33 @@
 import { supabase } from '../src/supabaseClient.js';
 import { getTopCommands, getTotalUsage } from '../src/utils/commandUsageStore.js';
 import { getUnlockedGuildAchievementIds } from '../src/utils/guildAchievements.js';
-import { fetchGuild, fetchGuildMember } from './discordApi.js';
+import { fetchGuild, fetchGuildMember, mapWithConcurrency } from './discordApi.js';
 import { isStaffFromRoles } from './permissions.js';
 
 // Lista los servidores donde el usuario logueado es dueño o tiene el rol de staff
 // configurado — recorre todos los guild_config (uno por server que corrió /setup) y
 // descarta los que no aplican. Solo lectura, nada de esto escribe en ningún lado.
+// Concurrencia limitada (mapWithConcurrency): esto escala con el TOTAL de servers del
+// bot, no solo los del usuario, así que sin límite podía disparar decenas de requests
+// en paralelo contra el token del bot en un solo GET a "/".
 export async function listManagedGuilds(userId) {
   const { data: configs, error } = await supabase.from('guild_config').select('guild_id, admin_role_id, moderator_role_id');
   if (error) throw error;
 
-  const results = await Promise.all(
-    (configs || []).map(async (cfg) => {
-      const guild = await fetchGuild(cfg.guild_id).catch(() => null);
-      if (!guild) return null; // el bot ya no está en ese server, o el ID quedó viejo
+  const results = await mapWithConcurrency(configs || [], 5, async (cfg) => {
+    const guild = await fetchGuild(cfg.guild_id).catch(() => null);
+    if (!guild) return null; // el bot ya no está en ese server, o el ID quedó viejo
 
-      const isOwner = guild.owner_id === userId;
-      let hasStaffRole = false;
-      if (!isOwner && (cfg.admin_role_id || cfg.moderator_role_id)) {
-        const member = await fetchGuildMember(cfg.guild_id, userId).catch(() => null);
-        if (member) hasStaffRole = isStaffFromRoles(cfg, member.roles);
-      }
+    const isOwner = guild.owner_id === userId;
+    let hasStaffRole = false;
+    if (!isOwner && (cfg.admin_role_id || cfg.moderator_role_id)) {
+      const member = await fetchGuildMember(cfg.guild_id, userId).catch(() => null);
+      if (member) hasStaffRole = isStaffFromRoles(cfg, member.roles);
+    }
 
-      if (!isOwner && !hasStaffRole) return null;
-      return { id: guild.id, name: guild.name, icon: guild.icon };
-    }),
-  );
+    if (!isOwner && !hasStaffRole) return null;
+    return { id: guild.id, name: guild.name, icon: guild.icon };
+  });
 
   return results.filter(Boolean);
 }

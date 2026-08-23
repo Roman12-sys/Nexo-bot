@@ -21,6 +21,7 @@ import {
   buildAdminTransferSelect,
 } from './tempVoicePanel.js';
 import { isStaff } from './permissions.js';
+import { withLock } from './asyncLock.js';
 import { unlockAchievement, buildAchievementUnlockedEmbed } from './achievements.js';
 import { registerButtonPrefix } from '../components/buttons.js';
 import { registerSelectPrefix } from '../components/selects.js';
@@ -44,6 +45,12 @@ const pendingEmptyChecks = new Map();
 // bot se reinicia a mitad de la vida de una sala (mismo trade-off que guessSessions.js:
 // no vale la pena persistir un contador en vivo por una estadística "nice to have").
 const roomStats = new Map();
+
+// Guarda contra el click en "Eliminar" y el auto-borrado por sala vacía disparándose
+// casi al mismo tiempo para el mismo canal — sin esto, ambos caminos pueden entrar a
+// finalizeRoomDeletion antes de que ninguno termine, duplicando la fila resumen en
+// voice_channel_stats.
+const finalizingChannels = new Set();
 
 function cancelPendingEmptyCheck(channelId) {
   const handle = pendingEmptyChecks.get(channelId);
@@ -75,29 +82,36 @@ function consumeRoomStats(channelId, channel) {
 // admin y el borrado manual externo. Centralizado para que ningún camino se olvide de
 // registrar estadísticas o de limpiar el registro de Supabase.
 async function finalizeRoomDeletion(channel, guildId, record, { alreadyDeleted = false, reason } = {}) {
-  cancelPendingEmptyCheck(record.channelId);
-  const stats = consumeRoomStats(record.channelId, channel);
+  if (finalizingChannels.has(record.channelId)) return; // ya se está borrando por otro camino
+  finalizingChannels.add(record.channelId);
 
   try {
-    const createdMs = record.createdAt ? new Date(record.createdAt).getTime() : Date.now();
-    await tempVoiceStore.recordChannelStats({
-      guildId,
-      channelId: record.channelId,
-      ownerId: record.ownerId,
-      type: record.type,
-      createdAt: record.createdAt || new Date().toISOString(),
-      durationSeconds: Math.max(0, Math.round((Date.now() - createdMs) / 1000)),
-      uniqueUsersCount: stats.uniqueUsers.size,
-      maxConcurrentUsers: stats.peakConcurrent,
-    });
-  } catch (error) {
-    console.error('❌ [voz temporal] Error registrando estadísticas de la sala:', error);
-  }
+    cancelPendingEmptyCheck(record.channelId);
+    const stats = consumeRoomStats(record.channelId, channel);
 
-  if (!alreadyDeleted && channel) {
-    await channel.delete(reason || 'Sala de voz temporal eliminada').catch(() => {});
+    try {
+      const createdMs = record.createdAt ? new Date(record.createdAt).getTime() : Date.now();
+      await tempVoiceStore.recordChannelStats({
+        guildId,
+        channelId: record.channelId,
+        ownerId: record.ownerId,
+        type: record.type,
+        createdAt: record.createdAt || new Date().toISOString(),
+        durationSeconds: Math.max(0, Math.round((Date.now() - createdMs) / 1000)),
+        uniqueUsersCount: stats.uniqueUsers.size,
+        maxConcurrentUsers: stats.peakConcurrent,
+      });
+    } catch (error) {
+      console.error('❌ [voz temporal] Error registrando estadísticas de la sala:', error);
+    }
+
+    if (!alreadyDeleted && channel) {
+      await channel.delete(reason || 'Sala de voz temporal eliminada').catch(() => {});
+    }
+    await tempVoiceStore.deleteTempChannel(guildId, record.channelId).catch(() => {});
+  } finally {
+    finalizingChannels.delete(record.channelId);
   }
-  await tempVoiceStore.deleteTempChannel(guildId, record.channelId).catch(() => {});
 }
 
 function scheduleEmptyCheck(channel, guildId) {
@@ -584,26 +598,29 @@ export async function handleTransferSelect(interaction, channelId) {
     return interaction.update({ content: '❌ Ya sos el propietario de esta sala.', components: [] });
   }
 
-  // Se valida ANTES de tocar ningún permiso de Discord: si el nuevo dueño ya
-  // tiene su propia sala (UNIQUE(guild_id, owner_id)), transferTempChannelOwner
-  // tiraría un error de constraint y el `channel.permissionOverwrites.edit` de
-  // más abajo ya habría dejado a esa persona con acceso real a una sala que la
-  // base de datos nunca terminó de asignarle. Chequear primero evita ese estado
-  // inconsistente por completo, en vez de solo detectarlo después.
-  const alreadyOwns = await tempVoiceStore.getTempChannelByOwner(interaction.guild.id, newOwnerId);
-  if (alreadyOwns) {
-    return interaction.update({ content: '❌ Esa persona ya tiene su propia sala — no puede tener dos a la vez.', components: [] });
-  }
+  // Todo el chequeo-y-transferencia va bajo lock por (guild, newOwnerId): sin esto, dos
+  // transferencias concurrentes a la MISMA persona (desde dos salas distintas) pueden
+  // pasar ambas el chequeo de "¿ya tiene sala?" antes de que ninguna termine de escribir,
+  // dándole a Discord permisos reales sobre dos canales aunque la base solo pueda
+  // registrar uno (UNIQUE(guild_id, owner_id)).
+  const result = await withLock(`voice_transfer_owner:${interaction.guild.id}:${newOwnerId}`, async () => {
+    const alreadyOwns = await tempVoiceStore.getTempChannelByOwner(interaction.guild.id, newOwnerId);
+    if (alreadyOwns) {
+      return { content: '❌ Esa persona ya tiene su propia sala — no puede tener dos a la vez.' };
+    }
 
-  try {
-    await channel.permissionOverwrites.edit(newOwnerId, { ViewChannel: true, Connect: true, Speak: true });
-  } catch (error) {
-    console.error('❌ [voz temporal] Error dando permisos al nuevo propietario:', error);
-    return interaction.update({ content: '❌ No se pudo completar la transferencia.', components: [] });
-  }
+    try {
+      await channel.permissionOverwrites.edit(newOwnerId, { ViewChannel: true, Connect: true, Speak: true });
+    } catch (error) {
+      console.error('❌ [voz temporal] Error dando permisos al nuevo propietario:', error);
+      return { content: '❌ No se pudo completar la transferencia.' };
+    }
 
-  await tempVoiceStore.transferTempChannelOwner(interaction.guild.id, channelId, newOwnerId);
-  return interaction.update({ content: `✅ <@${newOwnerId}> ahora es el propietario de esta sala.`, components: [] });
+    await tempVoiceStore.transferTempChannelOwner(interaction.guild.id, channelId, newOwnerId);
+    return { content: `✅ <@${newOwnerId}> ahora es el propietario de esta sala.` };
+  });
+
+  return interaction.update({ content: result.content, components: [] });
 }
 
 export async function handleDeleteButton(interaction, channelId) {
@@ -688,22 +705,26 @@ export async function handleAdminTransferSelect(interaction, channelId) {
 
   const newOwnerId = interaction.values[0];
 
-  // Misma validación previa que el flujo del dueño (handleTransferSelect) — ver
-  // el comentario ahí para el motivo completo.
-  const alreadyOwns = await tempVoiceStore.getTempChannelByOwner(interaction.guild.id, newOwnerId);
-  if (alreadyOwns) {
-    return interaction.update({ content: '❌ Esa persona ya tiene su propia sala — no puede tener dos a la vez.', components: [] });
-  }
+  // Mismo lock que el flujo del dueño (handleTransferSelect) — ver el comentario ahí
+  // para el motivo completo.
+  const result = await withLock(`voice_transfer_owner:${interaction.guild.id}:${newOwnerId}`, async () => {
+    const alreadyOwns = await tempVoiceStore.getTempChannelByOwner(interaction.guild.id, newOwnerId);
+    if (alreadyOwns) {
+      return { content: '❌ Esa persona ya tiene su propia sala — no puede tener dos a la vez.' };
+    }
 
-  try {
-    await channel.permissionOverwrites.edit(newOwnerId, { ViewChannel: true, Connect: true, Speak: true });
-  } catch (error) {
-    console.error('❌ [voz temporal] Error (admin) transfiriendo propiedad:', error);
-    return interaction.update({ content: '❌ No se pudo completar la transferencia.', components: [] });
-  }
+    try {
+      await channel.permissionOverwrites.edit(newOwnerId, { ViewChannel: true, Connect: true, Speak: true });
+    } catch (error) {
+      console.error('❌ [voz temporal] Error (admin) transfiriendo propiedad:', error);
+      return { content: '❌ No se pudo completar la transferencia.' };
+    }
 
-  await tempVoiceStore.transferTempChannelOwner(interaction.guild.id, channelId, newOwnerId);
-  return interaction.update({ content: `✅ <@${newOwnerId}> ahora es el propietario de esta sala.`, components: [] });
+    await tempVoiceStore.transferTempChannelOwner(interaction.guild.id, channelId, newOwnerId);
+    return { content: `✅ <@${newOwnerId}> ahora es el propietario de esta sala.` };
+  });
+
+  return interaction.update({ content: result.content, components: [] });
 }
 
 export async function handleAdminDelete(interaction, channelId) {

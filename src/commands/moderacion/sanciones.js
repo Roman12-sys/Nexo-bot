@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import { isStaff } from '../../utils/permissions.js';
+import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getActiveTimeouts, getPunishedMembers, getBannedUsers } from '../../utils/sanctions.js';
@@ -94,19 +94,33 @@ registerButtonPrefix('sanciones_warns', async (i) => {
 
 // ---------- Selects: aplicar la acción elegida ----------
 
+// Envía el log de una acción del panel ya aplicada — atrapa sus propios errores para
+// que un log fallido nunca aparente que la acción en sí falló (interactionCreate.js no
+// tiene forma de distinguir eso de un error real si esto no se atrapa acá).
+async function sendPanelLog(interaction, category, embed) {
+  try {
+    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, category);
+    if (logChannel) await logChannel.send({ embeds: [embed] });
+  } catch (error) {
+    console.error('⚠️ No se pudo registrar una acción del panel /sanciones en el canal de logs:', error);
+  }
+}
+
 registerSelectPrefix('sanciones_select_timeout', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
   const userId = i.values[0];
   const member = await i.guild.members.fetch(userId).catch(() => null);
   if (!member) return i.reply({ content: '❌ No se encontró al usuario.', flags: MessageFlags.Ephemeral });
 
+  // Mismo chequeo de jerarquía que /timeout — el panel no puede saltárselo.
+  const blockReason = getModerationBlockReason(i, member);
+  if (blockReason) return i.reply({ content: blockReason, flags: MessageFlags.Ephemeral });
+  if (!member.moderatable) return i.reply({ content: '❌ No puedo modificar el timeout de este usuario.', flags: MessageFlags.Ephemeral });
+
   await member.timeout(null);
   await i.reply({ content: `✅ Se le quitó el timeout a ${member.user.tag}.`, flags: MessageFlags.Ephemeral });
 
-  const logChannel = await getGuildLogChannel(i.client, i.guildId, 'moderation');
-  if (logChannel) {
-    await logChannel.send({ embeds: [createTimeoutLogEmbed({ user: member.user, executor: i.user, reason: null, until: null, removed: true })] });
-  }
+  await sendPanelLog(i, 'moderation', createTimeoutLogEmbed({ user: member.user, executor: i.user, reason: null, until: null, removed: true }));
 });
 
 registerSelectPrefix('sanciones_select_punish', async (i) => {
@@ -116,13 +130,14 @@ registerSelectPrefix('sanciones_select_punish', async (i) => {
   const member = await i.guild.members.fetch(userId).catch(() => null);
   if (!member) return i.reply({ content: '❌ No se encontró al usuario.', flags: MessageFlags.Ephemeral });
 
+  // Mismo chequeo de jerarquía que /unpunish — el panel no puede saltárselo.
+  const blockReason = getModerationBlockReason(i, member);
+  if (blockReason) return i.reply({ content: blockReason, flags: MessageFlags.Ephemeral });
+
   await member.roles.remove(cfg.punish_role_id);
   await i.reply({ content: `✅ Se le quitó la restricción a ${member.user.tag}.`, flags: MessageFlags.Ephemeral });
 
-  const logChannel = await getGuildLogChannel(i.client, i.guildId, 'moderation');
-  if (logChannel) {
-    await logChannel.send({ embeds: [createPunishLogEmbed({ user: member.user, executor: i.user, reason: null, applied: false })] });
-  }
+  await sendPanelLog(i, 'moderation', createPunishLogEmbed({ user: member.user, executor: i.user, reason: null, applied: false }));
 });
 
 registerSelectPrefix('sanciones_select_ban', async (i) => {
@@ -134,10 +149,7 @@ registerSelectPrefix('sanciones_select_ban', async (i) => {
   await i.reply({ content: `✅ Se desbaneó a ${user?.tag || userId}.`, flags: MessageFlags.Ephemeral });
 
   if (user) {
-    const logChannel = await getGuildLogChannel(i.client, i.guildId, 'moderation');
-    if (logChannel) {
-      await logChannel.send({ embeds: [createUnbanAutoLogEmbed({ user, executor: i.user, reason: null })] });
-    }
+    await sendPanelLog(i, 'moderation', createUnbanAutoLogEmbed({ user, executor: i.user, reason: null }));
   }
 });
 
@@ -150,9 +162,6 @@ registerSelectPrefix('sanciones_select_warn', async (i) => {
   await i.reply({ content: `✅ Se borraron las ${total} advertencia(s) de ${user?.tag || userId}.`, flags: MessageFlags.Ephemeral });
 
   if (user) {
-    const logChannel = await getGuildLogChannel(i.client, i.guildId, 'moderation');
-    if (logChannel) {
-      await logChannel.send({ embeds: [createUnwarnLogEmbed({ user, executor: i.user, detail: `Se borraron todas (${total}) desde el panel /sanciones` })] });
-    }
+    await sendPanelLog(i, 'moderation', createUnwarnLogEmbed({ user, executor: i.user, detail: `Se borraron todas (${total}) desde el panel /sanciones` }));
   }
 });

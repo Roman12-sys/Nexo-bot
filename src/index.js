@@ -45,11 +45,18 @@ async function loadCommands() {
     const files = fs.readdirSync(categoryPath).filter((f) => f.endsWith('.js'));
     for (const file of files) {
       const filePath = path.join(categoryPath, file);
-      const command = await import(pathToFileURL(filePath).href);
-      if ('data' in command && 'execute' in command) {
-        client.commands.set(command.data.name, command);
-      } else {
-        console.warn(`[WARN] Comando en ${filePath} le falta "data" o "execute".`);
+      // Un solo comando roto (error de sintaxis, import inválido) no debería tirar
+      // abajo los otros 74 — se loguea y se sigue, en vez de dejar que el error se
+      // propague al uncaughtException global y reinicie el proceso en loop.
+      try {
+        const command = await import(pathToFileURL(filePath).href);
+        if ('data' in command && 'execute' in command) {
+          client.commands.set(command.data.name, command);
+        } else {
+          console.warn(`[WARN] Comando en ${filePath} le falta "data" o "execute".`);
+        }
+      } catch (error) {
+        console.error(`❌ No se pudo cargar el comando en ${filePath}:`, error);
       }
     }
   }
@@ -62,11 +69,15 @@ async function loadEvents() {
   const files = fs.readdirSync(eventsPath).filter((f) => f.endsWith('.js'));
   for (const file of files) {
     const filePath = path.join(eventsPath, file);
-    const event = await import(pathToFileURL(filePath).href);
-    if (event.once) {
-      client.once(event.name, (...args) => event.execute(...args, client));
-    } else {
-      client.on(event.name, (...args) => event.execute(...args, client));
+    try {
+      const event = await import(pathToFileURL(filePath).href);
+      if (event.once) {
+        client.once(event.name, (...args) => event.execute(...args, client));
+      } else {
+        client.on(event.name, (...args) => event.execute(...args, client));
+      }
+    } catch (error) {
+      console.error(`❌ No se pudo cargar el evento en ${filePath}:`, error);
     }
   }
 }

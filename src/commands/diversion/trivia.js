@@ -20,10 +20,21 @@ const LETTERS = ['🇦', '🇧', '🇨', '🇩'];
 async function handleJugar(interaction) {
   const guildId = interaction.guild.id;
   const userId = interaction.user.id;
+  const sessionKey = `trivia:${guildId}:${userId}`;
 
   await interaction.deferReply();
 
-  const status = await withLock(`trivia:${guildId}:${userId}`, async () => {
+  // Si ya hay una pregunta pendiente, no se arranca una nueva — antes esto pisaba la
+  // sesión vieja (sus botones quedaban huérfanos, "ya expiró") pero el intento ya se
+  // había gastado igual. Ahora ese intento se conserva hasta que responda la pendiente.
+  if (getSession(sessionKey)) {
+    await interaction.editReply({
+      content: '⚠️ Ya tenés una pregunta de trivia sin responder — contestá esa primero (los botones siguen activos en ese mensaje).',
+    });
+    return;
+  }
+
+  const status = await withLock(sessionKey, async () => {
     const current = await getPlayStatus(guildId, userId);
     if (!current.allowed) return current;
 
@@ -38,10 +49,7 @@ async function handleJugar(interaction) {
     return;
   }
 
-  const pending = getSession(`trivia:${guildId}:${userId}`);
-  const excludeIds = pending ? [pending.secret.questionId] : [];
-
-  const { question: q, historyReset } = await pickQuestionForUser(guildId, userId, TRIVIA_QUESTIONS, excludeIds);
+  const { question: q, historyReset } = await pickQuestionForUser(guildId, userId, TRIVIA_QUESTIONS, []);
 
   const remainingAfter = status.remaining - 1;
   const footerParts = [
@@ -57,7 +65,7 @@ async function handleJugar(interaction) {
     .setFooter({ text: `${BRAND_NAME} • ${footerParts.join(' • ')}` })
     .setTimestamp();
 
-  startSession(`trivia:${guildId}:${userId}`, { questionId: q.id, correctIndex: q.correct });
+  startSession(sessionKey, { questionId: q.id, correctIndex: q.correct });
 
   const row = new ActionRowBuilder().addComponents(
     q.options.map((_, i) =>
@@ -132,7 +140,10 @@ registerButtonPrefix('trivia_', async (interaction) => {
 
   await interaction.update({ components: [] });
 
-  const record = await recordAnswer(interaction.guild.id, interaction.user.id, questionId, isCorrect);
+  // Mismo lock que registerPlay (asyncLock.js) — recordAnswer también hace lectura +
+  // upsert de fila completa sobre trivia_user_stats, así que tiene que serializarse
+  // contra un /trivia jugar concurrente del mismo usuario para no pisarse los campos.
+  const record = await withLock(sessionKey, () => recordAnswer(interaction.guild.id, interaction.user.id, questionId, isCorrect));
 
   if (isCorrect) {
     await interaction.followUp({

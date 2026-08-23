@@ -67,9 +67,24 @@ export async function execute(interaction, client) {
 
   if (interaction.isButton() || interaction.isModalSubmit() || interaction.isAnySelectMenu()) {
     try {
-      if (interaction.isButton()) await routeButton(interaction);
-      else if (interaction.isModalSubmit()) await routeModal(interaction);
-      else await routeSelect(interaction);
+      let handled;
+      if (interaction.isButton()) handled = await routeButton(interaction);
+      else if (interaction.isModalSubmit()) handled = await routeModal(interaction);
+      else handled = await routeSelect(interaction);
+
+      // Ningún prefijo matcheó (botón/select/modal de un mensaje viejo, de antes de un
+      // redeploy, o con un customId con typo) — sin esto la interacción quedaba sin
+      // ninguna respuesta y Discord le mostraba "Esta interacción falló" al usuario sin
+      // que quedara ningún rastro en consola para diagnosticarlo.
+      if (!handled) {
+        console.warn(`[WARN] Ninguna interacción registrada matcheó el customId "${interaction.customId}".`);
+        const payload = { content: '⚠️ Este botón/menú ya no es válido (puede ser de un mensaje viejo).', ephemeral: true };
+        if (interaction.replied || interaction.deferred) {
+          await interaction.followUp(payload).catch(() => {});
+        } else {
+          await interaction.reply(payload).catch(() => {});
+        }
+      }
     } catch (error) {
       console.error(`Error procesando interacción ${interaction.customId}:`, error);
       const payload = { content: 'Hubo un error procesando esto.', ephemeral: true };

@@ -48,13 +48,42 @@ export async function fetchDiscordUser(accessToken) {
 
 // Usa el token del BOT (no el del usuario logueado) — todo lo de acá para abajo son
 // datos que el bot ya puede ver por estar en el server, no requieren nada del usuario.
-async function botFetch(path) {
+// Un 429 se reintenta UNA vez respetando retry_after — es el mismo token que usa el bot
+// real en producción, así que ignorar el rate limit acá podría afectarlo a él también.
+async function botFetch(path, { retried = false } = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     headers: { Authorization: `Bot ${config.discordToken}` },
   });
+
   if (res.status === 404) return null;
+
+  if (res.status === 429 && !retried) {
+    const body = await res.json().catch(() => ({}));
+    const retryAfterMs = Math.ceil((body.retry_after ?? 1) * 1000);
+    await new Promise((resolve) => setTimeout(resolve, retryAfterMs));
+    return botFetch(path, { retried: true });
+  }
+
   if (!res.ok) throw new Error(`Discord REST API falló (${path}): ${res.status}`);
   return res.json();
+}
+
+// Corre `fn` sobre `items` con como máximo `limit` llamadas en vuelo a la vez — evitar
+// disparar decenas de requests en paralelo contra el token del bot (resolveUsers puede
+// tener que resolver ~40 IDs de una sola carga de página).
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 export function fetchGuild(guildId, { withCounts = false } = {}) {
@@ -73,6 +102,8 @@ export function fetchUser(userId) {
 // pedir el mismo ID dos veces aunque aparezca repetido (ej. el mismo staff en varios warns).
 export async function resolveUsers(userIds) {
   const uniqueIds = [...new Set(userIds)];
-  const entries = await Promise.all(uniqueIds.map(async (id) => [id, await fetchUser(id).catch(() => null)]));
+  const entries = await mapWithConcurrency(uniqueIds, 5, async (id) => [id, await fetchUser(id).catch(() => null)]);
   return new Map(entries);
 }
+
+export { mapWithConcurrency };

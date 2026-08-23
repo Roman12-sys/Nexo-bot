@@ -37,9 +37,15 @@ export async function execute(interaction) {
     await interaction.guild.members.ban(targetUser.id, { reason: motivo });
     await interaction.reply({ content: `✅ Se baneó a ${targetUser.tag}.` });
 
-    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
-    if (logChannel) {
-      await logChannel.send({ embeds: [createBanLogEmbed({ user: targetUser, executor: interaction.user, reason: motivo })] });
+    // Try/catch propio: el ban ya se aplicó y ya se confirmó — un log fallido no debe
+    // mostrarle un error al staff (lo llevaría a reintentar un ban ya aplicado).
+    try {
+      const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
+      if (logChannel) {
+        await logChannel.send({ embeds: [createBanLogEmbed({ user: targetUser, executor: interaction.user, reason: motivo })] });
+      }
+    } catch (logError) {
+      console.error('⚠️ No se pudo registrar /ban en el canal de logs:', logError);
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /ban:', error);

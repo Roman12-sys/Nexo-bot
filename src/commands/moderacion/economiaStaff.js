@@ -21,23 +21,30 @@ const TYPE_LABELS = {
   admin_set: '🛠️ Staff estableció',
 };
 
+// Se llama SIEMPRE después de que el ajuste de balance ya se aplicó y ya se le confirmó
+// al staff — atrapa sus propios errores para que un log fallido nunca aparente que el
+// ajuste en sí falló, lo que llevaría a reintentar uno ya aplicado.
 async function logStaffAction(interaction, { type, targetUser, amount, balanceBefore, balanceAfter, reason }) {
-  const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'economy');
-  if (!logChannel) return;
+  try {
+    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'economy');
+    if (!logChannel) return;
 
-  await logChannel.send({
-    embeds: [
-      createEconomyAdminLogEmbed({
-        type,
-        targetUser,
-        executor: interaction.user,
-        amount,
-        balanceBefore,
-        balanceAfter,
-        reason,
-      }),
-    ],
-  });
+    await logChannel.send({
+      embeds: [
+        createEconomyAdminLogEmbed({
+          type,
+          targetUser,
+          executor: interaction.user,
+          amount,
+          balanceBefore,
+          balanceAfter,
+          reason,
+        }),
+      ],
+    });
+  } catch (error) {
+    console.error('⚠️ No se pudo registrar un ajuste de economía staff en el canal de logs:', error);
+  }
 }
 
 async function handleBalance(interaction) {

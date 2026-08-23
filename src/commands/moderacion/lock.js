@@ -24,9 +24,15 @@ export async function execute(interaction) {
     await interaction.channel.permissionOverwrites.edit(interaction.guild.id, { SendMessages: false });
     await interaction.reply({ content: '🔒 Canal bloqueado.' });
 
-    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
-    if (logChannel) {
-      await logChannel.send({ embeds: [createLockLogEmbed({ channel: interaction.channel, executor: interaction.user, locked: true })] });
+    // Try/catch propio: el canal ya se bloqueó y ya se confirmó — un log fallido no
+    // debe mostrarle un error al staff.
+    try {
+      const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
+      if (logChannel) {
+        await logChannel.send({ embeds: [createLockLogEmbed({ channel: interaction.channel, executor: interaction.user, locked: true })] });
+      }
+    } catch (logError) {
+      console.error('⚠️ No se pudo registrar /lock en el canal de logs:', logError);
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /lock:', error);

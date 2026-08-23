@@ -58,9 +58,15 @@ export async function execute(interaction) {
     await member.roles.add(cfg.punish_role_id, motivo);
     await interaction.reply({ content: `🚫 ${targetUser.tag} ya no puede enviar imágenes ni enlaces.` });
 
-    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
-    if (logChannel) {
-      await logChannel.send({ embeds: [createPunishLogEmbed({ user: targetUser, executor: interaction.user, reason: motivo, applied: true })] });
+    // Try/catch propio: la restricción ya se aplicó y ya se confirmó — un log fallido
+    // no debe mostrarle un error al staff (lo llevaría a reintentar una ya aplicada).
+    try {
+      const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
+      if (logChannel) {
+        await logChannel.send({ embeds: [createPunishLogEmbed({ user: targetUser, executor: interaction.user, reason: motivo, applied: true })] });
+      }
+    } catch (logError) {
+      console.error('⚠️ No se pudo registrar /punish en el canal de logs:', logError);
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /punish:', error);

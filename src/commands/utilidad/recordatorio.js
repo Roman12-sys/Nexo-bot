@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { createReminder, getUserReminders, deleteReminder } from '../../utils/remindersStore.js';
-import { scheduleReminder } from '../../utils/reminderEngine.js';
+import { scheduleReminder, cancelReminder } from '../../utils/reminderEngine.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 const MAX_DAYS = 30;
@@ -61,11 +61,11 @@ async function handleListar(interaction) {
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 
-  embed.setDescription(
+  const description =
     reminders.length === 0
       ? 'No tenés recordatorios pendientes.'
-      : reminders.map((r) => `\`#${r.id}\` <t:${Math.floor(r.remindAt / 1000)}:R> — ${r.message}`).join('\n'),
-  );
+      : reminders.map((r) => `\`#${r.id}\` <t:${Math.floor(r.remindAt / 1000)}:R> — ${r.message}`).join('\n');
+  embed.setDescription(description.length > 4096 ? `${description.slice(0, 4093)}...` : description);
 
   await interaction.editReply({ embeds: [embed] });
 }
@@ -81,6 +81,7 @@ async function handleCancelar(interaction) {
   }
 
   await deleteReminder(id);
+  cancelReminder(id);
   await interaction.reply({ content: '✅ Recordatorio cancelado.', flags: MessageFlags.Ephemeral });
 }
 

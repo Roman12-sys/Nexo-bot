@@ -46,9 +46,15 @@ export async function execute(interaction) {
     await member.roles.remove(cfg.punish_role_id);
     await interaction.reply({ content: `✅ Se le quitó la restricción a ${targetUser.tag}.` });
 
-    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
-    if (logChannel) {
-      await logChannel.send({ embeds: [createPunishLogEmbed({ user: targetUser, executor: interaction.user, reason: null, applied: false })] });
+    // Try/catch propio: ya se quitó la restricción y ya se confirmó — un log fallido
+    // no debe mostrarle un error al staff.
+    try {
+      const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
+      if (logChannel) {
+        await logChannel.send({ embeds: [createPunishLogEmbed({ user: targetUser, executor: interaction.user, reason: null, applied: false })] });
+      }
+    } catch (logError) {
+      console.error('⚠️ No se pudo registrar /unpunish en el canal de logs:', logError);
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /unpunish:', error);

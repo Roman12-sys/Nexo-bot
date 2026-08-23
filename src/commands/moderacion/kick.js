@@ -41,9 +41,15 @@ export async function execute(interaction) {
     await member.kick(motivo);
     await interaction.reply({ content: `✅ Se expulsó a ${targetUser.tag}.` });
 
-    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
-    if (logChannel) {
-      await logChannel.send({ embeds: [createKickLogEmbed({ user: targetUser, executor: interaction.user, reason: motivo })] });
+    // Try/catch propio: el kick ya se aplicó y ya se confirmó — un log fallido no debe
+    // mostrarle un error al staff (lo llevaría a reintentar un kick ya aplicado).
+    try {
+      const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
+      if (logChannel) {
+        await logChannel.send({ embeds: [createKickLogEmbed({ user: targetUser, executor: interaction.user, reason: motivo })] });
+      }
+    } catch (logError) {
+      console.error('⚠️ No se pudo registrar /kick en el canal de logs:', logError);
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /kick:', error);

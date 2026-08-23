@@ -36,9 +36,16 @@ export async function execute(interaction) {
 
     await interaction.editReply({ content: `✅ Se advirtió a ${targetUser} (advertencia #${list.length}). Motivo: ${motivo}` });
 
-    const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
-    if (logChannel) {
-      await logChannel.send({ embeds: [createWarnLogEmbed({ user: targetUser, executor: interaction.user, reason: motivo, total: list.length })] });
+    // Try/catch propio: si el log falla (permisos, rate limit), la advertencia YA se
+    // aplicó y el usuario YA vio la confirmación — no hay que mostrarle un error acá,
+    // que lo llevaría a reintentar y aplicar una segunda advertencia de más.
+    try {
+      const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
+      if (logChannel) {
+        await logChannel.send({ embeds: [createWarnLogEmbed({ user: targetUser, executor: interaction.user, reason: motivo, total: list.length })] });
+      }
+    } catch (logError) {
+      console.error('⚠️ No se pudo registrar /warn en el canal de logs:', logError);
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /warn:', error);

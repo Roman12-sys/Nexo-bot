@@ -8,6 +8,11 @@ import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
 
 const MAX_DELAY_MS = 2_147_483_647; // límite de setTimeout en Node (~24.8 días) — ver scheduleReminder
 
+// Handle del setTimeout activo por recordatorio — sin esto, /recordatorio cancelar solo
+// podía borrar la fila de Supabase, pero el timer en memoria seguía vivo y disparaba el
+// DM igual. Se actualiza en cada re-encadenamiento (recordatorios de más de ~24.8 días).
+const activeTimeouts = new Map(); // reminderId -> Timeout
+
 async function fireReminder(client, reminder) {
   try {
     const user = await client.users.fetch(reminder.userId).catch(() => null);
@@ -21,6 +26,7 @@ async function fireReminder(client, reminder) {
       await user.send({ embeds: [embed] }).catch(() => {});
     }
   } finally {
+    activeTimeouts.delete(reminder.id);
     await deleteReminder(reminder.id).catch((error) => console.error('❌ Error borrando recordatorio disparado:', error));
   }
 }
@@ -32,18 +38,32 @@ export function scheduleReminder(client, reminder) {
   const delay = reminder.remindAt - Date.now();
 
   if (delay <= 0) {
+    activeTimeouts.delete(reminder.id);
     fireReminder(client, reminder).catch((error) => console.error('❌ Error disparando recordatorio:', error));
     return;
   }
 
   if (delay > MAX_DELAY_MS) {
-    setTimeout(() => scheduleReminder(client, reminder), MAX_DELAY_MS).unref();
+    const handle = setTimeout(() => scheduleReminder(client, reminder), MAX_DELAY_MS).unref();
+    activeTimeouts.set(reminder.id, handle);
     return;
   }
 
-  setTimeout(() => {
+  const handle = setTimeout(() => {
     fireReminder(client, reminder).catch((error) => console.error('❌ Error disparando recordatorio:', error));
   }, delay).unref();
+  activeTimeouts.set(reminder.id, handle);
+}
+
+// Cancela el timer en memoria de un recordatorio, si todavía está programado. Hay que
+// llamar esto ANTES o DESPUÉS de borrar la fila en Supabase da igual (son independientes) —
+// pero sin esto, borrar la fila no evitaba que el DM se mandara igual.
+export function cancelReminder(reminderId) {
+  const handle = activeTimeouts.get(reminderId);
+  if (handle) {
+    clearTimeout(handle);
+    activeTimeouts.delete(reminderId);
+  }
 }
 
 export async function rescheduleReminders(client) {

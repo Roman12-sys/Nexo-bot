@@ -13,6 +13,7 @@ const mode = process.argv[2];
 async function loadCommandData() {
   const commandsPath = path.join(__dirname, 'commands');
   const commands = [];
+  const seenNames = new Map(); // name -> filePath, para detectar colisiones
   if (!fs.existsSync(commandsPath)) return commands;
 
   const categories = fs.readdirSync(commandsPath, { withFileTypes: true }).filter((d) => d.isDirectory());
@@ -22,7 +23,15 @@ async function loadCommandData() {
     for (const file of files) {
       const filePath = path.join(categoryPath, file);
       const command = await import(pathToFileURL(filePath).href);
-      if ('data' in command) commands.push(command.data.toJSON());
+      if (!('data' in command)) continue;
+
+      const json = command.data.toJSON();
+      const previous = seenNames.get(json.name);
+      if (previous) {
+        throw new Error(`Nombre de comando duplicado "${json.name}": ${previous} y ${filePath}. Corregí uno de los dos antes de desplegar.`);
+      }
+      seenNames.set(json.name, filePath);
+      commands.push(json);
     }
   }
   return commands;
