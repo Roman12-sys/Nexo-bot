@@ -17,6 +17,22 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message],
 });
 
+// discord.js emite 'error'/'shardError' en problemas de conexión (blips de red,
+// reconexiones del gateway) — sin un listener, Node trata un 'error' no manejado en un
+// EventEmitter como excepción fatal y tira todo el proceso por un problema transitorio.
+client.on('error', (error) => console.error('❌ Error del cliente de Discord:', error));
+client.on('shardError', (error) => console.error('❌ Error de conexión con el gateway:', error));
+
+// Red de seguridad general: un error async sin catch en algún punto del código no debería
+// tirar el proceso en silencio. Se loguea siempre; en uncaughtException además se sale con
+// código 1 para que el "restart policy" de Railway levante un proceso limpio en vez de
+// seguir corriendo en un estado posiblemente corrupto.
+process.on('unhandledRejection', (reason) => console.error('❌ Promesa rechazada sin manejar:', reason));
+process.on('uncaughtException', (error) => {
+  console.error('❌ Excepción no capturada, reiniciando el proceso:', error);
+  process.exit(1);
+});
+
 client.commands = new Collection();
 
 async function loadCommands() {
