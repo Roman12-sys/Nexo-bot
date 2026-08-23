@@ -66,6 +66,15 @@ sticker/hilo, mensajes editados/borrados, etc.) viven consolidados en
 `src/utils/logEmbeds.js` — a diferencia de gNoX, que los tenía repartidos entre
 `utils/embeds.js` y `utils/logEmbeds.js`.
 
+## Voz: qué eventos se procesan
+
+`voiceStateUpdate.js` solo arma un `action` (y por lo tanto solo consulta `guild_config`/
+loguea) para join/leave/move y cambio de cámara. Mute/deafen/compartir pantalla se
+descartan a propósito, antes de tocar Supabase — un usuario los toca cientos de veces por
+sesión de voz y no aportan nada al log de actividad. El sistema de salas temporales
+(`tempVoiceEngine.js`) es independiente de este filtro: tiene su propio early-return
+(`oldState.channelId === newState.channelId`) desde antes.
+
 ## Permisos
 
 `src/utils/permissions.js`: `isStaff(interaction)` y `isStaffConfigured(guildId)` son
@@ -147,6 +156,43 @@ Decisiones puntuales:
 - `node src/deploy-commands.js` (sin `dev`) registra los comandos **globalmente** —
   correrlo solo cuando se confirma explícitamente, porque afecta a cualquier server que
   tenga el bot invitado (no solo el de test) y tarda hasta 1h en propagar.
+
+## Timers en memoria: qué persiste y qué no
+
+Recordatorios (`reminderEngine.js`) y sorteos (`giveawayEngine.js`) se reprograman al
+arrancar (`ready.js` → `rescheduleReminders`/`rescheduleActiveGiveaways`) leyendo de
+Supabase — si el bot estuvo caído más tiempo del que faltaba, disparan al toque en vez de
+perderse, no hace falta ningún cron externo. Las salas de voz temporales hacen lo mismo
+con su timer de "borrar si quedó vacía" (`reconcileOnStartup`). El resto de los `Map` en
+memoria del proyecto (`rateLimiter`, `spamDetector`, `giveTracker`, `guessSessions`,
+sesiones de `/setup`/`/anuncio`) son ventanas cortas a propósito — perderlas en un
+restart no rompe nada de negocio, así que NO se persisten en Supabase; cada uno se
+auto-limpia solo (barrido periódico con `setInterval(...).unref()`, o timeout por
+entrada) para no crecer sin límite.
+
+## Seguridad Supabase: RLS preparado pero apagado (a propósito)
+
+Bot y dashboard usan el mismo cliente con la `service_role` key (`src/supabaseClient.js`)
+— no existe ningún `anon key` en el proyecto, y el dashboard nunca expone Supabase al
+browser (server-rendered, sesión propia firmada, nunca `express-session`/JWT de
+Supabase). `service_role` bypassea RLS siempre, esté activado o no — activarlo hoy no
+cambia nada de lo que el bot/dashboard hacen. No es una vulnerabilidad activa; es un
+seguro barato para el día que algo use el `anon key`. Migración (`enable row level
+security` en las 18 tablas, sin políticas) preparada pero sin ejecutar — decisión
+pendiente del usuario.
+
+## Testing (Vitest)
+
+`npm test` corre los tests de `tests/`. Todo lo que toca Supabase se mockea con
+`tests/helpers/supabaseMock.js` (un builder encadenable y a la vez "thenable", para
+cubrir tanto `select().eq().maybeSingle()` como `update().eq()` sin terminal explícito) —
+ningún test le pega a la base real. Prioriza lo que rompe en silencio si falla: params
+exactos a los RPCs atómicos de economía (`increment_balance`, `transfer_balance`, etc.),
+mapeo de `insufficient_funds` a `.code`, los 3 filtros anti-farm de `grantMessageXp`, el
+cache de 30s + aislamiento entre guilds de `guildConfigStore`, y la matriz de roles de
+`isStaff`/`isStaffConfigured`. No hay tests por comando individual (74 comandos) — la
+lógica compartida que todos ellos llaman sí está cubierta, que es donde un bug se
+replicaría a muchos comandos a la vez.
 
 ## Stack
 
