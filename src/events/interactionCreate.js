@@ -2,6 +2,7 @@ import { routeButton } from '../components/buttons.js';
 import { routeModal } from '../components/modals.js';
 import { routeSelect } from '../components/selects.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
+import { trackCommandUsage } from '../utils/commandUsageStore.js';
 
 export const name = 'interactionCreate';
 export const once = false;
@@ -36,6 +37,7 @@ export async function execute(interaction, client) {
     if (!command) return;
     try {
       await command.execute(interaction, client);
+      trackCommandUsage(interaction.guildId, interaction.commandName);
     } catch (error) {
       console.error(`Error ejecutando /${interaction.commandName}:`, error);
       const payload = { content: 'Hubo un error ejecutando este comando.', ephemeral: true };

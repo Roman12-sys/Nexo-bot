@@ -227,6 +227,18 @@ create table if not exists confession_counters (
 );
 
 -- =========================================================
+-- Métricas de uso agregadas (/metricas) — un contador por comando y servidor,
+-- nunca eventos individuales: solo importa el total y la última vez usado.
+-- =========================================================
+create table if not exists command_usage (
+  guild_id text not null,
+  command_name text not null,
+  uses bigint not null default 0,
+  last_used_at timestamptz not null default now(),
+  primary key (guild_id, command_name)
+);
+
+-- =========================================================
 -- RPCs atómicas
 -- =========================================================
 
@@ -374,5 +386,17 @@ begin
   returning counter into v_new_counter;
 
   return v_new_counter;
+end;
+$$;
+
+create or replace function increment_command_usage(p_guild_id text, p_command_name text)
+returns void
+language plpgsql
+as $$
+begin
+  insert into command_usage (guild_id, command_name, uses, last_used_at)
+  values (p_guild_id, p_command_name, 1, now())
+  on conflict (guild_id, command_name)
+  do update set uses = command_usage.uses + 1, last_used_at = now();
 end;
 $$;
