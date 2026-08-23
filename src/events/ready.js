@@ -1,6 +1,7 @@
 import { rescheduleActiveGiveaways } from '../utils/giveawayEngine.js';
 import { reconcileOnStartup } from '../utils/tempVoiceEngine.js';
 import { rescheduleReminders } from '../utils/reminderEngine.js';
+import { startVoiceXpLoop } from '../utils/voiceXpEngine.js';
 
 export const name = 'clientReady';
 export const once = true;
@@ -19,4 +20,8 @@ export async function execute(client) {
   // Mismo motivo que los sorteos: los setTimeout de /recordatorio viven solo en
   // memoria, hay que volver a programarlos contra lo guardado en Supabase.
   await rescheduleReminders(client).catch((error) => console.error('❌ Error reprogramando recordatorios:', error));
+
+  // Barrido de XP por tiempo en voz — arranca acá y se repite solo cada 5 minutos,
+  // no hace falta reprogramar nada al reiniciar (no depende de estado guardado).
+  startVoiceXpLoop(client);
 }
