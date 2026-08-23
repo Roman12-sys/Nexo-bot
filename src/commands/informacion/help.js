@@ -48,6 +48,7 @@ export function buildInfoEmbed() {
       { name: '/ranking', value: 'Top de niveles/XP del servidor.' },
       { name: '/servidor', value: 'Muestra información general sobre el servidor.' },
       { name: '/avatar [usuario]', value: 'Muestra el avatar de un usuario en tamaño completo.' },
+      { name: '/ping', value: 'Latencia del bot — para confirmar que está funcionando.' },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -65,7 +66,7 @@ export function buildEconomiaEmbed() {
       { name: '/shop', value: 'Muestra la tienda.' },
       { name: '/buy <item>', value: 'Comprá un ítem.' },
       { name: '/inventory [usuario]', value: 'Muestra tu inventario.' },
-      { name: '/leaderboard', value: 'Top 10 de monedas.' },
+      { name: '/leaderboard', value: 'Top de monedas del servidor, paginado.' },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -75,7 +76,7 @@ export function buildDiversionEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🎲 Diversión')
-    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/say` `/reputation` `/confession` `/encuesta` `/afk` `/recordatorio`')
+    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/reputation dar` `/reputation ranking` `/confession` `/encuesta` `/afk` `/recordatorio`')
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }

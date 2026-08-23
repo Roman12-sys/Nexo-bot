@@ -21,6 +21,8 @@ export const ACHIEVEMENTS = [
   { id: 'con_suerte', emoji: '🎉', name: 'Con suerte', description: 'Ganaste un /sorteo.' },
   { id: 'anfitrion', emoji: '🔊', name: 'Anfitrión', description: 'Creaste tu primera sala de voz temporal.' },
   { id: 'primera_compra', emoji: '🛍️', name: 'De compras', description: 'Compraste tu primer ítem en /shop.' },
+  { id: 'primera_encuesta', emoji: '📊', name: 'Encuestador', description: 'Creaste tu primera /encuesta.' },
+  { id: 'primera_confesion', emoji: '🤫', name: 'Confesor anónimo', description: 'Enviaste tu primera /confession.' },
 ];
 
 const BY_ID = new Map(ACHIEVEMENTS.map((a) => [a.id, a]));

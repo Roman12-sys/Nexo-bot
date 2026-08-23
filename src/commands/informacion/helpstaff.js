@@ -58,6 +58,7 @@ export function buildMainMenuRow() {
 export function buildMainMenuRow2() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('helpstaff_cat_xp').setLabel('⭐ XP y niveles').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('helpstaff_cat_bot').setLabel('🩺 Bot').setStyle(ButtonStyle.Secondary),
   );
 }
 
@@ -78,6 +79,8 @@ export function buildModeracionEmbed() {
       { name: '/kick <usuario>', value: 'Expulsa a un usuario del servidor.' },
       { name: '/ban <usuario>', value: 'Banea a un usuario del servidor.' },
       { name: '/timeout <usuario> <duración>', value: 'Silencia temporalmente a un usuario.' },
+      { name: '/say <mensaje>', value: 'El bot manda un mensaje por vos en el canal actual.' },
+      { name: '/voice setup/config/disable/admin', value: 'Configura el sistema de salas de voz temporales (Join to Create) y administra las salas activas.' },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -89,10 +92,12 @@ export function buildAdvertenciasEmbed() {
     .setTitle('⚠️ Advertencias y sanciones')
     .addFields(
       { name: '/warn <usuario> <motivo>', value: 'Aplica una advertencia a un usuario.' },
+      { name: '/warn-editar <usuario> <número> <motivo>', value: 'Corrige el motivo de una advertencia ya aplicada, sin perder la fecha original.' },
       { name: '/warns <usuario>', value: 'Muestra las advertencias de un usuario.' },
       { name: '/unwarn <usuario> [número]', value: 'Quita una advertencia (o todas si no se indica número).' },
       { name: '/punish <usuario>', value: 'Impide que un usuario envíe imágenes o enlaces (requiere `/config rol-castigo`).' },
       { name: '/unpunish <usuario>', value: 'Quita esa restricción.' },
+      { name: '/unban <usuario>', value: 'Desbanea directamente (con autocompletado de baneados), sin pasar por el panel.' },
       { name: '/sanciones', value: 'Panel para ver y quitar timeouts, restricciones, baneos y advertencias activas.' },
     )
     .setFooter({ text: BRAND_NAME })
@@ -104,7 +109,7 @@ export function buildSorteosAnunciosEmbed() {
     .setColor(BRAND_COLOR)
     .setTitle('📢 Sorteos y anuncios')
     .addFields(
-      { name: '/sorteo crear/terminar/reroll/cancelar', value: 'Sistema de sorteos con botón de participación.' },
+      { name: '/sorteo crear/terminar/reroll/cancelar', value: 'Sistema de sorteos con botón de participación (con rol requerido opcional).' },
       { name: '/anuncio', value: 'Abre el formulario para crear un anuncio profesional (con opción de mencionar rol/usuario/@everyone).' },
     )
     .setFooter({ text: BRAND_NAME })
@@ -122,6 +127,7 @@ export function buildEconomiaEmbed() {
       { name: '/economia-staff establecer <usuario> <cantidad> [motivo]', value: 'Fija un balance exacto.' },
       { name: '/economia-staff historial <usuario> [cantidad]', value: 'Últimos movimientos: tipo, monto, balance resultante, quién lo causó y motivo.' },
       { name: '/economia-staff perfil <usuario>', value: 'Balance + cooldowns de /daily y /work + inventario, todo junto.' },
+      { name: '/economia-staff pendientes', value: 'Últimas compras de ítems de entrega manual (cambio de apodo, etc.) — para no perderlas de vista en el log.' },
       { name: '/shop-admin agregar/quitar/listar', value: 'Arma el catálogo de /shop propio de este servidor (nombre, precio, rol opcional, entrega manual o automática).' },
     )
     .setFooter({ text: BRAND_NAME })
@@ -146,6 +152,18 @@ export function buildXpEmbed() {
       { name: '/xp quitar <usuario> <cantidad> [motivo]', value: 'Quita XP.' },
       { name: '/xp establecer <usuario> <cantidad> [motivo]', value: 'Fija la XP total exacta.' },
       { name: '/xp nivel <usuario> <nivel> [motivo]', value: 'Fija el nivel exacto (calcula la XP correspondiente automáticamente).' },
+    )
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
+}
+
+export function buildBotEmbed() {
+  return new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('🩺 Bot')
+    .addFields(
+      { name: '/estado', value: 'Salud técnica: latencia del gateway, conexión a Supabase, sorteos y salas de voz temporales activas en este servidor.' },
+      { name: '/metricas', value: 'Los comandos más usados de este servidor y cuántas veces se usaron en total.' },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -193,6 +211,10 @@ registerButtonPrefix('helpstaff_cat_roles', async (i) => {
 registerButtonPrefix('helpstaff_cat_xp', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
   await i.update({ embeds: [buildXpEmbed()], components: [buildBackRow()] });
+});
+registerButtonPrefix('helpstaff_cat_bot', async (i) => {
+  if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+  await i.update({ embeds: [buildBotEmbed()], components: [buildBackRow()] });
 });
 registerButtonPrefix('helpstaff_back', async (i) => {
   await i.update({ embeds: [buildMainMenuEmbed()], components: [buildMainMenuRow(), buildMainMenuRow2(), getHelpStaffButtonsRow()] });

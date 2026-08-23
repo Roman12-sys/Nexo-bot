@@ -4,14 +4,22 @@ import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { describeError } from '../../utils/errorMessages.js';
+import { recordModerationAction, getGuildFrequentReasons } from '../../utils/moderationActionsStore.js';
 
 export const data = new SlashCommandBuilder()
   .setName('punish')
   .setDescription('Restringe a un usuario para que no pueda enviar imágenes ni enlaces.')
   .addUserOption((o) => o.setName('usuario').setDescription('Usuario').setRequired(true))
-  .addStringOption((o) => o.setName('motivo').setDescription('Motivo').setRequired(false).setMaxLength(512))
+  .addStringOption((o) => o.setName('motivo').setDescription('Motivo').setRequired(false).setMaxLength(512).setAutocomplete(true))
   .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
+
+export async function autocomplete(interaction) {
+  const focused = interaction.options.getFocused().toLowerCase();
+  const reasons = await getGuildFrequentReasons(interaction.guildId, 'punish').catch(() => []);
+  const matches = reasons.filter((r) => r.toLowerCase().includes(focused)).map((r) => ({ name: r.slice(0, 100), value: r.slice(0, 100) }));
+  await interaction.respond(matches);
+}
 
 export async function execute(interaction) {
   if (!(await isStaff(interaction))) {
@@ -69,6 +77,12 @@ export async function execute(interaction) {
     } catch (logError) {
       console.error('⚠️ No se pudo registrar /punish en el canal de logs:', logError);
     }
+
+    await recordModerationAction(interaction.guildId, targetUser.id, {
+      actionType: 'punish',
+      moderatorId: interaction.user.id,
+      reason: motivo,
+    }).catch((e) => console.error('⚠️ No se pudo registrar /punish en el historial de sanciones:', e));
   } catch (error) {
     console.error('❌ Error al ejecutar /punish:', error);
     const errorMsg = { content: describeError(error, '❌ Ocurrió un error al aplicar la restricción.'), flags: MessageFlags.Ephemeral };

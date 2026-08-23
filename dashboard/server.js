@@ -89,7 +89,13 @@ app.get('/guild/:guildId', async (req, res) => {
     }
 
     const data = await loadGuildDashboardData(req.params.guildId);
-    const userIds = [...data.topBalances.map((b) => b.user_id), ...data.recentWarns.flatMap((w) => [w.user_id, w.moderator_id])];
+    const userIds = [
+      ...data.topBalances.map((b) => b.user_id),
+      ...data.recentWarns.flatMap((w) => [w.user_id, w.moderator_id]),
+      ...data.topTrivia.map((t) => t.userId),
+      ...data.topReputation.map((r) => r.userId),
+      ...data.punishedMembers,
+    ];
     const usersById = await resolveUsers(userIds);
 
     res.send(layout({ title: access.guild.name, body: renderGuildDashboard(access.guild, data, usersById), loggedIn: true }));

@@ -3,7 +3,7 @@
 // cada redeploy de Railway, por eso rescheduleReminders() existe (llamada desde
 // ready.js), igual que rescheduleActiveGiveaways().
 import { EmbedBuilder } from 'discord.js';
-import { getAllReminders, deleteReminder } from './remindersStore.js';
+import { getAllReminders, deleteReminder, rescheduleReminder } from './remindersStore.js';
 import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
 
 const MAX_DELAY_MS = 2_147_483_647; // límite de setTimeout en Node (~24.8 días) — ver scheduleReminder
@@ -27,7 +27,21 @@ async function fireReminder(client, reminder) {
     }
   } finally {
     activeTimeouts.delete(reminder.id);
-    await deleteReminder(reminder.id).catch((error) => console.error('❌ Error borrando recordatorio disparado:', error));
+
+    // Recurrente: se reprograma para la próxima vez en vez de borrarse. Se calcula desde
+    // Date.now() (no desde el remindAt viejo) a propósito — si el bot estuvo caído y se
+    // perdieron varios ciclos, no queremos que se disparen todos juntos al reiniciar.
+    if (reminder.repeatMs) {
+      const nextRemindAt = Date.now() + reminder.repeatMs;
+      try {
+        await rescheduleReminder(reminder.id, nextRemindAt);
+        scheduleReminder(client, { ...reminder, remindAt: nextRemindAt });
+      } catch (error) {
+        console.error('❌ Error reprogramando recordatorio recurrente:', error);
+      }
+    } else {
+      await deleteReminder(reminder.id).catch((error) => console.error('❌ Error borrando recordatorio disparado:', error));
+    }
   }
 }
 

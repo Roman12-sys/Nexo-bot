@@ -221,6 +221,43 @@ export async function recordTransaction(guildId, userId, { type, amount, balance
   if (error) throw error;
 }
 
+// Últimas compras del servidor de items puntuales por nombre (reason) — lo usa
+// /economia-staff pendientes para listar compras de entrega MANUAL (cambio de apodo,
+// mención en anuncio) sin tener que scrollear el canal de logs de economía a mano.
+export async function getGuildPurchasesByReason(guildId, reasons, limit = 25, { onlyPending = false } = {}) {
+  if (reasons.length === 0) return [];
+
+  let query = supabase
+    .from(TRANSACTIONS_TABLE)
+    .select('id, user_id, reason, amount, delivered, created_at')
+    .eq('guild_id', guildId)
+    .eq('type', 'purchase')
+    .in('reason', reasons)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (onlyPending) query = query.eq('delivered', false);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data || []).map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    reason: row.reason,
+    amount: row.amount,
+    delivered: row.delivered,
+    timestamp: new Date(row.created_at).getTime(),
+  }));
+}
+
+// /economia-staff pendientes: marca una compra de entrega manual como ya cumplida, para
+// que deje de aparecer en la lista. No hay "desmarcar" — si fue un error, se vuelve a
+// abrir el caso a mano (es un simple flag, no un historial de estados).
+export async function markPurchaseDelivered(transactionId) {
+  const { error } = await supabase.from(TRANSACTIONS_TABLE).update({ delivered: true }).eq('id', transactionId);
+  if (error) throw error;
+}
+
 // Devuelve los últimos "limit" movimientos de un usuario, más reciente primero
 export async function getUserTransactions(guildId, userId, limit = 10) {
   const { data, error } = await supabase

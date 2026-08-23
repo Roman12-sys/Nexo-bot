@@ -5,7 +5,10 @@
 import { supabase } from '../src/supabaseClient.js';
 import { getTopCommands, getTotalUsage } from '../src/utils/commandUsageStore.js';
 import { getUnlockedGuildAchievementIds } from '../src/utils/guildAchievements.js';
-import { fetchGuild, fetchGuildMember, mapWithConcurrency } from './discordApi.js';
+import { getGuildGiveawaysForAutocomplete } from '../src/utils/giveawaysStore.js';
+import { getGuildTrivia } from '../src/utils/triviaStore.js';
+import { getGuildReputation } from '../src/utils/reputationStore.js';
+import { fetchGuild, fetchGuildMember, fetchGuildMembersWithRole, mapWithConcurrency } from './discordApi.js';
 import { isStaffFromRoles } from './permissions.js';
 
 // Lista los servidores donde el usuario logueado es dueño o tiene el rol de staff
@@ -61,15 +64,24 @@ export async function checkGuildAccess(guildId, userId) {
 }
 
 export async function loadGuildDashboardData(guildId) {
-  const [topCommands, totalCommands, unlockedAchievementIds, topBalances, allBalances, recentWarns, totalWarns] = await Promise.all([
-    getTopCommands(guildId, 5),
-    getTotalUsage(guildId),
-    getUnlockedGuildAchievementIds(guildId),
-    fetchTopBalances(guildId),
-    fetchAllBalances(guildId),
-    fetchRecentWarns(guildId),
-    fetchWarnCount(guildId),
-  ]);
+  // activeGiveaways/topTrivia/topReputation reusan los mismos stores que ya usan los
+  // comandos del bot (giveawaysStore/triviaStore/reputationStore) en vez de reimplementar
+  // la consulta acá — antes el dashboard no mostraba nada de sorteos, trivia ni
+  // reputación, a pesar de que la data ya existía.
+  const [topCommands, totalCommands, unlockedAchievementIds, topBalances, allBalances, recentWarns, totalWarns, activeGiveaways, topTrivia, topReputation, punishedInfo] =
+    await Promise.all([
+      getTopCommands(guildId, 5),
+      getTotalUsage(guildId),
+      getUnlockedGuildAchievementIds(guildId),
+      fetchTopBalances(guildId),
+      fetchAllBalances(guildId),
+      fetchRecentWarns(guildId),
+      fetchWarnCount(guildId),
+      getGuildGiveawaysForAutocomplete(guildId, false),
+      getGuildTrivia(guildId, { limit: 5 }),
+      getGuildReputation(guildId, { limit: 5 }),
+      fetchPunishedMembers(guildId),
+    ]);
 
   return {
     topCommands,
@@ -79,7 +91,25 @@ export async function loadGuildDashboardData(guildId) {
     totalCoins: allBalances.reduce((sum, row) => sum + Number(row.balance), 0),
     recentWarns,
     totalWarns,
+    activeGiveaways,
+    topTrivia: topTrivia.filter((row) => row.points > 0),
+    topReputation: topReputation.filter((row) => row.total > 0),
+    punishedMembers: punishedInfo.members,
+    punishedPossiblyIncomplete: punishedInfo.possiblyIncomplete,
   };
+}
+
+// La función para listar sancionados ya existe del lado del bot (src/utils/sanctions.js,
+// getPunishedMembers) pero usa un Client de discord.js conectado al gateway — acá no hay
+// eso, así que se resuelve por REST (fetchGuildMembersWithRole). Antes el dashboard no
+// mostraba esto en absoluto.
+async function fetchPunishedMembers(guildId) {
+  const { data: cfg, error } = await supabase.from('guild_config').select('punish_role_id').eq('guild_id', guildId).maybeSingle();
+  if (error) throw error;
+  if (!cfg?.punish_role_id) return { members: [], possiblyIncomplete: false };
+
+  const { members, possiblyIncomplete } = await fetchGuildMembersWithRole(guildId, cfg.punish_role_id);
+  return { members: members.map((m) => m.user.id), possiblyIncomplete };
 }
 
 async function fetchTopBalances(guildId) {

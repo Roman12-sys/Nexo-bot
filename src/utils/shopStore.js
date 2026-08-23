@@ -82,6 +82,28 @@ export async function addShopItem(guildId, item) {
   return itemId;
 }
 
+// Corrige precio/descripción/categoría/rol de un ítem YA existente sin tocar su item_id
+// — a diferencia de borrar + volver a agregar, esto no rompe la referencia de quien ya
+// lo tiene en su /inventory (ahí solo se guarda el item_id, no una copia de los datos).
+// "patch" solo incluye las claves que se quieren cambiar. Devuelve false si no existe.
+export async function updateShopItem(guildId, itemId, patch) {
+  const row = {};
+  if ('name' in patch) row.name = patch.name;
+  if ('description' in patch) row.description = patch.description;
+  if ('category' in patch) row.category = patch.category;
+  if ('price' in patch) row.price = patch.price;
+  if ('roleId' in patch) row.role_id = patch.roleId;
+
+  const { error, count } = await supabase
+    .from(TABLE)
+    .update(row, { count: 'exact' })
+    .eq('guild_id', guildId)
+    .eq('item_id', itemId);
+
+  if (error) throw error;
+  return count > 0;
+}
+
 export async function removeShopItem(guildId, itemId) {
   const { error, count } = await supabase
     .from(TABLE)

@@ -53,7 +53,7 @@ export function buildAnuncioEmbed(draft) {
 // array todavía). El resto de los call sites (entrar/salir, terminar, reroll, cancelar)
 // spread-ean el objeto guardado, que tiene "participants" (el array) pero no "participantsCount" —
 // sin este fallback, esos embeds mostrarían literalmente "undefined".
-export function createGiveawayEmbed({ prize, winnersCount, endTimestamp, participantsCount, participants, ended, winners, cancelled }) {
+export function createGiveawayEmbed({ prize, winnersCount, endTimestamp, participantsCount, participants, ended, winners, cancelled, requiredRoleId }) {
   const count = typeof participantsCount === 'number' ? participantsCount : (participants ? participants.length : 0);
   const embed = new EmbedBuilder()
     .setColor(cancelled ? '#6C757D' : ended ? '#2A9D8F' : BRAND_COLOR)
@@ -65,6 +65,8 @@ export function createGiveawayEmbed({ prize, winnersCount, endTimestamp, partici
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
+
+  if (requiredRoleId) embed.addFields({ name: 'Requisito', value: `🔒 Solo <@&${requiredRoleId}>` });
 
   if (!ended && !cancelled) {
     embed.addFields({ name: 'Finaliza', value: `<t:${Math.floor(endTimestamp / 1000)}:R>` });

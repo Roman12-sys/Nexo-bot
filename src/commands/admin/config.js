@@ -48,6 +48,49 @@ export const data = new SlashCommandBuilder()
       .setDescription('Canal donde se publican las confesiones anónimas de /confession.')
       .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para desactivar)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   )
+  .addSubcommand((sub) =>
+    sub
+      .setName('canal-anuncio-nivel')
+      .setDescription('Canal donde se anuncia cuando alguien sube de nivel.')
+      .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para desactivar)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('rol-nivel')
+      .setDescription('Asigna (o quita) el rol que se entrega automáticamente al llegar a un nivel.')
+      .addIntegerOption((o) => o.setName('nivel').setDescription('Nivel exacto').setRequired(true).setMinValue(1))
+      .addRoleOption((o) => o.setName('rol').setDescription('Rol a entregar (dejalo vacío para quitar el rol de ese nivel)').setRequired(false)),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('modo-roles-nivel')
+      .setDescription('Cómo se acumulan los roles de nivel al subir varios de una vez.')
+      .addStringOption((o) =>
+        o
+          .setName('modo')
+          .setDescription('Acumulativo: te quedás con todos. Reemplazar: solo el del nivel más alto.')
+          .setRequired(true)
+          .addChoices({ name: 'Acumulativo (te quedás con todos)', value: 'cumulative' }, { name: 'Reemplazar (solo el más alto)', value: 'replace' }),
+      ),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('confesiones-revision')
+      .setDescription('Si está activo, las confesiones pasan por aprobación del staff antes de publicarse.')
+      .addBooleanOption((o) => o.setName('activo').setDescription('Activar o desactivar la revisión previa').setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('confesion-bloquear')
+      .setDescription('Impide que un usuario puntual use /confession en este servidor.')
+      .addUserOption((o) => o.setName('usuario').setDescription('Usuario a bloquear').setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('confesion-desbloquear')
+      .setDescription('Le devuelve a un usuario el acceso a /confession.')
+      .addUserOption((o) => o.setName('usuario').setDescription('Usuario a desbloquear').setRequired(true)),
+  )
   .addSubcommand((sub) => sub.setName('ver').setDescription('Muestra la configuración actual de estos campos.'))
   .addSubcommand((sub) => sub.setName('exportar').setDescription('Descarga la configuración actual como JSON (respaldo, o para clonarla a otro servidor).'))
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
@@ -100,6 +143,71 @@ export async function execute(interaction) {
     return;
   }
 
+  if (sub === 'canal-anuncio-nivel') {
+    const canal = interaction.options.getChannel('canal');
+    await setGuildConfig(guildId, { xp_announce_channel_id: canal?.id ?? null });
+    await interaction.reply({ content: canal ? `✅ Canal de anuncio de nivel configurado: ${canal}.` : '✅ Canal de anuncio de nivel desactivado.', flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, canal ? `📣 Canal de anuncio de nivel → ${canal}` : '📣 Canal de anuncio de nivel desactivado');
+    return;
+  }
+
+  if (sub === 'rol-nivel') {
+    const nivel = interaction.options.getInteger('nivel');
+    const rol = interaction.options.getRole('rol');
+    const cfg = await getGuildConfig(guildId);
+    const levelRoles = { ...(cfg.level_roles || {}) };
+
+    if (rol) levelRoles[nivel] = rol.id;
+    else delete levelRoles[nivel];
+
+    await setGuildConfig(guildId, { level_roles: levelRoles });
+    await interaction.reply({
+      content: rol ? `✅ A partir del nivel **${nivel}** se entrega ${rol}.` : `✅ Se quitó el rol asignado al nivel **${nivel}** (si tenía uno).`,
+      flags: MessageFlags.Ephemeral,
+    });
+    await logConfigChange(interaction, rol ? `✨ Rol de nivel ${nivel} → ${rol}` : `✨ Rol de nivel ${nivel} quitado`);
+    return;
+  }
+
+  if (sub === 'modo-roles-nivel') {
+    const modo = interaction.options.getString('modo');
+    await setGuildConfig(guildId, { level_roles_mode: modo });
+    const modoTexto = modo === 'replace' ? 'Reemplazar (solo el más alto)' : 'Acumulativo (te quedás con todos)';
+    await interaction.reply({ content: `✅ Modo de roles de nivel: **${modoTexto}**.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `✨ Modo de roles de nivel → ${modoTexto}`);
+    return;
+  }
+
+  if (sub === 'confesiones-revision') {
+    const activo = interaction.options.getBoolean('activo');
+    await setGuildConfig(guildId, { confession_require_approval: activo });
+    await interaction.reply({ content: activo ? '✅ Las confesiones ahora pasan por revisión del staff antes de publicarse.' : '✅ Las confesiones vuelven a publicarse directo, sin revisión.', flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `🕵️ Revisión previa de confesiones → ${activo ? 'activada' : 'desactivada'}`);
+    return;
+  }
+
+  if (sub === 'confesion-bloquear') {
+    const usuario = interaction.options.getUser('usuario');
+    const cfg = await getGuildConfig(guildId);
+    const blocked = new Set(cfg.confession_blocked_ids || []);
+    blocked.add(usuario.id);
+    await setGuildConfig(guildId, { confession_blocked_ids: [...blocked] });
+    await interaction.reply({ content: `✅ ${usuario.tag} ya no puede usar /confession en este servidor.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `🚫 ${usuario.tag} bloqueado de /confession`);
+    return;
+  }
+
+  if (sub === 'confesion-desbloquear') {
+    const usuario = interaction.options.getUser('usuario');
+    const cfg = await getGuildConfig(guildId);
+    const blocked = new Set(cfg.confession_blocked_ids || []);
+    blocked.delete(usuario.id);
+    await setGuildConfig(guildId, { confession_blocked_ids: [...blocked] });
+    await interaction.reply({ content: `✅ ${usuario.tag} vuelve a poder usar /confession.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `✅ ${usuario.tag} desbloqueado de /confession`);
+    return;
+  }
+
   if (sub === 'ver') {
     await interaction.reply({ embeds: [await buildConfigSummaryEmbed(guildId)], flags: MessageFlags.Ephemeral });
     return;
@@ -149,6 +257,8 @@ export async function buildConfigSummaryEmbed(guildId) {
       { name: '🎫 Rol automático', value: role(cfg.auto_role_id), inline: true },
       { name: '🎉 Canal de bienvenida', value: channel(cfg.welcome_channel_id), inline: true },
       { name: '🤫 Canal de confesiones', value: channel(cfg.confession_channel_id), inline: true },
+      { name: '🕵️ Revisión previa de confesiones', value: toggle(cfg.confession_require_approval), inline: true },
+      { name: '🚷 Usuarios bloqueados de /confession', value: `${(cfg.confession_blocked_ids || []).length}`, inline: true },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();

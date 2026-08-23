@@ -42,6 +42,19 @@ export async function addReputation(guildId, userId, amount) {
   return newTotal;
 }
 
+// Ranking del servidor, mayor a menor — mismo patrón que getGuildEconomy/getGuildXp.
+// No existía ninguna función de esto todavía: /reputation solo podía mostrar TU propio
+// total (vía /perfil), nunca el top del servidor.
+export async function getGuildReputation(guildId, { limit } = {}) {
+  let query = supabase.from(TABLE).select('user_id, total').eq('guild_id', guildId).order('total', { ascending: false });
+  if (limit) query = query.limit(limit);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  return (data || []).map((row) => ({ userId: row.user_id, total: row.total }));
+}
+
 // Actualiza SOLO el cooldown de "última vez que dio reputación" de un usuario, sin tocar
 // su total — evita que un total cambiado por otra acción concurrente se pise. El RPC
 // (amount 0) garantiza que la fila exista antes de este UPDATE de una sola columna.

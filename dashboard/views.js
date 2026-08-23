@@ -63,6 +63,23 @@ export function renderGuildDashboard(guild, data, usersById) {
       )
       .join('') || '<tr><td colspan="4" class="muted">Sin advertencias registradas</td></tr>';
 
+  const giveawaysRows =
+    data.activeGiveaways
+      .map((g) => `<tr><td>${escapeHtml(g.prize)}</td><td><code>${escapeHtml(g.messageId)}</code></td></tr>`)
+      .join('') || '<tr><td colspan="2" class="muted">Ninguno activo ahora mismo</td></tr>';
+
+  const triviaRows =
+    data.topTrivia.map((t) => `<tr><td>${userLabel(usersById, t.userId)}</td><td>${t.points}</td></tr>`).join('') ||
+    '<tr><td colspan="2" class="muted">Todavía nadie sumó puntos</td></tr>';
+
+  const reputationRows =
+    data.topReputation.map((r) => `<tr><td>${userLabel(usersById, r.userId)}</td><td>${r.total}</td></tr>`).join('') ||
+    '<tr><td colspan="2" class="muted">Todavía nadie tiene reputación</td></tr>';
+
+  const punishedRows =
+    data.punishedMembers.map((userId) => `<tr><td>${userLabel(usersById, userId)}</td></tr>`).join('') ||
+    '<tr><td class="muted">Nadie sancionado ahora mismo</td></tr>';
+
   return `
     <a class="muted" href="/">&larr; Tus servidores</a>
     <h1>${escapeHtml(guild.name)}</h1>
@@ -91,5 +108,26 @@ export function renderGuildDashboard(guild, data, usersById) {
         <div class="stat"><div class="value">${data.totalWarns}</div><div class="label">Advertencias totales</div></div>
       </div>
       <table><thead><tr><th>Usuario</th><th>Motivo</th><th>Staff</th><th>Fecha</th></tr></thead><tbody>${warnsRows}</tbody></table>
+      <h3 style="margin:1rem 0 0.5rem;">🚫 Sancionados activos (${data.punishedMembers.length})</h3>
+      ${data.punishedPossiblyIncomplete ? '<p class="muted">El servidor tiene muchos miembros — esta lista puede no incluirlos a todos.</p>' : ''}
+      <table><thead><tr><th>Usuario</th></tr></thead><tbody>${punishedRows}</tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>🎉 Sorteos y juegos</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="value">${data.activeGiveaways.length}</div><div class="label">Sorteos activos</div></div>
+      </div>
+      <table><thead><tr><th>Premio</th><th>ID del mensaje</th></tr></thead><tbody>${giveawaysRows}</tbody></table>
+      <div class="stat-row" style="margin-top:1rem;">
+        <div style="flex:1;">
+          <h3 style="margin:0 0 0.5rem;">🧠 Top trivia</h3>
+          <table><thead><tr><th>Usuario</th><th>Puntos</th></tr></thead><tbody>${triviaRows}</tbody></table>
+        </div>
+        <div style="flex:1;">
+          <h3 style="margin:0 0 0.5rem;">❤️ Top reputación</h3>
+          <table><thead><tr><th>Usuario</th><th>Puntos</th></tr></thead><tbody>${reputationRows}</tbody></table>
+        </div>
+      </div>
     </div>`;
 }

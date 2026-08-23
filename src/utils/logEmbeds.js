@@ -320,6 +320,20 @@ export function createUnwarnLogEmbed({ user, executor, detail }) {
   });
 }
 
+// Distinto de createUnwarnLogEmbed a propósito: esa es para BORRAR una advertencia,
+// esto es para corregir el motivo sin borrarla (/warn-editar).
+export function createWarnEditedLogEmbed({ user, executor, numero, motivoNuevo }) {
+  return baseLogEmbed({
+    color: WARN_COLOR,
+    title: '✏️ Advertencia editada',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: 'Editada por', value: userTag(executor), inline: true },
+      { name: 'Nuevo motivo', value: `#${numero} — ${motivoNuevo}` },
+    ],
+  });
+}
+
 // ---- Miembros ----
 
 export function createNicknameChangeLogEmbed({ member, executor, oldNick, newNick }) {

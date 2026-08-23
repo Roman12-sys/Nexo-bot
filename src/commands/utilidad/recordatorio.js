@@ -20,7 +20,9 @@ function buildReminderEmbed(reminders, page) {
   embed.setDescription(
     reminders.length === 0
       ? 'No tenés recordatorios pendientes.'
-      : slice.map((r) => `\`#${r.id}\` <t:${Math.floor(r.remindAt / 1000)}:R> — ${r.message}`).join('\n'),
+      : slice
+          .map((r) => `\`#${r.id}\` <t:${Math.floor(r.remindAt / 1000)}:R> — ${r.message}${r.repeatMs ? ` 🔁 ${REPEAT_LABELS[r.repeatMs] || 'recurrente'}` : ''}`)
+          .join('\n'),
   );
 
   return { embed, clampedPage, totalPages };
@@ -43,6 +45,9 @@ function buildReminderRow(userId, clampedPage, totalPages) {
 
 const MAX_DAYS = 30;
 const DURATION_REGEX = /^(\d+)\s*(m|min|minutos?|h|horas?|d|d[ií]as?)$/i;
+
+const REPEAT_MS = { diario: 24 * 60 * 60 * 1000, semanal: 7 * 24 * 60 * 60 * 1000 };
+const REPEAT_LABELS = { [REPEAT_MS.diario]: 'diario', [REPEAT_MS.semanal]: 'semanal' };
 
 const UNIT_TO_MS = {
   m: 60 * 1000, min: 60 * 1000, minuto: 60 * 1000, minutos: 60 * 1000,
@@ -67,6 +72,8 @@ function parseDuration(raw) {
 async function handleCrear(interaction) {
   const tiempoRaw = interaction.options.getString('tiempo');
   const mensaje = interaction.options.getString('mensaje');
+  const repetir = interaction.options.getString('repetir');
+  const repeatMs = repetir ? REPEAT_MS[repetir] : null;
 
   const delayMs = parseDuration(tiempoRaw);
   if (!delayMs) {
@@ -79,12 +86,13 @@ async function handleCrear(interaction) {
   }
 
   const remindAt = Date.now() + delayMs;
-  const reminder = await createReminder(interaction.guildId, interaction.user.id, mensaje, remindAt);
+  const reminder = await createReminder(interaction.guildId, interaction.user.id, mensaje, remindAt, repeatMs);
   scheduleReminder(interaction.client, reminder);
 
   const readyTimestamp = Math.floor(remindAt / 1000);
+  const repeatText = repeatMs ? ` Se repite ${repetir === 'diario' ? 'todos los días' : 'todas las semanas'} después de eso.` : '';
   await interaction.reply({
-    content: `⏰ Listo, te aviso por DM <t:${readyTimestamp}:R> (<t:${readyTimestamp}:f>).`,
+    content: `⏰ Listo, te aviso por DM <t:${readyTimestamp}:R> (<t:${readyTimestamp}:f>).${repeatText}`,
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -121,7 +129,14 @@ export const data = new SlashCommandBuilder()
       .setName('crear')
       .setDescription('Crea un recordatorio nuevo.')
       .addStringOption((o) => o.setName('tiempo').setDescription('Ej: 10m, 2h, 3d (máximo 30 días)').setRequired(true))
-      .addStringOption((o) => o.setName('mensaje').setDescription('Qué querés que te recuerde').setRequired(true).setMaxLength(500)),
+      .addStringOption((o) => o.setName('mensaje').setDescription('Qué querés que te recuerde').setRequired(true).setMaxLength(500))
+      .addStringOption((o) =>
+        o
+          .setName('repetir')
+          .setDescription('Repetir automáticamente después del primer aviso (opcional)')
+          .setRequired(false)
+          .addChoices({ name: 'Diario', value: 'diario' }, { name: 'Semanal', value: 'semanal' }),
+      ),
   )
   .addSubcommand((sub) => sub.setName('listar').setDescription('Muestra tus recordatorios pendientes.'))
   .addSubcommand((sub) =>

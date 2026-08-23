@@ -8,6 +8,9 @@ import { describeError } from '../../utils/errorMessages.js';
 
 const PAGE_SIZE = 5; // motivos de hasta 512 caracteres — 5 por página se queda cómodo bajo el límite de 4096 del embed
 
+// Cada advertencia es su propio campo (número + fecha como título, motivo + moderador
+// como valor) en vez de texto libre con saltos de línea — más fácil de escanear cuando
+// hay varias. También suma la miniatura del usuario, que antes no tenía.
 function buildWarnsEmbed(targetUser, list, page) {
   const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
   const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
@@ -15,17 +18,21 @@ function buildWarnsEmbed(targetUser, list, page) {
 
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
+    .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
     .setTitle(`⚠️ Advertencias de ${targetUser.tag}`)
     .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages} • ${list.length} advertencia(s)` })
     .setTimestamp();
 
-  embed.setDescription(
-    list.length === 0
-      ? 'Este usuario no tiene advertencias.'
-      : slice
-          .map((w, i) => `**#${clampedPage * PAGE_SIZE + i + 1}** — ${w.reason}\n<t:${Math.floor(w.timestamp / 1000)}:f> · por <@${w.moderatorId}>`)
-          .join('\n\n'),
-  );
+  if (list.length === 0) {
+    embed.setDescription('Este usuario no tiene advertencias.');
+  } else {
+    embed.addFields(
+      slice.map((w, i) => ({
+        name: `#${clampedPage * PAGE_SIZE + i + 1} · <t:${Math.floor(w.timestamp / 1000)}:d>`,
+        value: `${w.reason} — por <@${w.moderatorId}>`,
+      })),
+    );
+  }
 
   return { embed, clampedPage, totalPages };
 }

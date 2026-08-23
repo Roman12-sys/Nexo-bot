@@ -95,3 +95,39 @@ export async function recordChannelStats({ guildId, channelId, ownerId, type, cr
   });
   if (error) throw error;
 }
+
+// Resumen agregado para /voice estadisticas — antes esta tabla se escribía en cada sala
+// borrada pero ningún comando la leía. Se agrega en JS sobre las últimas 500 salas
+// cerradas del servidor (no hace falta "todo el historial" para un resumen razonable).
+export async function getGuildVoiceStatsSummary(guildId) {
+  const { data, error } = await supabase
+    .from(STATS_TABLE)
+    .select('owner_id, type, duration_seconds, unique_users_count, max_concurrent_users')
+    .eq('guild_id', guildId)
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  if (error) throw error;
+  const rows = data || [];
+
+  const perOwner = new Map();
+  let totalDurationSeconds = 0;
+  let peakConcurrent = 0;
+
+  for (const row of rows) {
+    totalDurationSeconds += row.duration_seconds || 0;
+    peakConcurrent = Math.max(peakConcurrent, row.max_concurrent_users || 0);
+
+    const entry = perOwner.get(row.owner_id) || { sessions: 0, durationSeconds: 0 };
+    entry.sessions += 1;
+    entry.durationSeconds += row.duration_seconds || 0;
+    perOwner.set(row.owner_id, entry);
+  }
+
+  const topOwners = [...perOwner.entries()]
+    .sort((a, b) => b[1].durationSeconds - a[1].durationSeconds)
+    .slice(0, 5)
+    .map(([ownerId, entry]) => ({ ownerId, ...entry }));
+
+  return { totalSessions: rows.length, totalDurationSeconds, peakConcurrent, topOwners };
+}

@@ -14,7 +14,7 @@ vi.mock('../src/utils/guildLogChannels.js', () => ({ getGuildLogChannel }));
 
 const { execute } = await import('../src/commands/admin/config.js');
 
-function makeInteraction({ subcommand, role = null, channel = null }) {
+function makeInteraction({ subcommand, role = null, channel = null, integer = null, string = null, boolean = null, targetUser = null }) {
   return {
     guild: { ownerId: 'user-1' },
     member: { permissions: { has: () => true } },
@@ -25,6 +25,10 @@ function makeInteraction({ subcommand, role = null, channel = null }) {
       getSubcommand: () => subcommand,
       getRole: () => role,
       getChannel: () => channel,
+      getInteger: () => integer,
+      getString: () => string,
+      getBoolean: () => boolean,
+      getUser: () => targetUser,
     },
     reply: vi.fn().mockResolvedValue(undefined),
   };
@@ -94,5 +98,65 @@ describe('/config deja rastro en el log de actividad', () => {
     const json = JSON.parse(attachment.attachment.toString('utf-8'));
     expect(json.admin_role_id).toBe('role-admin');
     expect(json.guild_id).toBeUndefined();
+  });
+
+  it('/config rol-nivel agrega el rol de ese nivel sin pisar los demás niveles ya configurados', async () => {
+    getGuildConfig.mockResolvedValue({ level_roles: { 5: 'role-5-viejo' } });
+    const interaction = makeInteraction({ subcommand: 'rol-nivel', integer: 10, role: { id: 'role-10', toString: () => '<@&role-10>' } });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { level_roles: { 5: 'role-5-viejo', 10: 'role-10' } });
+  });
+
+  it('/config rol-nivel sin rol quita el rol asignado a ese nivel', async () => {
+    getGuildConfig.mockResolvedValue({ level_roles: { 5: 'role-5', 10: 'role-10' } });
+    const interaction = makeInteraction({ subcommand: 'rol-nivel', integer: 5, role: null });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { level_roles: { 10: 'role-10' } });
+  });
+
+  it('/config modo-roles-nivel guarda el modo elegido', async () => {
+    const interaction = makeInteraction({ subcommand: 'modo-roles-nivel', string: 'replace' });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { level_roles_mode: 'replace' });
+  });
+
+  it('/config canal-anuncio-nivel configura xp_announce_channel_id', async () => {
+    const interaction = makeInteraction({ subcommand: 'canal-anuncio-nivel', channel: { id: 'chan-xp', toString: () => '<#chan-xp>' } });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { xp_announce_channel_id: 'chan-xp' });
+  });
+
+  it('/config confesiones-revision activa la revisión previa', async () => {
+    const interaction = makeInteraction({ subcommand: 'confesiones-revision', boolean: true });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { confession_require_approval: true });
+  });
+
+  it('/config confesion-bloquear agrega al usuario sin duplicar ni pisar bloqueados previos', async () => {
+    getGuildConfig.mockResolvedValue({ confession_blocked_ids: ['user-viejo'] });
+    const interaction = makeInteraction({ subcommand: 'confesion-bloquear', targetUser: { id: 'user-nuevo', tag: 'nuevo#0001' } });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { confession_blocked_ids: ['user-viejo', 'user-nuevo'] });
+  });
+
+  it('/config confesion-desbloquear saca solo a ese usuario de la lista', async () => {
+    getGuildConfig.mockResolvedValue({ confession_blocked_ids: ['user-a', 'user-b'] });
+    const interaction = makeInteraction({ subcommand: 'confesion-desbloquear', targetUser: { id: 'user-a', tag: 'a#0001' } });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { confession_blocked_ids: ['user-b'] });
   });
 });

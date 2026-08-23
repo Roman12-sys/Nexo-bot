@@ -8,6 +8,9 @@ import {
   ButtonBuilder,
   ButtonStyle,
   StringSelectMenuBuilder,
+  RoleSelectMenuBuilder,
+  UserSelectMenuBuilder,
+  AttachmentBuilder,
   MessageFlags,
 } from 'discord.js';
 import { buildAnuncioEmbed, BRAND_COLOR } from '../../utils/embeds.js';
@@ -15,6 +18,7 @@ import { isStaff } from '../../utils/permissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
 import { registerModalPrefix } from '../../components/modals.js';
+import { saveAnnouncementTemplate, getGuildAnnouncementTemplates, getAnnouncementTemplate } from '../../utils/announcementTemplatesStore.js';
 
 const HEX_REGEX = /^#?[0-9A-Fa-f]{6}$/;
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutos
@@ -149,6 +153,16 @@ function importJsonToDraft(jsonString, currentDraft) {
 
 // ---------- Panel: embed + componentes ----------
 
+// Antes la mención (rol/usuario/@everyone) solo se elegía como opción de /anuncio,
+// ANTES de ver el panel — si te olvidabas, había que cancelar y volver a empezar.
+function mentionSummary(mention) {
+  const parts = [];
+  if (mention.everyone) parts.push('@everyone');
+  if (mention.rol) parts.push(`@${mention.rol.name}`);
+  if (mention.usuario) parts.push(mention.usuario.tag);
+  return parts.length > 0 ? `Mención: ${parts.join(', ')}`.slice(0, 80) : 'Mención: ninguna';
+}
+
 function buildPanelPayload(draft) {
   const hasContent = Boolean(draft.title || draft.description);
   const embeds = hasContent ? [buildAnuncioEmbed(draft)] : [];
@@ -173,12 +187,16 @@ function buildPanelPayload(draft) {
       .setLabel(draft.timestamp ? 'Fecha: activada' : 'Fecha: desactivada')
       .setEmoji('🕒')
       .setStyle(draft.timestamp ? ButtonStyle.Success : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('anuncio_edit_mention').setLabel(mentionSummary(draft.mention)).setEmoji('📣').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('anuncio_send').setLabel('Enviar').setEmoji('✅').setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId('anuncio_cancel').setLabel('Cancelar').setEmoji('❌').setStyle(ButtonStyle.Danger),
   );
 
   const row3 = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('anuncio_import_json').setLabel('Importar JSON').setEmoji('📄').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('anuncio_export_json').setLabel('Exportar JSON').setEmoji('💾').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('anuncio_save_template').setLabel('Guardar plantilla').setEmoji('🗂️').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('anuncio_load_template').setLabel('Cargar plantilla').setEmoji('📂').setStyle(ButtonStyle.Secondary),
   );
 
   const components = [row1, row2, row3];
@@ -698,4 +716,150 @@ registerModalPrefix('modal_anuncio_import_json', async (i) => {
 
   refreshSession(i.user.id, result.draft);
   await i.update(buildPanelPayload(result.draft));
+});
+
+// ---------- Mención (editable dentro del panel, no solo al invocar /anuncio) ----------
+
+function buildMentionEditorPayload(draft) {
+  const roleSelect = new RoleSelectMenuBuilder().setCustomId('anuncio_mention_role_select').setPlaceholder('Rol a mencionar (opcional)').setMinValues(0).setMaxValues(1);
+  const userSelect = new UserSelectMenuBuilder().setCustomId('anuncio_mention_user_select').setPlaceholder('Usuario a mencionar (opcional)').setMinValues(0).setMaxValues(1);
+  const everyoneButton = new ButtonBuilder()
+    .setCustomId('anuncio_mention_everyone_toggle')
+    .setLabel(draft.mention.everyone ? '@everyone: activado' : '@everyone: desactivado')
+    .setStyle(draft.mention.everyone ? ButtonStyle.Success : ButtonStyle.Secondary);
+  const doneButton = new ButtonBuilder().setCustomId('anuncio_mention_done').setLabel('Listo').setStyle(ButtonStyle.Primary);
+
+  return {
+    content: `📣 **Mención del anuncio** — ${mentionSummary(draft.mention)}`,
+    embeds: [],
+    components: [
+      new ActionRowBuilder().addComponents(roleSelect),
+      new ActionRowBuilder().addComponents(userSelect),
+      new ActionRowBuilder().addComponents(everyoneButton, doneButton),
+    ],
+  };
+}
+
+registerButtonPrefix('anuncio_edit_mention', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  // Mensaje efímero aparte (no un modal — los modales no admiten selects) para no perder
+  // el panel principal; la mención se aplica igual al enviar, esté abierto o no.
+  await i.reply({ ...buildMentionEditorPayload(session.draft), flags: MessageFlags.Ephemeral });
+});
+
+registerSelectPrefix('anuncio_mention_role_select', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.draft.mention.rol = i.roles.first() || null;
+  refreshSession(i.user.id, session.draft);
+  await i.update(buildMentionEditorPayload(session.draft));
+});
+
+registerSelectPrefix('anuncio_mention_user_select', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.draft.mention.usuario = i.users.first() || null;
+  refreshSession(i.user.id, session.draft);
+  await i.update(buildMentionEditorPayload(session.draft));
+});
+
+registerButtonPrefix('anuncio_mention_everyone_toggle', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.draft.mention.everyone = !session.draft.mention.everyone;
+  refreshSession(i.user.id, session.draft);
+  await i.update(buildMentionEditorPayload(session.draft));
+});
+
+registerButtonPrefix('anuncio_mention_done', async (i) => {
+  await i.update({ content: '✅ Mención actualizada — ya queda aplicada cuando envíes el anuncio desde el panel principal.', components: [] });
+});
+
+// ---------- Exportar JSON ----------
+
+registerButtonPrefix('anuncio_export_json', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  if (!session.draft.title && !session.draft.description) {
+    return i.reply({ content: '❌ No hay contenido para exportar todavía (botón 📝 Contenido).', flags: MessageFlags.Ephemeral });
+  }
+
+  const json = JSON.stringify(buildAnuncioEmbed(session.draft).toJSON(), null, 2);
+  const attachment = new AttachmentBuilder(Buffer.from(json, 'utf-8'), { name: 'anuncio.json' });
+  await i.reply({ content: '💾 JSON del anuncio actual — compatible con el botón 📄 Importar JSON (acá o en otro servidor).', files: [attachment], flags: MessageFlags.Ephemeral });
+});
+
+// ---------- Plantillas guardadas ----------
+
+function buildSaveTemplateModal() {
+  const modal = new ModalBuilder().setCustomId('modal_anuncio_save_template').setTitle('Guardar plantilla');
+  const nombre = new TextInputBuilder().setCustomId('nombre').setLabel('Nombre de la plantilla').setStyle(TextInputStyle.Short).setMaxLength(60).setRequired(true);
+  modal.addComponents(new ActionRowBuilder().addComponents(nombre));
+  return modal;
+}
+
+registerButtonPrefix('anuncio_save_template', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  if (!session.draft.title || !session.draft.description) {
+    return i.reply({ content: '❌ Completá al menos título y descripción antes de guardar una plantilla.', flags: MessageFlags.Ephemeral });
+  }
+  await i.showModal(buildSaveTemplateModal());
+});
+
+registerModalPrefix('modal_anuncio_save_template', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const nombre = i.fields.getTextInputValue('nombre').trim();
+  if (!nombre) return i.reply({ content: '❌ El nombre no puede estar vacío.', flags: MessageFlags.Ephemeral });
+
+  // La mención NO se guarda en la plantilla a propósito: es específica de un envío
+  // puntual (a quién avisarle esta vez), no parte del formato reutilizable.
+  const { mention, ...templateData } = session.draft;
+  const saved = await saveAnnouncementTemplate(i.guildId, nombre, templateData, i.user.id);
+  await i.reply({
+    content: saved ? `✅ Plantilla **${nombre}** guardada.` : `❌ Ya existe una plantilla llamada **${nombre}** en este servidor. Elegí otro nombre.`,
+    flags: MessageFlags.Ephemeral,
+  });
+});
+
+registerButtonPrefix('anuncio_load_template', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const templates = await getGuildAnnouncementTemplates(i.guildId);
+  if (templates.length === 0) {
+    return i.reply({ content: 'ℹ️ Todavía no hay plantillas guardadas en este servidor. Guardá una con el botón 🗂️ Guardar plantilla.', flags: MessageFlags.Ephemeral });
+  }
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('anuncio_template_select')
+    .setPlaceholder('Elegí una plantilla para cargar')
+    .addOptions(templates.slice(0, 25).map((t) => ({ label: t.name.slice(0, 100), value: t.name })));
+
+  await i.reply({
+    content: '📂 Elegí qué plantilla cargar (reemplaza el contenido actual del panel, no toca la mención):',
+    components: [new ActionRowBuilder().addComponents(select)],
+    flags: MessageFlags.Ephemeral,
+  });
+});
+
+registerSelectPrefix('anuncio_template_select', async (i) => {
+  const session = requireSession(i);
+  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const templateData = await getAnnouncementTemplate(i.guildId, i.values[0]);
+  if (!templateData) {
+    return i.update({ content: '❌ Esa plantilla ya no existe (la borraron o nunca se guardó).', components: [] });
+  }
+
+  session.draft = { ...session.draft, ...templateData };
+  refreshSession(i.user.id, session.draft);
+
+  await i.update({ content: `✅ Plantilla **${i.values[0]}** cargada.`, components: [] });
+  // El panel original es OTRO mensaje (este select vive en uno propio) — no se puede
+  // refrescar a distancia, así que se manda uno nuevo ya actualizado para seguir editando.
+  await i.followUp({ ...buildPanelPayload(session.draft), flags: MessageFlags.Ephemeral });
 });

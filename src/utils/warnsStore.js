@@ -62,6 +62,30 @@ export async function removeWarnAt(guildId, userId, position) {
   return rowToWarn(row);
 }
 
+// Corrige el motivo de la advertencia en la posición 1-based "position", SIN borrarla y
+// recrearla — a diferencia de removeWarnAt, esto conserva la fecha original. Devuelve la
+// advertencia ya actualizada, o null si esa posición no existe.
+export async function updateWarnReasonAt(guildId, userId, position, newReason) {
+  if (position < 1) return null;
+
+  const { data: rows, error: selectError } = await supabase
+    .from(TABLE)
+    .select('id, reason, moderator_id, created_at')
+    .eq('guild_id', guildId)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+    .range(position - 1, position - 1);
+
+  if (selectError) throw selectError;
+  const row = rows?.[0];
+  if (!row) return null;
+
+  const { error: updateError } = await supabase.from(TABLE).update({ reason: newReason }).eq('id', row.id);
+  if (updateError) throw updateError;
+
+  return rowToWarn({ ...row, reason: newReason });
+}
+
 // Borra TODAS las advertencias de un usuario. Devuelve cuántas había (0 si no tenía).
 export async function clearWarns(guildId, userId) {
   const { count, error: countError } = await supabase
@@ -77,6 +101,32 @@ export async function clearWarns(guildId, userId) {
   if (deleteError) throw deleteError;
 
   return count;
+}
+
+// Motivos más frecuentes de advertencia en el servidor — para el autocomplete de
+// "motivo" en /warn. Se agrega en JS sobre las últimas 200 filas, mismo criterio que
+// getGuildFrequentReasons en moderationActionsStore.js.
+export async function getGuildFrequentWarnReasons(guildId, limit = 10) {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('reason')
+    .eq('guild_id', guildId)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  if (error) throw error;
+
+  const counts = new Map();
+  for (const row of data || []) {
+    const reason = (row.reason || '').trim();
+    if (!reason) continue;
+    counts.set(reason, (counts.get(reason) || 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([reason]) => reason);
 }
 
 // Devuelve TODAS las advertencias del servidor agrupadas por usuario: { userId: [warn, ...] }.

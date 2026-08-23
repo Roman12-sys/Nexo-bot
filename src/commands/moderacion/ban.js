@@ -4,14 +4,22 @@ import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { buildConfirmation } from '../../utils/confirmations.js';
 import { describeError } from '../../utils/errorMessages.js';
+import { recordModerationAction, getGuildFrequentReasons } from '../../utils/moderationActionsStore.js';
 
 export const data = new SlashCommandBuilder()
   .setName('ban')
   .setDescription('Banea a un usuario del servidor.')
   .addUserOption((o) => o.setName('usuario').setDescription('Usuario a banear').setRequired(true))
-  .addStringOption((o) => o.setName('motivo').setDescription('Motivo').setRequired(false).setMaxLength(512))
+  .addStringOption((o) => o.setName('motivo').setDescription('Motivo').setRequired(false).setMaxLength(512).setAutocomplete(true))
   .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
   .setDMPermission(false);
+
+export async function autocomplete(interaction) {
+  const focused = interaction.options.getFocused().toLowerCase();
+  const reasons = await getGuildFrequentReasons(interaction.guildId, 'ban').catch(() => []);
+  const matches = reasons.filter((r) => r.toLowerCase().includes(focused)).map((r) => ({ name: r.slice(0, 100), value: r.slice(0, 100) }));
+  await interaction.respond(matches);
+}
 
 export async function execute(interaction) {
   if (!(await isStaff(interaction))) {
@@ -90,6 +98,12 @@ async function confirmBan(interaction, targetUser, motivo) {
     } catch (logError) {
       console.error('⚠️ No se pudo registrar /ban en el canal de logs:', logError);
     }
+
+    await recordModerationAction(interaction.guildId, targetUser.id, {
+      actionType: 'ban',
+      moderatorId: interaction.user.id,
+      reason: motivo,
+    }).catch((e) => console.error('⚠️ No se pudo registrar /ban en el historial de sanciones:', e));
   } catch (error) {
     console.error('❌ Error al confirmar /ban:', error);
     await interaction.editReply({ content: describeError(error, '❌ Ocurrió un error al banear al usuario.') }).catch(() => {});

@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import { addWarn } from '../../utils/warnsStore.js';
+import { addWarn, getGuildFrequentWarnReasons } from '../../utils/warnsStore.js';
 import { createWarnLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
@@ -9,9 +9,16 @@ export const data = new SlashCommandBuilder()
   .setName('warn')
   .setDescription('Aplica una advertencia a un usuario.')
   .addUserOption((o) => o.setName('usuario').setDescription('Usuario a advertir').setRequired(true))
-  .addStringOption((o) => o.setName('motivo').setDescription('Motivo de la advertencia').setRequired(true).setMaxLength(512))
+  .addStringOption((o) => o.setName('motivo').setDescription('Motivo de la advertencia').setRequired(true).setMaxLength(512).setAutocomplete(true))
   .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
+
+export async function autocomplete(interaction) {
+  const focused = interaction.options.getFocused().toLowerCase();
+  const reasons = await getGuildFrequentWarnReasons(interaction.guildId).catch(() => []);
+  const matches = reasons.filter((r) => r.toLowerCase().includes(focused)).map((r) => ({ name: r.slice(0, 100), value: r.slice(0, 100) }));
+  await interaction.respond(matches);
+}
 
 export async function execute(interaction) {
   if (!(await isStaff(interaction))) {

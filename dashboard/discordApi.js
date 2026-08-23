@@ -94,6 +94,18 @@ export function fetchGuildMember(guildId, userId) {
   return botFetch(`/guilds/${guildId}/members/${userId}`);
 }
 
+// Para la tarjeta de "sancionados activos" del dashboard — src/utils/sanctions.js hace
+// esto mismo pero vía guild.members.fetch() de discord.js; acá no hay un Client conectado
+// al gateway, así que es la misma consulta por REST. Se limita a la primera página
+// (1000 miembros, el máximo por página de Discord) — de sobra para el tamaño de server
+// que usa este bot; si hay más, se avisa en vez de paginar sin límite.
+export async function fetchGuildMembersWithRole(guildId, roleId) {
+  const page = await botFetch(`/guilds/${guildId}/members?limit=1000`);
+  const members = page || [];
+  const withRole = members.filter((m) => m.roles?.includes(roleId));
+  return { members: withRole, possiblyIncomplete: members.length >= 1000 };
+}
+
 export function fetchUser(userId) {
   return botFetch(`/users/${userId}`);
 }

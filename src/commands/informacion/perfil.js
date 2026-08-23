@@ -43,27 +43,30 @@ async function buildPerfilEmbed(guild, targetUser, member) {
   const joinedTimestamp = member?.joinedTimestamp ? Math.floor(member.joinedTimestamp / 1000) : null;
   const pct = progressPercent(progress.currentLevelXp, progress.xpForNextLevel);
 
+  // Reorganizado en 3 grupos (progreso / actividad / al día) en vez de 9 campos sueltos
+  // al mismo nivel — cada campo NO inline fuerza una fila nueva en Discord, así que
+  // sirve de separador visual real sin necesitar un "header" de mentira. Warns y
+  // sorteos ganados salen de acá (casi siempre están en 0, no aportan de un vistazo) —
+  // siguen en el botón "📊 Estadísticas" de abajo, que ya los mostraba.
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setAuthor({ name: targetUser.tag, iconURL: targetUser.displayAvatarURL() })
     .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
     .setTitle(`👤 Perfil de ${BRAND_NAME}`)
     .addFields(
-      { name: '⭐ Nivel', value: `${progress.level}${rank ? ` · #${rank} del ranking` : ''}`, inline: true },
+      { name: '⭐ Nivel', value: `${progress.level}${rank ? ` · #${rank} del ranking` : ' · sin ranking todavía'}`, inline: true },
       {
         name: '✨ XP',
         value: `${progress.currentLevelXp.toLocaleString('es-ES')} / ${progress.xpForNextLevel.toLocaleString('es-ES')}`,
         inline: true,
       },
       { name: '💰 Balance', value: `${economy.balance.toLocaleString('es-ES')} monedas`, inline: true },
-      { name: 'Progreso de nivel', value: `${buildProgressBar(progress.currentLevelXp, progress.xpForNextLevel)} ${pct}%` },
+      { name: '📈 Progreso de nivel', value: `${buildProgressBar(progress.currentLevelXp, progress.xpForNextLevel)} ${pct}%` },
       { name: '🧠 Trivia', value: `${trivia.points} puntos`, inline: true },
       { name: '❤️ Reputación', value: `${reputation.total}`, inline: true },
-      { name: '⚠️ Warns activos', value: `${warns.length}`, inline: true },
-      { name: '🎉 Sorteos ganados', value: `${wins}`, inline: true },
       { name: '🏅 Logros', value: `${achievements.size}/${ACHIEVEMENTS.length}`, inline: true },
       {
-        name: '⏳ Cooldowns',
+        name: '⏳ Al día',
         value: [
           cooldownLine('/daily', economy.lastDaily, DAILY_COOLDOWN_MS),
           cooldownLine('/work', economy.lastWork, WORK_COOLDOWN_MS),
@@ -175,17 +178,26 @@ registerButtonPrefix('perfil_servidorlogros', async (i) => {
 
 registerButtonPrefix('perfil_recordatorios', async (i) => {
   const reminders = await getUserReminders(i.guildId, i.user.id);
-  const description =
-    reminders.length === 0
-      ? 'No tenés recordatorios pendientes. Creá uno con `/recordatorio crear`.'
-      : reminders.map((r) => `\`#${r.id}\` <t:${Math.floor(r.remindAt / 1000)}:R> — ${r.message}`).join('\n');
 
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('⏰ Tus recordatorios pendientes')
-    .setDescription(description.length > 4096 ? `${description.slice(0, 4000)}...\n\nUsá \`/recordatorio listar\` para verlos todos.` : description)
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
+
+  if (reminders.length === 0) {
+    embed.setDescription('No tenés recordatorios pendientes. Creá uno con `/recordatorio crear`.');
+  } else {
+    // Un campo por recordatorio (mismo criterio que /warns) en vez de una sola
+    // descripción con saltos de línea — más fácil de escanear si hay varios. Máximo
+    // 25 (límite de campos de un embed) — con más, se avisa a usar /recordatorio listar.
+    embed.addFields(
+      reminders.slice(0, 25).map((r) => ({ name: `#${r.id} · <t:${Math.floor(r.remindAt / 1000)}:R>`, value: r.message.slice(0, 1024) })),
+    );
+    if (reminders.length > 25) {
+      embed.setFooter({ text: `${BRAND_NAME} • Mostrando 25 de ${reminders.length} — usá /recordatorio listar para ver el resto` });
+    }
+  }
 
   await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 });

@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
@@ -7,16 +7,81 @@ import { getGuildWarns, clearWarns } from '../../utils/warnsStore.js';
 import { createTimeoutLogEmbed, createPunishLogEmbed, createUnbanAutoLogEmbed, createUnwarnLogEmbed } from '../../utils/logEmbeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
+import { recordModerationAction, getUserModerationActions } from '../../utils/moderationActionsStore.js';
+import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+
+const ACTION_LABELS = {
+  ban: '🔨 Ban',
+  kick: '👢 Kick',
+  timeout: '🔇 Timeout',
+  timeout_remove: '🔊 Timeout removido',
+  punish: '🚫 Restricción aplicada',
+  punish_remove: '✅ Restricción removida',
+  unban: '✅ Desbaneo',
+};
+const HISTORIAL_PAGE_SIZE = 5;
+
+function buildHistorialEmbed(targetUser, list, page) {
+  const totalPages = Math.max(1, Math.ceil(list.length / HISTORIAL_PAGE_SIZE));
+  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
+  const slice = list.slice(clampedPage * HISTORIAL_PAGE_SIZE, clampedPage * HISTORIAL_PAGE_SIZE + HISTORIAL_PAGE_SIZE);
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
+    .setTitle(`📜 Historial de sanciones de ${targetUser.tag}`)
+    .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages} • ${list.length} acción(es) • No incluye advertencias, usá /warns` })
+    .setTimestamp();
+
+  if (list.length === 0) {
+    embed.setDescription('Este usuario no tiene sanciones registradas (bans, kicks, timeouts, restricciones).');
+  } else {
+    embed.addFields(
+      slice.map((a) => ({
+        name: `${ACTION_LABELS[a.actionType] || a.actionType} · <t:${Math.floor(a.timestamp / 1000)}:f>`,
+        value: `${a.reason || 'Sin motivo especificado'} — por <@${a.moderatorId}>`,
+      })),
+    );
+  }
+
+  return { embed, clampedPage, totalPages };
+}
+
+function buildHistorialRow(targetUserId, clampedPage, totalPages) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`sanciones_hist_page_${clampedPage - 1}_${targetUserId}`)
+      .setLabel('◀️ Anterior')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(clampedPage <= 0),
+    new ButtonBuilder()
+      .setCustomId(`sanciones_hist_page_${clampedPage + 1}_${targetUserId}`)
+      .setLabel('Siguiente ▶️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(clampedPage >= totalPages - 1),
+  );
+}
 
 export const data = new SlashCommandBuilder()
   .setName('sanciones')
-  .setDescription('Panel para ver y quitar sanciones activas.')
+  .setDescription('Panel para ver y quitar sanciones activas, o el historial de un usuario puntual.')
+  .addUserOption((o) => o.setName('usuario').setDescription('Si lo completás, muestra el historial de sanciones de ese usuario').setRequired(false))
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setDMPermission(false);
 
 export async function execute(interaction) {
   if (!(await isStaff(interaction))) {
     await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  const targetUser = interaction.options.getUser('usuario');
+  if (targetUser) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const list = await getUserModerationActions(interaction.guildId, targetUser.id);
+    const { embed, clampedPage, totalPages } = buildHistorialEmbed(targetUser, list, 0);
+    const components = list.length > HISTORIAL_PAGE_SIZE ? [buildHistorialRow(targetUser.id, clampedPage, totalPages)] : [];
+    await interaction.editReply({ embeds: [embed], components });
     return;
   }
 
@@ -27,8 +92,20 @@ export async function execute(interaction) {
     new ButtonBuilder().setCustomId('sanciones_warns').setLabel('⚠️ Con advertencias').setStyle(ButtonStyle.Secondary),
   );
 
-  await interaction.reply({ content: 'Elegí qué querés revisar:', components: [row], flags: MessageFlags.Ephemeral });
+  await interaction.reply({ content: 'Elegí qué querés revisar (o usá `/sanciones usuario:` para ver el historial de alguien puntual):', components: [row], flags: MessageFlags.Ephemeral });
 }
+
+registerButtonPrefix('sanciones_hist_page_', async (i) => {
+  if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+
+  const [pageRaw, targetUserId] = i.customId.slice('sanciones_hist_page_'.length).split('_');
+  const targetUser = await i.client.users.fetch(targetUserId).catch(() => null);
+  if (!targetUser) return i.reply({ content: '❌ No se pudo encontrar a ese usuario.', flags: MessageFlags.Ephemeral });
+
+  const list = await getUserModerationActions(i.guildId, targetUserId);
+  const { embed, clampedPage, totalPages } = buildHistorialEmbed(targetUser, list, parseInt(pageRaw, 10));
+  await i.update({ embeds: [embed], components: [buildHistorialRow(targetUserId, clampedPage, totalPages)] });
+});
 
 // ---------- Botones: listar y armar el select correspondiente ----------
 
@@ -44,7 +121,8 @@ registerButtonPrefix('sanciones_timeouts', async (i) => {
     value: m.id,
   }));
   const select = new StringSelectMenuBuilder().setCustomId('sanciones_select_timeout').setPlaceholder('Elegí a quién quitarle el timeout').addOptions(options);
-  await i.editReply({ content: `Timeouts activos (${timedOut.size}):`, components: [new ActionRowBuilder().addComponents(select)] });
+  const overflow = timedOut.size > 25 ? ` — mostrando los 25 más recientes, hay ${timedOut.size - 25} más` : '';
+  await i.editReply({ content: `Timeouts activos (${timedOut.size})${overflow}:`, components: [new ActionRowBuilder().addComponents(select)] });
 });
 
 registerButtonPrefix('sanciones_punish', async (i) => {
@@ -58,7 +136,8 @@ registerButtonPrefix('sanciones_punish', async (i) => {
 
   const options = punished.first(25).map((m) => ({ label: m.user.tag.slice(0, 100), value: m.id }));
   const select = new StringSelectMenuBuilder().setCustomId('sanciones_select_punish').setPlaceholder('Elegí a quién quitarle la restricción').addOptions(options);
-  await i.editReply({ content: `Sancionados (${punished.size}):`, components: [new ActionRowBuilder().addComponents(select)] });
+  const overflow = punished.size > 25 ? ` — mostrando 25, hay ${punished.size - 25} más` : '';
+  await i.editReply({ content: `Sancionados (${punished.size})${overflow}:`, components: [new ActionRowBuilder().addComponents(select)] });
 });
 
 registerButtonPrefix('sanciones_bans', async (i) => {
@@ -69,7 +148,8 @@ registerButtonPrefix('sanciones_bans', async (i) => {
 
   const options = [...bans.values()].slice(0, 25).map((b) => ({ label: b.user.tag.slice(0, 100), value: b.user.id }));
   const select = new StringSelectMenuBuilder().setCustomId('sanciones_select_ban').setPlaceholder('Elegí a quién desbanear').addOptions(options);
-  await i.editReply({ content: `Baneados (${bans.size}):`, components: [new ActionRowBuilder().addComponents(select)] });
+  const overflow = bans.size > 25 ? ` — mostrando 25, hay ${bans.size - 25} más` : '';
+  await i.editReply({ content: `Baneados (${bans.size})${overflow}:`, components: [new ActionRowBuilder().addComponents(select)] });
 });
 
 registerButtonPrefix('sanciones_warns', async (i) => {
@@ -89,7 +169,8 @@ registerButtonPrefix('sanciones_warns', async (i) => {
     });
   }
   const select = new StringSelectMenuBuilder().setCustomId('sanciones_select_warn').setPlaceholder('Elegí a quién borrarle TODAS sus advertencias').addOptions(options);
-  await i.editReply({ content: `Usuarios con advertencias (${userIds.length}):`, components: [new ActionRowBuilder().addComponents(select)] });
+  const overflow = userIds.length > 25 ? ` — mostrando 25, hay ${userIds.length - 25} más` : '';
+  await i.editReply({ content: `Usuarios con advertencias (${userIds.length})${overflow}:`, components: [new ActionRowBuilder().addComponents(select)] });
 });
 
 // ---------- Selects: aplicar la acción elegida ----------
@@ -119,8 +200,12 @@ registerSelectPrefix('sanciones_select_timeout', async (i) => {
 
   await member.timeout(null);
   await i.reply({ content: `✅ Se le quitó el timeout a ${member.user.tag}.`, flags: MessageFlags.Ephemeral });
+  // Público a propósito, mismo criterio que /timeout directo — la única diferencia es
+  // que esto se hizo desde el panel, no debería quedar oculto por eso.
+  await i.channel.send({ content: `🔊 ${i.user} le quitó el timeout a ${member.user}.` }).catch(() => {});
 
   await sendPanelLog(i, 'moderation', createTimeoutLogEmbed({ user: member.user, executor: i.user, reason: null, until: null, removed: true }));
+  await recordModerationAction(i.guildId, member.user.id, { actionType: 'timeout_remove', moderatorId: i.user.id, reason: null }).catch(() => {});
 });
 
 registerSelectPrefix('sanciones_select_punish', async (i) => {
@@ -136,8 +221,10 @@ registerSelectPrefix('sanciones_select_punish', async (i) => {
 
   await member.roles.remove(cfg.punish_role_id);
   await i.reply({ content: `✅ Se le quitó la restricción a ${member.user.tag}.`, flags: MessageFlags.Ephemeral });
+  await i.channel.send({ content: `✅ ${i.user} le quitó la restricción a ${member.user}.` }).catch(() => {});
 
   await sendPanelLog(i, 'moderation', createPunishLogEmbed({ user: member.user, executor: i.user, reason: null, applied: false }));
+  await recordModerationAction(i.guildId, member.user.id, { actionType: 'punish_remove', moderatorId: i.user.id, reason: null }).catch(() => {});
 });
 
 registerSelectPrefix('sanciones_select_ban', async (i) => {
@@ -147,10 +234,12 @@ registerSelectPrefix('sanciones_select_ban', async (i) => {
   const user = await i.client.users.fetch(userId).catch(() => null);
   await i.guild.members.unban(userId);
   await i.reply({ content: `✅ Se desbaneó a ${user?.tag || userId}.`, flags: MessageFlags.Ephemeral });
+  await i.channel.send({ content: `✅ ${i.user} desbaneó a ${user?.tag || userId}.` }).catch(() => {});
 
   if (user) {
     await sendPanelLog(i, 'moderation', createUnbanAutoLogEmbed({ user, executor: i.user, reason: null }));
   }
+  await recordModerationAction(i.guildId, userId, { actionType: 'unban', moderatorId: i.user.id, reason: null }).catch(() => {});
 });
 
 registerSelectPrefix('sanciones_select_warn', async (i) => {
@@ -160,6 +249,7 @@ registerSelectPrefix('sanciones_select_warn', async (i) => {
   const total = await clearWarns(i.guildId, userId);
 
   await i.reply({ content: `✅ Se borraron las ${total} advertencia(s) de ${user?.tag || userId}.`, flags: MessageFlags.Ephemeral });
+  await i.channel.send({ content: `✅ ${i.user} borró las ${total} advertencia(s) de ${user?.tag || userId}.` }).catch(() => {});
 
   if (user) {
     await sendPanelLog(i, 'moderation', createUnwarnLogEmbed({ user, executor: i.user, detail: `Se borraron todas (${total}) desde el panel /sanciones` }));

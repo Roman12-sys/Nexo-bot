@@ -11,18 +11,28 @@ function rowToReminder(row) {
     userId: row.user_id,
     message: row.message,
     remindAt: row.remind_at,
+    repeatMs: row.repeat_ms || null,
   };
 }
 
-export async function createReminder(guildId, userId, message, remindAt) {
+// repeatMs null = recordatorio de una sola vez (como siempre fue). Si viene con valor,
+// reminderEngine.js lo reprograma solo en vez de borrarlo cada vez que dispara.
+export async function createReminder(guildId, userId, message, remindAt, repeatMs = null) {
   const { data, error } = await supabase
     .from(TABLE)
-    .insert({ guild_id: guildId, user_id: userId, message, remind_at: remindAt })
+    .insert({ guild_id: guildId, user_id: userId, message, remind_at: remindAt, repeat_ms: repeatMs })
     .select('*')
     .single();
 
   if (error) throw error;
   return rowToReminder(data);
+}
+
+// Reprograma un recordatorio RECURRENTE para la próxima vez, sin borrar la fila (a
+// diferencia de deleteReminder, que sí se usa para los de una sola vez).
+export async function rescheduleReminder(id, nextRemindAt) {
+  const { error } = await supabase.from(TABLE).update({ remind_at: nextRemindAt }).eq('id', id);
+  if (error) throw error;
 }
 
 export async function getUserReminders(guildId, userId) {

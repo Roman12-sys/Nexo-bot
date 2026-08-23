@@ -8,6 +8,7 @@ import {
   getPlayStatus,
   registerPlay,
   recordAnswer,
+  getUserTrivia,
   MAX_PLAYS_PER_WINDOW,
   POINTS_PER_CORRECT,
 } from '../../utils/triviaStore.js';
@@ -21,6 +22,7 @@ async function handleJugar(interaction) {
   const guildId = interaction.guild.id;
   const userId = interaction.user.id;
   const sessionKey = `trivia:${guildId}:${userId}`;
+  const dificultad = interaction.options.getString('dificultad');
 
   await interaction.deferReply();
 
@@ -49,11 +51,21 @@ async function handleJugar(interaction) {
     return;
   }
 
-  const { question: q, historyReset } = await pickQuestionForUser(guildId, userId, TRIVIA_QUESTIONS, []);
+  // El campo "difficulty" de cada pregunta existía desde siempre pero nada lo usaba —
+  // esto es lo único que cambia si se filtra: el pool que ve pickQuestionForUser.
+  const pool = dificultad ? TRIVIA_QUESTIONS.filter((question) => question.difficulty === dificultad) : TRIVIA_QUESTIONS;
+  const { question: q, historyReset } = await pickQuestionForUser(guildId, userId, pool, []);
+
+  // Antes solo se avisaba al terminar el ciclo entero ("¡respondiste todas!") — esto
+  // muestra el progreso en cada pregunta, no solo al final. Se relee el registro DESPUÉS
+  // de pickQuestionForUser porque ese puede haber reseteado el historial (historyReset).
+  const freshRecord = await getUserTrivia(guildId, userId);
+  const answeredSet = new Set(freshRecord.answeredQuestionIds);
+  const unanswered = pool.filter((question) => !answeredSet.has(question.id)).length;
 
   const remainingAfter = status.remaining - 1;
   const footerParts = [
-    historyReset ? '¡Respondiste todas las preguntas! Empieza un nuevo ciclo' : null,
+    historyReset ? '¡Respondiste todas las preguntas! Empieza un nuevo ciclo' : `${unanswered}/${pool.length} preguntas sin responder`,
     `Te quedan ${remainingAfter}/${MAX_PLAYS_PER_WINDOW} intentos en las próximas 4hs`,
     'Solo vos podés responder esta trivia',
   ].filter(Boolean);
@@ -79,35 +91,81 @@ async function handleJugar(interaction) {
   await interaction.editReply({ embeds: [embed], components: [row] });
 }
 
-async function handleRanking(interaction) {
-  await interaction.deferReply();
+const RANKING_PAGE_SIZE = 10;
+const MEDALS = ['🥇', '🥈', '🥉'];
 
-  const sorted = (await getGuildTrivia(interaction.guild.id, { limit: 10 })).filter((data) => data.points > 0);
+// Mismo patrón que buildLeaderboardEmbed (economia/leaderboard.js) — antes esto cortaba
+// directo en el top 10 sin forma de ver más.
+async function buildTriviaRankingEmbed(guildId, page) {
+  const sorted = (await getGuildTrivia(guildId)).filter((data) => data.points > 0);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / RANKING_PAGE_SIZE));
+  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
+  const slice = sorted.slice(clampedPage * RANKING_PAGE_SIZE, clampedPage * RANKING_PAGE_SIZE + RANKING_PAGE_SIZE);
 
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🏆 Ranking de Trivia')
-    .setFooter({ text: BRAND_NAME })
+    .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages}` })
     .setTimestamp();
 
-  if (sorted.length === 0) {
+  if (slice.length === 0) {
     embed.setDescription('Todavía nadie sumó puntos de trivia.');
   } else {
-    const medals = ['🥇', '🥈', '🥉'];
-    const lines = sorted.map((data, index) => {
-      const medal = medals[index] || `#${index + 1}`;
+    const lines = slice.map((data, i) => {
+      const globalIndex = clampedPage * RANKING_PAGE_SIZE + i;
+      const medal = MEDALS[globalIndex] || `${globalIndex + 1}.`;
       return `${medal} <@${data.userId}> — **${data.points}** puntos (${data.correct}/${data.answered} correctas)`;
     });
     embed.setDescription(lines.join('\n'));
   }
 
-  await interaction.editReply({ embeds: [embed] });
+  return { embed, clampedPage, totalPages };
 }
+
+function buildTriviaRankingRow(clampedPage, totalPages) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`trivia_ranking_page_${clampedPage - 1}`)
+      .setLabel('◀️ Anterior')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(clampedPage <= 0),
+    new ButtonBuilder()
+      .setCustomId(`trivia_ranking_page_${clampedPage + 1}`)
+      .setLabel('Siguiente ▶️')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(clampedPage >= totalPages - 1),
+  );
+}
+
+async function handleRanking(interaction) {
+  await interaction.deferReply();
+  const { embed, clampedPage, totalPages } = await buildTriviaRankingEmbed(interaction.guild.id, 0);
+  const components = totalPages > 1 ? [buildTriviaRankingRow(clampedPage, totalPages)] : [];
+  await interaction.editReply({ embeds: [embed], components });
+}
+
+registerButtonPrefix('trivia_ranking_page_', async (interaction) => {
+  const page = parseInt(interaction.customId.slice('trivia_ranking_page_'.length), 10);
+  const { embed, clampedPage, totalPages } = await buildTriviaRankingEmbed(interaction.guild.id, page);
+  await interaction.update({ embeds: [embed], components: [buildTriviaRankingRow(clampedPage, totalPages)] });
+});
 
 export const data = new SlashCommandBuilder()
   .setName('trivia')
   .setDescription('Sistema de trivia: respondé preguntas y ganá puntos.')
-  .addSubcommand((sub) => sub.setName('jugar').setDescription('Respondé una pregunta de trivia.'))
+  .addSubcommand((sub) =>
+    sub
+      .setName('jugar')
+      .setDescription('Respondé una pregunta de trivia.')
+      .addStringOption((o) =>
+        o
+          .setName('dificultad')
+          .setDescription('Filtrar por dificultad (por defecto, cualquiera)')
+          .setRequired(false)
+          .addChoices({ name: 'Fácil', value: 'facil' }, { name: 'Medio', value: 'medio' }, { name: 'Difícil', value: 'dificil' }),
+      ),
+  )
   .addSubcommand((sub) => sub.setName('ranking').setDescription('Muestra el ranking de puntos de trivia.'))
   .setDMPermission(false);
 

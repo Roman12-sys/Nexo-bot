@@ -39,7 +39,8 @@ export const data = new SlashCommandBuilder()
       )
       .addIntegerOption((o) =>
         o.setName('ganadores').setDescription('Cantidad de ganadores (por defecto: 1)').setRequired(false).setMinValue(1).setMaxValue(20),
-      ),
+      )
+      .addRoleOption((o) => o.setName('rol-requerido').setDescription('Si lo elegís, solo puede participar quien tenga este rol').setRequired(false)),
   )
   .addSubcommand((sub) =>
     sub
@@ -96,12 +97,20 @@ async function handleCrear(interaction) {
   const premio = interaction.options.getString('premio');
   const duracionMs = parseInt(interaction.options.getString('duracion'), 10);
   const winnersCount = interaction.options.getInteger('ganadores') || 1;
+  const requiredRole = interaction.options.getRole('rol-requerido');
   const endTimestamp = Date.now() + duracionMs;
 
   try {
     await interaction.reply({ content: '🎉 Creando el sorteo...', flags: MessageFlags.Ephemeral });
 
-    const embed = createGiveawayEmbed({ prize: premio, winnersCount, endTimestamp, participantsCount: 0, ended: false });
+    const embed = createGiveawayEmbed({
+      prize: premio,
+      winnersCount,
+      endTimestamp,
+      participantsCount: 0,
+      ended: false,
+      requiredRoleId: requiredRole?.id || null,
+    });
     const message = await interaction.channel.send({ embeds: [embed] });
 
     const row = new ActionRowBuilder().addComponents(
@@ -117,6 +126,7 @@ async function handleCrear(interaction) {
       ended: false,
       winners: [],
       creatorId: interaction.user.id,
+      requiredRoleId: requiredRole?.id || null,
     });
 
     scheduleGiveawayEnd(interaction.client, interaction.guild.id, message.id, duracionMs);
@@ -234,6 +244,11 @@ registerButtonPrefix('giveaway_enter_', async (interaction) => {
   }
   if (giveaway.ended) {
     await interaction.reply({ content: '⚠️ Este sorteo ya finalizó.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  if (giveaway.requiredRoleId && !interaction.member.roles.cache.has(giveaway.requiredRoleId)) {
+    await interaction.reply({ content: `❌ Este sorteo es solo para quienes tengan el rol <@&${giveaway.requiredRoleId}>.`, flags: MessageFlags.Ephemeral });
     return;
   }
 

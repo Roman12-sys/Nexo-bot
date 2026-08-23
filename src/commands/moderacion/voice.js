@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, ChannelType, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, MessageFlags } from 'discord.js';
 import { isStaff } from '../../utils/permissions.js';
 import { getGuildVoiceConfig, upsertGuildVoiceConfig, disableGuildVoiceConfig } from '../../utils/voiceConfigStore.js';
-import { getAllTempChannels } from '../../utils/tempVoiceStore.js';
+import { getAllTempChannels, getGuildVoiceStatsSummary } from '../../utils/tempVoiceStore.js';
 import { buildAdminRoomSelect } from '../../utils/tempVoicePanel.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { describeError } from '../../utils/errorMessages.js';
@@ -86,6 +86,45 @@ async function handleDisable(interaction) {
   await interaction.reply({ content: '🔴 Sistema de salas temporales desactivado. Las salas que ya existen se siguen borrando solas al quedar vacías; no se crearán salas nuevas.' });
 }
 
+function formatDuration(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours === 0) return `${minutes}min`;
+  return `${hours}h ${minutes}min`;
+}
+
+// Antes voice_channel_stats se escribía en cada sala cerrada pero ningún comando la
+// leía — este es el primero que la consulta.
+async function handleEstadisticas(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const summary = await getGuildVoiceStatsSummary(interaction.guild.id);
+  if (summary.totalSessions === 0) {
+    await interaction.editReply({ content: 'ℹ️ Todavía no se cerró ninguna sala temporal en este servidor.' });
+    return;
+  }
+
+  const topLines = summary.topOwners.length === 0
+    ? 'Sin datos suficientes.'
+    : summary.topOwners
+        .map((o, i) => `${i + 1}. <@${o.ownerId}> — ${formatDuration(o.durationSeconds)} en ${o.sessions} sala(s)`)
+        .join('\n');
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('📊 Estadísticas de salas de voz temporales')
+    .addFields(
+      { name: 'Salas cerradas (últimas 500)', value: `${summary.totalSessions}`, inline: true },
+      { name: 'Tiempo total en voz', value: formatDuration(summary.totalDurationSeconds), inline: true },
+      { name: 'Pico de gente en una sala', value: `${summary.peakConcurrent}`, inline: true },
+      { name: '🏆 Top dueños por tiempo acumulado', value: topLines },
+    )
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
+
+  await interaction.editReply({ embeds: [embed] });
+}
+
 export const data = new SlashCommandBuilder()
   .setName('voice')
   .setDescription('Configura el sistema de canales de voz temporales (Join to Create).')
@@ -99,6 +138,7 @@ export const data = new SlashCommandBuilder()
   .addSubcommand((sub) => sub.setName('config').setDescription('Muestra la configuración actual del sistema.'))
   .addSubcommand((sub) => sub.setName('disable').setDescription('Desactiva el sistema de salas temporales.'))
   .addSubcommand((sub) => sub.setName('admin').setDescription('Administra las salas temporales activas (staff).'))
+  .addSubcommand((sub) => sub.setName('estadisticas').setDescription('Salas más usadas históricamente (duración, sesiones).'))
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
   .setDMPermission(false);
 
@@ -115,6 +155,7 @@ export async function execute(interaction) {
     if (sub === 'config') return await handleConfig(interaction);
     if (sub === 'disable') return await handleDisable(interaction);
     if (sub === 'admin') return await handleAdmin(interaction);
+    if (sub === 'estadisticas') return await handleEstadisticas(interaction);
   } catch (error) {
     console.error(`❌ Error al ejecutar /voice ${sub}:`, error);
     const errorMsg = { content: describeError(error, '❌ Ocurrió un error al ejecutar el comando.'), flags: MessageFlags.Ephemeral };

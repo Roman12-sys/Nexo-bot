@@ -21,6 +21,7 @@ function rowToGiveaway(row, participants) {
     cancelled: row.cancelled,
     winners: row.winners || [],
     creatorId: row.creator_id,
+    requiredRoleId: row.required_role_id || null,
     participants,
   };
 }
@@ -61,6 +62,7 @@ export async function saveGiveaway(guildId, messageId, data) {
     cancelled: false,
     winners: data.winners || [],
     creator_id: data.creatorId,
+    required_role_id: data.requiredRoleId || null,
   });
 
   if (error) throw error;

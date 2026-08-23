@@ -68,20 +68,39 @@ export function buildRolesEmbed(guild) {
     .setColor(BRAND_COLOR)
     .setTitle(`🎭 Roles de ${guild.name}`)
     .setDescription(`${roles.length} roles · ${guild.memberCount.toLocaleString('es-ES')} miembros`)
-    .setTimestamp()
-    .setFooter({ text: skippedSeparators > 0 ? `${BRAND_NAME} • ${skippedSeparators} rol(es) separador(es) omitidos` : BRAND_NAME });
+    .setTimestamp();
+
+  let truncatedCategories = 0;
 
   for (const category of CATEGORY_ORDER) {
     const list = buckets.get(category);
     if (!list || list.length === 0) continue;
 
-    const value = list
-      .map((r) => `${r} — **${r.members.size}** miembro${r.members.size === 1 ? '' : 's'}`)
-      .join('\n')
-      .slice(0, 1024);
+    const lines = list.map((r) => `${r} — **${r.members.size}** miembro${r.members.size === 1 ? '' : 's'}`);
+    let value = lines.join('\n');
+    let fieldName = `${category} (${list.length})`;
 
-    embed.addFields({ name: `${category} (${list.length})`, value, inline: false });
+    // Antes esto cortaba en silencio a 1024 caracteres (límite de Discord por campo) —
+    // con muchos roles en una categoría, los últimos desaparecían sin ningún aviso.
+    if (value.length > 1024) {
+      truncatedCategories += 1;
+      let shown = 0;
+      let acc = '';
+      for (const line of lines) {
+        if (acc.length + line.length + 1 > 950) break;
+        acc += (acc ? '\n' : '') + line;
+        shown += 1;
+      }
+      value = `${acc}\n*(+${list.length - shown} más, no entran acá)*`;
+    }
+
+    embed.addFields({ name: fieldName, value, inline: false });
   }
+
+  const footerParts = [];
+  if (skippedSeparators > 0) footerParts.push(`${skippedSeparators} rol(es) separador(es) omitidos`);
+  if (truncatedCategories > 0) footerParts.push(`${truncatedCategories} categoría(s) recortada(s) por espacio`);
+  embed.setFooter({ text: footerParts.length > 0 ? `${BRAND_NAME} • ${footerParts.join(' • ')}` : BRAND_NAME });
 
   return embed;
 }

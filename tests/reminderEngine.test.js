@@ -7,7 +7,8 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 // al toque en vez de perderse silenciosamente.
 const getAllReminders = vi.fn();
 const deleteReminder = vi.fn().mockResolvedValue(undefined);
-vi.mock('../src/utils/remindersStore.js', () => ({ getAllReminders, deleteReminder }));
+const rescheduleReminder = vi.fn().mockResolvedValue(undefined);
+vi.mock('../src/utils/remindersStore.js', () => ({ getAllReminders, deleteReminder, rescheduleReminder }));
 
 const { scheduleReminder, cancelReminder, rescheduleReminders } = await import('../src/utils/reminderEngine.js');
 
@@ -25,6 +26,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
   deleteReminder.mockResolvedValue(undefined);
+  rescheduleReminder.mockResolvedValue(undefined);
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -63,6 +65,36 @@ describe('scheduleReminder', () => {
     const embed = send.mock.calls[0][0].embeds[0];
     expect(embed.data.description).toBe('sacar la basura');
     expect(deleteReminder).toHaveBeenCalledWith(reminder.id);
+  });
+});
+
+describe('recordatorios recurrentes', () => {
+  it('con repeatMs, se reprograma en vez de borrarse al disparar', async () => {
+    const { client, send } = makeClient();
+    const reminder = makeReminder({ id: 'r-diario', remindAt: Date.now() + 60_000, repeatMs: 86_400_000 });
+
+    scheduleReminder(client, reminder);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(deleteReminder).not.toHaveBeenCalled();
+    expect(rescheduleReminder).toHaveBeenCalledWith('r-diario', expect.any(Number));
+
+    // Debería volver a disparar ~1 día después, sin que nadie lo vuelva a crear.
+    await vi.advanceTimersByTimeAsync(86_400_000);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it('sin repeatMs (el caso de siempre), se borra como antes', async () => {
+    const { client, send } = makeClient();
+    const reminder = makeReminder({ remindAt: Date.now() + 60_000 });
+
+    scheduleReminder(client, reminder);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(deleteReminder).toHaveBeenCalledWith(reminder.id);
+    expect(rescheduleReminder).not.toHaveBeenCalled();
   });
 });
 
