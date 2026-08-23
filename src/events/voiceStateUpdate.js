@@ -24,12 +24,11 @@ export async function execute(oldState, newState, client) {
       else if (!newState.channelId) action = 'leave';
       else action = 'move';
     } else if (newState.channelId) {
-      // Solo miramos estos cambios cuando el canal no cambió, para no
-      // duplicar ruido con el join/leave/move de arriba.
-      if (oldState.selfMute !== newState.selfMute) action = newState.selfMute ? 'mute' : 'unmute';
-      else if (oldState.selfDeaf !== newState.selfDeaf) action = newState.selfDeaf ? 'deafen' : 'undeafen';
-      else if (oldState.streaming !== newState.streaming) action = newState.streaming ? 'stream-start' : 'stream-stop';
-      else if (oldState.selfVideo !== newState.selfVideo) action = newState.selfVideo ? 'camera-on' : 'camera-off';
+      // Mute/deafen/compartir pantalla NO se procesan a propósito — un usuario los
+      // toca cientos de veces por sesión y no vale ni el query a guild_config
+      // (getGuildLogChannel) ni el log por cada toque. Cámara queda fuera de este
+      // recorte porque no se pidió sacarla.
+      if (oldState.selfVideo !== newState.selfVideo) action = newState.selfVideo ? 'camera-on' : 'camera-off';
     }
 
     if (!action) return;
