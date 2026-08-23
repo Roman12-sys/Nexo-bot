@@ -17,6 +17,35 @@ import { registerSelectPrefix } from '../../components/selects.js';
 const CATEGORY_NAME = 'Nexo Bot';
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutos
 
+// Plantillas: solo definen el punto de partida de los toggles del panel — el
+// usuario los puede seguir tocando después, no queda atado a la plantilla elegida.
+const TEMPLATES = {
+  comunidad: {
+    label: 'Comunidad',
+    emoji: '👥',
+    description: 'Moderación, economía y niveles activados. Ideal para comunidades grandes y activas.',
+    state: { moderacion: true, economia: true, xp: true },
+  },
+  gaming: {
+    label: 'Gaming / Clan',
+    emoji: '🎮',
+    description: 'Moderación y niveles por XP, sin economía. Pensado para clanes y comunidades de juego.',
+    state: { moderacion: true, economia: false, xp: true },
+  },
+  estudio: {
+    label: 'Estudio / Soporte',
+    emoji: '📚',
+    description: 'Solo moderación y logs. Ideal para servidores de estudio, trabajo o soporte.',
+    state: { moderacion: true, economia: false, xp: false },
+  },
+  personalizado: {
+    label: 'Personalizado',
+    emoji: '🛠️',
+    description: 'Arrancá en blanco y activá lo que necesites vos mismo.',
+    state: { moderacion: false, economia: false, xp: false },
+  },
+};
+
 const LOG_CHANNELS = [
   { column: 'log_channel_moderation_id', name: 'registro-moderacion' },
   { column: 'log_channel_activity_id', name: 'registro-actividad' },
@@ -50,6 +79,29 @@ function canRunSetup(interaction) {
     interaction.guild.ownerId === interaction.user.id ||
     interaction.member.permissions.has(PermissionFlagsBits.Administrator)
   );
+}
+
+// ---------- Selección de plantilla (paso previo al panel) ----------
+
+function buildTemplatePicker() {
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('⚙️ Configurar Nexo Bot')
+    .setDescription(
+      'Elegí una plantilla como punto de partida — después vas a poder ajustar cada opción a mano. ' +
+        'Ninguna elección es definitiva, todo se puede tocar antes de confirmar.',
+    )
+    .addFields(
+      Object.entries(TEMPLATES).map(([, t]) => ({ name: `${t.emoji} ${t.label}`, value: t.description })),
+    );
+
+  const row = new ActionRowBuilder().addComponents(
+    Object.entries(TEMPLATES).map(([key, t]) =>
+      new ButtonBuilder().setCustomId(`setup_template_${key}`).setLabel(t.label).setEmoji(t.emoji).setStyle(ButtonStyle.Secondary),
+    ),
+  );
+
+  return { embeds: [embed], components: [row] };
 }
 
 // ---------- Panel interactivo ----------
@@ -223,10 +275,7 @@ export async function execute(interaction) {
     return;
   }
 
-  const state = { moderacion: true, economia: true, xp: true, roleId: null };
-  refreshSession(interaction.user.id, state);
-
-  await interaction.reply({ ...buildSetupPanel(state), flags: MessageFlags.Ephemeral });
+  await interaction.reply({ ...buildTemplatePicker(), flags: MessageFlags.Ephemeral });
 }
 
 function requireSession(interaction) {
@@ -234,6 +283,16 @@ function requireSession(interaction) {
 }
 
 const SESSION_EXPIRED = '❌ Esta sesión de /setup expiró. Iniciá de nuevo con `/setup`.';
+
+registerButtonPrefix('setup_template_', async (i) => {
+  const key = i.customId.replace('setup_template_', '');
+  const template = TEMPLATES[key];
+  if (!template) return i.reply({ content: '❌ Plantilla inválida.', flags: MessageFlags.Ephemeral });
+
+  const state = { ...template.state, roleId: null };
+  refreshSession(i.user.id, state);
+  await i.update(buildSetupPanel(state));
+});
 
 registerButtonPrefix('setup_toggle_moderacion', async (i) => {
   const session = requireSession(i);
