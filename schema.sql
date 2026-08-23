@@ -96,6 +96,24 @@ create table if not exists economy_transactions (
 );
 create index if not exists economy_transactions_guild_user_idx on economy_transactions (guild_id, user_id);
 
+-- Catálogo de tienda por servidor (/shop-admin). Si un guild no tiene ninguna fila
+-- acá, /shop, /buy e /inventory usan los 4 ítems de ejemplo genéricos de
+-- src/utils/shopItems.js — apenas el servidor agrega su primer ítem propio, ese
+-- catálogo por defecto deja de mostrarse (ver src/utils/shopStore.js).
+create table if not exists shop_items (
+  id bigint generated always as identity primary key,
+  guild_id text not null,
+  item_id text not null, -- slug estable, es lo que queda guardado en economy.inventory
+  name text not null,
+  description text not null default '',
+  category text not null default 'General',
+  price bigint not null,
+  role_id text,
+  fulfillment text, -- null (automático, va al inventario) | 'manual' (staff lo entrega a mano)
+  created_at timestamptz not null default now(),
+  unique (guild_id, item_id)
+);
+
 -- =========================================================
 -- XP / niveles
 -- =========================================================

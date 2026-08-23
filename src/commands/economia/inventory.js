@@ -1,11 +1,14 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import SHOP_ITEMS from '../../utils/shopItems.js';
+import { getGuildShopItems } from '../../utils/shopStore.js';
 import { getUserEconomy } from '../../utils/economyStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 // Extraída para que /perfil pueda mostrar el mismo inventario sin duplicar esta lógica.
 export async function buildInventoryEmbed(guildId, targetUser) {
-  const economy = await getUserEconomy(guildId, targetUser.id);
+  const [economy, shopItems] = await Promise.all([
+    getUserEconomy(guildId, targetUser.id),
+    getGuildShopItems(guildId),
+  ]);
 
   const owned = Object.entries(economy.inventory || {}).filter(([, qty]) => qty > 0);
 
@@ -21,7 +24,7 @@ export async function buildInventoryEmbed(guildId, targetUser) {
     embed.setDescription(
       owned
         .map(([itemId, qty]) => {
-          const item = SHOP_ITEMS.find((i) => i.id === itemId);
+          const item = shopItems.find((i) => i.id === itemId);
           const name = item ? item.name : itemId;
           return `${name} x${qty}`;
         })

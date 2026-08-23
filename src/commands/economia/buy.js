@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
-import SHOP_ITEMS from '../../utils/shopItems.js';
+import { getGuildShopItems, getShopItem } from '../../utils/shopStore.js';
 import { getUserEconomy, deductBalanceIfSufficient, incrementInventoryItem, addBalance, recordTransaction } from '../../utils/economyStore.js';
 import { createShopPurchaseLogEmbed } from '../../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
@@ -10,21 +10,29 @@ const MAX_MYSTERY = 600;
 export const data = new SlashCommandBuilder()
   .setName('buy')
   .setDescription('Comprá un ítem de la tienda.')
-  .addStringOption((o) => {
-    o.setName('item').setDescription('Qué ítem querés comprar').setRequired(true);
-    SHOP_ITEMS.forEach((item) => {
-      o.addChoices({ name: `${item.name} (${item.price} monedas)`, value: item.id });
-    });
-    return o;
-  })
+  .addStringOption((o) => o.setName('item').setDescription('Qué ítem querés comprar (escribí para buscar)').setRequired(true).setAutocomplete(true))
   .setDMPermission(false);
+
+// El catálogo es por servidor, así que las opciones no pueden ser fijas al momento
+// del deploy (como sería con .addChoices) — se resuelven acá, en vivo, con lo que
+// el usuario ya escribió.
+export async function autocomplete(interaction) {
+  const focused = interaction.options.getFocused().toLowerCase();
+  const items = await getGuildShopItems(interaction.guildId).catch(() => []);
+  const matches = items
+    .filter((item) => item.name.toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((item) => ({ name: `${item.name} (${item.price.toLocaleString('es-ES')} monedas)`.slice(0, 100), value: item.id }));
+
+  await interaction.respond(matches);
+}
 
 export async function execute(interaction) {
   const itemId = interaction.options.getString('item');
-  const item = SHOP_ITEMS.find((i) => i.id === itemId);
+  const item = await getShopItem(interaction.guildId, itemId);
 
   if (!item) {
-    await interaction.reply({ content: '❌ Ese ítem no existe.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: '❌ Ese ítem no existe. Elegilo de las sugerencias mientras escribís.', flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -61,7 +69,7 @@ export async function execute(interaction) {
   }
   await recordTransaction(guildId, userId, { type: 'purchase', amount: -item.price, balanceAfter: balanceAfterCharge, reason: item.name });
 
-  // --- Caso especial: caja misteriosa ---
+  // --- Caso especial: caja misteriosa (solo existe en el catálogo por defecto) ---
   // No se guarda en el inventario, se resuelve al instante con una recompensa al azar
   if (item.type === 'mystery_box') {
     const reward = Math.floor(Math.random() * (MAX_MYSTERY - MIN_MYSTERY + 1)) + MIN_MYSTERY;
@@ -82,21 +90,10 @@ export async function execute(interaction) {
   // --- Ítems normales: se guardan en el inventario ---
   await incrementInventoryItem(guildId, userId, item.id, 1);
 
-  // Si tiene un rol asociado en shopItems.js, se lo damos automáticamente
+  // Si tiene un rol asociado, se lo damos automáticamente
   if (item.roleId) {
     try {
       member = member || (await interaction.guild.members.fetch(userId));
-
-      // Si el ítem pertenece a un grupo excluyente (ej: colores), le sacamos primero
-      // cualquier otro rol de ese mismo grupo para que no se acumulen.
-      if (item.exclusiveGroup) {
-        const otherRoleIds = SHOP_ITEMS.filter(
-          (i) => i.exclusiveGroup === item.exclusiveGroup && i.id !== item.id && i.roleId,
-        ).map((i) => i.roleId);
-        const rolesToRemove = otherRoleIds.filter((id) => member.roles.cache.has(id));
-        if (rolesToRemove.length > 0) await member.roles.remove(rolesToRemove);
-      }
-
       await member.roles.add(item.roleId);
     } catch (error) {
       console.error('⚠️ No se pudo asignar el rol del ítem comprado:', error);

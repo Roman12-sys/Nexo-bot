@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import SHOP_ITEMS from '../../utils/shopItems.js';
+import { getGuildShopItems } from '../../utils/shopStore.js';
 import { getUserEconomy, addBalance, setBalance, getUserTransactions } from '../../utils/economyStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { createEconomyAdminLogEmbed } from '../../utils/logEmbeds.js';
@@ -142,7 +142,10 @@ async function handleHistorial(interaction) {
 async function handlePerfil(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const targetUser = interaction.options.getUser('usuario');
-  const economy = await getUserEconomy(interaction.guild.id, targetUser.id);
+  const [economy, shopItems] = await Promise.all([
+    getUserEconomy(interaction.guild.id, targetUser.id),
+    getGuildShopItems(interaction.guildId),
+  ]);
   const now = Date.now();
 
   const dailyReady = now - economy.lastDaily >= 24 * 60 * 60 * 1000;
@@ -154,7 +157,7 @@ async function handlePerfil(interaction) {
       ? 'Sin ítems.'
       : owned
           .map(([itemId, qty]) => {
-            const item = SHOP_ITEMS.find((i) => i.id === itemId);
+            const item = shopItems.find((i) => i.id === itemId);
             return `${item ? item.name : itemId} x${qty}`;
           })
           .join('\n');

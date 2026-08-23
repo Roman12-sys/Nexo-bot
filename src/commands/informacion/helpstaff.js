@@ -122,6 +122,7 @@ export function buildEconomiaEmbed() {
       { name: '/economia-staff establecer <usuario> <cantidad> [motivo]', value: 'Fija un balance exacto.' },
       { name: '/economia-staff historial <usuario> [cantidad]', value: 'Últimos movimientos: tipo, monto, balance resultante, quién lo causó y motivo.' },
       { name: '/economia-staff perfil <usuario>', value: 'Balance + cooldowns de /daily y /work + inventario, todo junto.' },
+      { name: '/shop-admin agregar/quitar/listar', value: 'Arma el catálogo de /shop propio de este servidor (nombre, precio, rol opcional, entrega manual o automática).' },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
