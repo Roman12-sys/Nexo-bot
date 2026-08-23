@@ -19,13 +19,20 @@ servidor, con cache en memoria de 30s (`src/utils/guildConfigStore.js`) para no 
 a Supabase en cada mensaje.
 
 Dos comandos llenan `guild_config`:
-- **`/setup`** (`src/commands/admin/setup.js`) — crea canales/categoría/rol de staff
+- **`/setup`** (`src/commands/admin/setup.js`) — crea canales/categoría/roles
   automáticamente si no existen, y guarda sus IDs. Re-ejecutable sin duplicar (busca por
   ID guardado primero, después por nombre, recién ahí crea). Solo dueño/Administrator —
   no puede gatear con `isStaff()` porque la primera vez no hay `guild_config` todavía.
-- **`/config`** (`src/commands/admin/config.js`) — para los campos que NO tienen
-  creación automática porque son cosas que ya existen en el server y el admin elige
-  cuál usar: rol de castigo, rol automático, canal de bienvenida, canal de confesiones.
+  Además del rol de staff + canales de log + módulos (moderación/economía/XP), el panel
+  tiene 4 "extras" opt-in (togles, apagados por defecto en cualquier plantilla): canal
+  de bienvenida, canal de confesiones, rol automático ("Miembro") y rol de castigo
+  ("Sancionado"). `resolveRole`/`resolveChannel` son los genéricos que resuelven
+  cualquiera de estos (reusar por ID → por nombre → crear), no solo el rol de staff.
+- **`/config`** (`src/commands/admin/config.js`) — para cuando el admin quiere apuntar
+  a un canal/rol que YA existe en el server en vez de crear uno nuevo (ej. usar un rol
+  de castigo que ya tenía armado de antes). No quedó redundante con la ampliación de
+  `/setup`: son dos caminos al mismo campo de `guild_config`, "crear de cero" vs
+  "reusar algo mío" — decisión explícita, no una casualidad de la migración.
 
 Cualquier comando/evento que en gNoX leía `config.js` ahora hace
 `await getGuildConfig(interaction.guildId)` y lee la columna correspondiente.
@@ -109,8 +116,11 @@ Decisiones puntuales:
 ## Qué se dejó afuera a propósito
 
 - **Sistema de "presence" rotativo** (`utils/presence.js`/`botStatus.js` en gNoX) —
-  cosmético (rota el status "Jugando a..." del bot), se sacaron todas las llamadas a
-  `refreshPresence()` de los eventos migrados.
+  cosmético (rota el status "Jugando a..." del bot cada tanto), se sacaron todas las
+  llamadas a `refreshPresence()` de los eventos migrados. Lo que sí existe es una
+  presencia **fija** ("Escuchando /help", seteada una sola vez en `ready.js`) — no es
+  lo mismo que el sistema rotativo descartado, es solo un aviso estático de cómo usar
+  el bot.
 - **Easter egg de "hola"** en `messageCreate.js` — reaccionaba con 2 emojis custom
   subidos a un servidor específico de gNoX, no existen acá.
 - **Dashboard de monitoreo de gNoX, streams (Kick/YouTube), páginas legales de gNoX** —

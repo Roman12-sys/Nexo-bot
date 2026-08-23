@@ -10,7 +10,7 @@ import {
   MessageFlags,
 } from 'discord.js';
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
-import { BRAND_COLOR } from '../../utils/embeds.js';
+import { BRAND_COLOR, LOG_COLOR } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
 
@@ -51,6 +51,37 @@ const LOG_CHANNELS = [
   { column: 'log_channel_activity_id', name: 'registro-actividad' },
   { column: 'log_channel_economy_id', name: 'registro-economia' },
 ];
+
+// "Extras" del panel — a diferencia de moderación/economía/XP (que activan un módulo
+// entero), cada uno de estos crea UN recurso puntual que hoy solo se podía configurar
+// apuntando a algo ya existente con /config. Quedan todos apagados por defecto en
+// cualquier plantilla — son opt-in explícito.
+const EXTRAS = {
+  bienvenida: {
+    stateKey: 'bienvenida',
+    emoji: '🎉',
+    label: 'Bienvenida',
+    description: 'Crea el canal #bienvenida — ahí se manda el banner + mensaje a cada miembro nuevo.',
+  },
+  confesiones: {
+    stateKey: 'confesiones',
+    emoji: '🤫',
+    label: 'Confesiones',
+    description: 'Crea el canal #confesiones — donde se publica lo que la gente manda con /confession, siempre anónimo.',
+  },
+  autoRol: {
+    stateKey: 'autoRol',
+    emoji: '🎫',
+    label: 'Rol automático',
+    description: 'Crea el rol "Miembro" y se lo asigna solo a cada persona que se une al servidor.',
+  },
+  castigo: {
+    stateKey: 'castigo',
+    emoji: '🚫',
+    label: 'Rol de castigo',
+    description: 'Crea el rol "Sancionado" — quien lo tenga no puede mandar imágenes ni enlaces (usado por /punish).',
+  },
+};
 
 // Sesión en memoria del panel interactivo, una por usuario (mismo patrón que
 // anuncio.js) — solo importa mientras dura la conversación de botones, nunca se
@@ -116,10 +147,18 @@ function buildSetupPanel(state) {
       'Elegí qué activar y, si querés, un rol de staff ya existente. Tocá **Confirmar** cuando esté listo — ' +
         'se puede volver a correr /setup las veces que hagan falta, nunca duplica lo que ya existe.',
     )
-    .addFields({
-      name: 'Rol de staff',
-      value: state.roleId ? `<@&${state.roleId}>` : 'Automático — crea o reusa uno llamado "Staff"',
-    });
+    .addFields(
+      {
+        name: 'Rol de staff',
+        value: state.roleId ? `<@&${state.roleId}>` : 'Automático — crea o reusa uno llamado "Staff"',
+      },
+      {
+        name: 'Extras (opcionales)',
+        value: Object.values(EXTRAS)
+          .map((e) => `${e.emoji} **${e.label}**: ${e.description}`)
+          .join('\n'),
+      },
+    );
 
   const rowToggles = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -136,6 +175,15 @@ function buildSetupPanel(state) {
       .setStyle(state.xp ? ButtonStyle.Success : ButtonStyle.Secondary),
   );
 
+  const rowExtras = new ActionRowBuilder().addComponents(
+    Object.values(EXTRAS).map((e) =>
+      new ButtonBuilder()
+        .setCustomId(`setup_toggle_${e.stateKey}`)
+        .setLabel(toggleLabel(state[e.stateKey], e.label))
+        .setStyle(state[e.stateKey] ? ButtonStyle.Success : ButtonStyle.Secondary),
+    ),
+  );
+
   const rowRole = new ActionRowBuilder().addComponents(
     new RoleSelectMenuBuilder()
       .setCustomId('setup_role_select')
@@ -149,26 +197,29 @@ function buildSetupPanel(state) {
     new ButtonBuilder().setCustomId('setup_cancel').setLabel('❌ Cancelar').setStyle(ButtonStyle.Danger),
   );
 
-  return { embeds: [embed], components: [rowToggles, rowRole, rowConfirm] };
+  return { embeds: [embed], components: [rowToggles, rowExtras, rowRole, rowConfirm] };
 }
 
-// ---------- Creación/reuso de recursos (sin cambios de lógica) ----------
+// ---------- Creación/reuso de recursos ----------
 
-async function resolveStaffRole(interaction, cfg, requestedRole) {
+// Genérico para cualquier rol que /setup pueda crear: reusa por ID guardado, después
+// por nombre exacto, recién ahí crea uno nuevo — mismo criterio en los 3 roles que
+// maneja el comando (staff, automático, castigo), nunca duplica si ya existe.
+async function resolveRole(interaction, cfg, { column, name, color, hoist = false, requestedRole = null }) {
   if (requestedRole) return { role: requestedRole, created: false };
 
-  if (cfg.moderator_role_id) {
-    const existing = await interaction.guild.roles.fetch(cfg.moderator_role_id).catch(() => null);
+  if (cfg[column]) {
+    const existing = await interaction.guild.roles.fetch(cfg[column]).catch(() => null);
     if (existing) return { role: existing, created: false };
   }
 
-  const byName = interaction.guild.roles.cache.find((r) => r.name === 'Staff');
+  const byName = interaction.guild.roles.cache.find((r) => r.name === name);
   if (byName) return { role: byName, created: false };
 
   const role = await interaction.guild.roles.create({
-    name: 'Staff',
-    color: '#7F5AF0',
-    hoist: true,
+    name,
+    color,
+    hoist,
     reason: 'Creado por /setup de Nexo Bot',
   });
   return { role, created: true };
@@ -193,7 +244,11 @@ async function resolveCategory(interaction, cfg) {
   return { category, created: true };
 }
 
-async function resolveLogChannel(interaction, cfg, category, staffRole, { column, name }) {
+// Genérico para cualquier canal de texto que /setup pueda crear dentro de la categoría
+// "Nexo Bot" — mismo criterio de reuso que resolveRole (ID guardado → nombre → crear).
+// Los permisos los decide cada caller vía `overwrites` (los de log son staff-only, los
+// de bienvenida/confesiones son visibles para todo el mundo).
+async function resolveChannel(interaction, cfg, category, { column, name, overwrites }) {
   const existingId = cfg[column];
   if (existingId) {
     const existing = await interaction.guild.channels.fetch(existingId).catch(() => null);
@@ -209,13 +264,17 @@ async function resolveLogChannel(interaction, cfg, category, staffRole, { column
     name,
     type: ChannelType.GuildText,
     parent: category.id,
-    permissionOverwrites: [
-      { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-      { id: staffRole.id, allow: [PermissionFlagsBits.ViewChannel] },
-    ],
+    permissionOverwrites: overwrites,
     reason: 'Creado por /setup de Nexo Bot',
   });
   return { channel, created: true };
+}
+
+function staffOnlyOverwrites(interaction, staffRole) {
+  return [
+    { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+    { id: staffRole.id, allow: [PermissionFlagsBits.ViewChannel] },
+  ];
 }
 
 // Corre la creación real a partir del estado elegido en el panel. Devuelve el embed
@@ -225,10 +284,16 @@ async function runSetup(interaction, state) {
   const summary = [];
 
   const requestedStaffRole = state.roleId ? await interaction.guild.roles.fetch(state.roleId).catch(() => null) : null;
-  const { role: staffRole, created: staffCreated } = await resolveStaffRole(interaction, cfg, requestedStaffRole);
+  const { role: staffRole, created: staffCreated } = await resolveRole(interaction, cfg, {
+    column: 'moderator_role_id',
+    name: 'Staff',
+    color: BRAND_COLOR,
+    hoist: true,
+    requestedRole: requestedStaffRole,
+  });
   summary.push(`${staffCreated ? '🆕 Creado' : '♻️ Reusado'} rol de staff: ${staffRole}`);
 
-  const needsCategory = state.moderacion || state.economia;
+  const needsCategory = state.moderacion || state.economia || state.bienvenida || state.confesiones;
   let category = null;
   if (needsCategory) {
     const result = await resolveCategory(interaction, cfg);
@@ -253,7 +318,10 @@ async function runSetup(interaction, state) {
     const featureEnabled = isEconomyColumn ? state.economia : state.moderacion;
     if (!featureEnabled) continue;
 
-    const { channel, created } = await resolveLogChannel(interaction, cfg, category, staffRole, logChannel);
+    const { channel, created } = await resolveChannel(interaction, cfg, category, {
+      ...logChannel,
+      overwrites: staffOnlyOverwrites(interaction, staffRole),
+    });
     summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} canal: ${channel}`);
     // Igual que arriba: se guarda cada canal apenas se crea, no recién al final.
     await setGuildConfig(interaction.guildId, { [logChannel.column]: channel.id });
@@ -261,6 +329,52 @@ async function runSetup(interaction, state) {
 
   if (state.xp) {
     summary.push('⭐ XP activado (sin canal de anuncio de nivel — configurable más adelante).');
+  }
+
+  // --- Extras opcionales ---
+
+  if (state.bienvenida) {
+    const { channel, created } = await resolveChannel(interaction, cfg, category, {
+      column: 'welcome_channel_id',
+      name: 'bienvenida',
+      overwrites: [{ id: interaction.guild.roles.everyone.id, allow: [PermissionFlagsBits.ViewChannel] }],
+    });
+    summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} canal de bienvenida: ${channel}`);
+    await setGuildConfig(interaction.guildId, { welcome_channel_id: channel.id });
+  }
+
+  if (state.confesiones) {
+    const { channel, created } = await resolveChannel(interaction, cfg, category, {
+      column: 'confession_channel_id',
+      name: 'confesiones',
+      // Visible para todos, pero solo el bot posta ahí (llegan vía /confession) — se
+      // le niega Enviar mensajes a @everyone para que quede como feed de solo lectura.
+      overwrites: [
+        { id: interaction.guild.roles.everyone.id, allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.SendMessages] },
+      ],
+    });
+    summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} canal de confesiones: ${channel}`);
+    await setGuildConfig(interaction.guildId, { confession_channel_id: channel.id });
+  }
+
+  if (state.autoRol) {
+    const { role, created } = await resolveRole(interaction, cfg, {
+      column: 'auto_role_id',
+      name: 'Miembro',
+      color: '#43B581',
+    });
+    summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} rol automático: ${role}`);
+    await setGuildConfig(interaction.guildId, { auto_role_id: role.id });
+  }
+
+  if (state.castigo) {
+    const { role, created } = await resolveRole(interaction, cfg, {
+      column: 'punish_role_id',
+      name: 'Sancionado',
+      color: LOG_COLOR,
+    });
+    summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} rol de castigo: ${role}`);
+    await setGuildConfig(interaction.guildId, { punish_role_id: role.id });
   }
 
   await setGuildConfig(interaction.guildId, { setup_completed_at: new Date().toISOString() });
@@ -289,39 +403,38 @@ function requireSession(interaction) {
 
 const SESSION_EXPIRED = '❌ Esta sesión de /setup expiró. Iniciá de nuevo con `/setup`.';
 
+// Los extras arrancan siempre apagados, sin importar la plantilla — son opt-in
+// explícito, ninguna plantilla los prende por vos.
+const EXTRAS_DEFAULT_STATE = Object.fromEntries(Object.values(EXTRAS).map((e) => [e.stateKey, false]));
+
 registerButtonPrefix('setup_template_', async (i) => {
   const key = i.customId.replace('setup_template_', '');
   const template = TEMPLATES[key];
   if (!template) return i.reply({ content: '❌ Plantilla inválida.', flags: MessageFlags.Ephemeral });
 
-  const state = { ...template.state, roleId: null };
+  const state = { ...EXTRAS_DEFAULT_STATE, ...template.state, roleId: null };
   refreshSession(i.user.id, state);
   await i.update(buildSetupPanel(state));
 });
 
-registerButtonPrefix('setup_toggle_moderacion', async (i) => {
-  const session = requireSession(i);
-  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
-  session.state.moderacion = !session.state.moderacion;
-  refreshSession(i.user.id, session.state);
-  await i.update(buildSetupPanel(session.state));
-});
+// Un solo handler genérico para los 7 toggles del panel (3 módulos + 4 extras) en vez
+// de repetir el mismo bloque de 6 líneas siete veces.
+function registerToggle(customId, stateKey) {
+  registerButtonPrefix(customId, async (i) => {
+    const session = requireSession(i);
+    if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+    session.state[stateKey] = !session.state[stateKey];
+    refreshSession(i.user.id, session.state);
+    await i.update(buildSetupPanel(session.state));
+  });
+}
 
-registerButtonPrefix('setup_toggle_economia', async (i) => {
-  const session = requireSession(i);
-  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
-  session.state.economia = !session.state.economia;
-  refreshSession(i.user.id, session.state);
-  await i.update(buildSetupPanel(session.state));
-});
-
-registerButtonPrefix('setup_toggle_xp', async (i) => {
-  const session = requireSession(i);
-  if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
-  session.state.xp = !session.state.xp;
-  refreshSession(i.user.id, session.state);
-  await i.update(buildSetupPanel(session.state));
-});
+registerToggle('setup_toggle_moderacion', 'moderacion');
+registerToggle('setup_toggle_economia', 'economia');
+registerToggle('setup_toggle_xp', 'xp');
+for (const extra of Object.values(EXTRAS)) {
+  registerToggle(`setup_toggle_${extra.stateKey}`, extra.stateKey);
+}
 
 registerSelectPrefix('setup_role_select', async (i) => {
   const session = requireSession(i);

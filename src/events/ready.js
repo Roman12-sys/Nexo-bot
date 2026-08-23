@@ -1,3 +1,4 @@
+import { ActivityType } from 'discord.js';
 import { rescheduleActiveGiveaways } from '../utils/giveawayEngine.js';
 import { reconcileOnStartup } from '../utils/tempVoiceEngine.js';
 import { rescheduleReminders } from '../utils/reminderEngine.js';
@@ -9,6 +10,10 @@ export const once = true;
 
 export async function execute(client) {
   console.log(`Conectado como ${client.user.tag}`);
+
+  // Presencia fija (no rotativa — eso se descartó a propósito, ver CLAUDE.md "Qué se
+  // dejó afuera a propósito"). Solo un aviso de "así se usa el bot", nada más.
+  client.user.setActivity('/help', { type: ActivityType.Listening });
 
   // Los setTimeout de scheduleGiveawayEnd se pierden en cada redeploy — hay que
   // volver a programarlos contra lo que ya está guardado en Supabase.

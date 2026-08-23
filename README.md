@@ -51,10 +51,12 @@ se configura solo con `/setup` y `/config`, sin tocar código ni variables de en
    npm run dev       # con --watch, reinicia solo al guardar
    ```
 
-6. **En Discord**: invitar al bot al servidor y correr `/setup` — crea el rol de staff
-   y los canales de logs, y activa los módulos que elijas (moderación/economía/XP).
-   `/config` cubre lo que `/setup` no crea automáticamente: rol de castigo, rol
-   automático para miembros nuevos, canal de bienvenida, canal de confesiones.
+6. **En Discord**: invitar al bot al servidor y correr `/setup` — crea el rol de staff,
+   los canales de logs, activa los módulos que elijas (moderación/economía/XP), y de
+   forma opcional también canal de bienvenida, canal de confesiones, rol automático
+   para miembros nuevos y rol de castigo (todo togleable en el mismo panel). `/config`
+   sigue disponible para cuando quieras apuntar a un canal/rol que ya existe en vez de
+   crear uno nuevo.
 
 ## Estructura
 
