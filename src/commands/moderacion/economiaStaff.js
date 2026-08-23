@@ -5,6 +5,7 @@ import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { createEconomyAdminLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { buildCsvAttachment } from '../../utils/csvExport.js';
 
 const TYPE_LABELS = {
   daily: '🎁 Diaria',
@@ -110,8 +111,40 @@ async function handleSet(interaction) {
 async function handleHistorial(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const targetUser = interaction.options.getUser('usuario');
-  const cantidad = interaction.options.getInteger('cantidad') || 10;
+  const exportar = interaction.options.getBoolean('exportar') || false;
+
+  // Exportando no tiene sentido cortar en 10 — se trae bastante más (tope razonable,
+  // no "todo" sin límite para no pedirle a Supabase una consulta sin fin).
+  const cantidad = exportar ? 1000 : interaction.options.getInteger('cantidad') || 10;
   const movimientos = await getUserTransactions(interaction.guild.id, targetUser.id, cantidad);
+
+  if (exportar) {
+    if (movimientos.length === 0) {
+      await interaction.editReply({ content: 'No hay movimientos registrados para este usuario.' });
+      return;
+    }
+    const attachment = buildCsvAttachment(
+      `historial-${targetUser.id}.csv`,
+      [
+        { key: 'fecha', header: 'Fecha' },
+        { key: 'tipo', header: 'Tipo' },
+        { key: 'monto', header: 'Monto' },
+        { key: 'balance', header: 'Balance después' },
+        { key: 'actor', header: 'Ejecutado por' },
+        { key: 'motivo', header: 'Motivo' },
+      ],
+      movimientos.map((m) => ({
+        fecha: new Date(m.timestamp).toISOString(),
+        tipo: TYPE_LABELS[m.type] || m.type,
+        monto: m.amount,
+        balance: m.balanceAfter,
+        actor: m.actorId || '',
+        motivo: m.reason || '',
+      })),
+    );
+    await interaction.editReply({ content: `📄 Historial de ${targetUser.tag} (${movimientos.length} movimiento(s)).`, files: [attachment] });
+    return;
+  }
 
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
@@ -216,7 +249,8 @@ export const data = new SlashCommandBuilder()
       .setName('historial')
       .setDescription('Muestra los últimos movimientos de economía de un usuario.')
       .addUserOption((o) => o.setName('usuario').setDescription('Usuario').setRequired(true))
-      .addIntegerOption((o) => o.setName('cantidad').setDescription('Cuántos movimientos mostrar (por defecto 10)').setRequired(false).setMinValue(1).setMaxValue(25)),
+      .addIntegerOption((o) => o.setName('cantidad').setDescription('Cuántos movimientos mostrar (por defecto 10)').setRequired(false).setMinValue(1).setMaxValue(25))
+      .addBooleanOption((o) => o.setName('exportar').setDescription('Adjuntar el historial completo (hasta 1000) como CSV en vez de mostrarlo').setRequired(false)),
   )
   .addSubcommand((sub) =>
     sub

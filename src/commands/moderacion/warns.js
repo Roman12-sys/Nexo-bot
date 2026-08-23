@@ -2,11 +2,13 @@ import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } 
 import { getUserWarns } from '../../utils/warnsStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
+import { buildCsvAttachment } from '../../utils/csvExport.js';
 
 export const data = new SlashCommandBuilder()
   .setName('warns')
   .setDescription('Muestra las advertencias de un usuario.')
   .addUserOption((o) => o.setName('usuario').setDescription('Usuario').setRequired(true))
+  .addBooleanOption((o) => o.setName('exportar').setDescription('Adjuntar las advertencias como CSV en vez de mostrarlas').setRequired(false))
   .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
 
@@ -20,7 +22,32 @@ export async function execute(interaction) {
 
   try {
     const targetUser = interaction.options.getUser('usuario');
+    const exportar = interaction.options.getBoolean('exportar') || false;
     const list = await getUserWarns(interaction.guild.id, targetUser.id);
+
+    if (exportar) {
+      if (list.length === 0) {
+        await interaction.editReply({ content: 'Este usuario no tiene advertencias.' });
+        return;
+      }
+      const attachment = buildCsvAttachment(
+        `warns-${targetUser.id}.csv`,
+        [
+          { key: 'numero', header: '#' },
+          { key: 'fecha', header: 'Fecha' },
+          { key: 'moderador', header: 'Moderador' },
+          { key: 'motivo', header: 'Motivo' },
+        ],
+        list.map((w, i) => ({
+          numero: i + 1,
+          fecha: new Date(w.timestamp).toISOString(),
+          moderador: w.moderatorId,
+          motivo: w.reason,
+        })),
+      );
+      await interaction.editReply({ content: `📄 Advertencias de ${targetUser.tag} (${list.length}).`, files: [attachment] });
+      return;
+    }
 
     const embed = new EmbedBuilder()
       .setColor(BRAND_COLOR)
