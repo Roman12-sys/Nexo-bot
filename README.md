@@ -68,6 +68,7 @@ src/
   events/                 cada archivo exporta { name, once, execute } — auto-cargado
   components/             routers de botones/selects/modales por prefijo de customId
   utils/                  stores de datos (Supabase) + lógica de Discord separada
+dashboard/               panel web de solo lectura — proceso propio, ver más abajo
 ```
 
 Cada comando/feature que necesita botones o modales se autorregistra en los routers de
@@ -84,6 +85,44 @@ feature nueva. Ver [`CLAUDE.md`](CLAUDE.md) para el resto de las decisiones de d
 | `npm run deploy` | Registra los slash commands globalmente |
 | `npm test` | Corre la suite de tests (Vitest) |
 | `npm run test:watch` | Tests en modo watch |
+| `npm run dashboard` | Arranca el panel web (proceso separado del bot) |
+| `npm run dashboard:dev` | Panel web con `--watch` |
+
+## Dashboard web
+
+Panel de solo lectura (actividad, economía, moderación por servidor) en `dashboard/`.
+Es un proceso Express **separado del bot** — mismo repo, otro entry point — pensado para
+correr como un segundo servicio de Railway. No escribe nada: solo lee las mismas tablas
+de Supabase, y usa el token del bot vía REST para resolver nombres/roles (no abre una
+conexión de gateway propia).
+
+Acceso: login con Discord (OAuth, scope `identify` únicamente). Un usuario solo ve los
+servidores donde el bot está y donde es dueño o tiene el rol de staff configurado por
+`/setup` — se revalida en cada request, nunca confía en el link.
+
+**Puesta en marcha (además de lo de arriba):**
+
+1. En el Developer Portal de la app (la misma del bot) → **OAuth2**:
+   - Copiar el **Client Secret** (distinto del token del bot).
+   - Agregar `<DASHBOARD_BASE_URL>/auth/callback` a la lista de **Redirects**
+     (ej. `https://nexo-dashboard.up.railway.app/auth/callback`, o
+     `http://localhost:3000/auth/callback` en local).
+2. Completar en `.env`:
+   ```
+   CLIENT_SECRET=             # el Client Secret del paso anterior
+   DASHBOARD_SESSION_SECRET=  # cualquier string largo random (ej: openssl rand -hex 32)
+   DASHBOARD_BASE_URL=        # la URL pública de este servicio, sin barra final
+   ```
+3. Arrancar:
+   ```bash
+   npm run dashboard       # producción
+   npm run dashboard:dev   # con --watch
+   ```
+
+En Railway: crear un **segundo servicio** apuntando a este mismo repo, con start command
+`npm run dashboard`. Railway define `PORT` solo; el resto de las variables (`DISCORD_TOKEN`,
+`CLIENT_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` + las 3 de arriba) hay que
+cargarlas en ese servicio igual que en el del bot.
 
 ## Legal / publicación
 

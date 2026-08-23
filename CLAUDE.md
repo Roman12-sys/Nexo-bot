@@ -77,6 +77,35 @@ código hace aritmética cruda tipo `Date.now() - economy.lastDaily`, nunca
 `/daily`/`/work`). Columnas que sí se leen con `new Date(x).getTime()` (ej.
 `warnings.created_at`) están bien como `timestamptz`.
 
+## Dashboard web (`dashboard/`)
+
+Panel de solo lectura (actividad/economía/moderación por servidor) — **proceso Express
+separado del bot**, no un módulo dentro de `src/`. Se pensó así porque el bot y el
+dashboard tienen perfiles totalmente distintos: el bot necesita una conexión de gateway
+persistente y baja latencia; el dashboard es HTTP request/response de bajo tráfico. Correr
+ambos en el mismo proceso acoplaría su ciclo de vida sin necesidad (un crash del server
+HTTP no debería tirar el bot, y viceversa) — por eso son dos servicios de Railway
+separados que comparten el mismo repo y la misma base de Supabase.
+
+Decisiones puntuales:
+- **Sin conexión de gateway propia** (`dashboard/discordApi.js`): todo lo que necesita de
+  Discord (info de guild, roles de un miembro, datos de un usuario) lo pide por REST con
+  el token del bot, on-demand. Levantar un `Client` de discord.js entero (intents, caché,
+  reconexión) solo para consultas puntuales de bajo tráfico sería una segunda conexión de
+  gateway innecesaria al mismo bot.
+- **Acceso vía OAuth de Discord** (scope `identify` únicamente, nunca `guilds`): en vez de
+  pedirle a Discord la lista de servers del usuario, el dashboard usa lo que el bot YA
+  sabe (roles del usuario en cada guild donde está el bot, comparados contra
+  `admin_role_id`/`moderator_role_id` de `guild_config`) — mismo criterio que `isStaff()`
+  de `src/utils/permissions.js`, reimplementado en `dashboard/permissions.js` porque acá
+  no hay un `GuildMember` de discord.js, solo el JSON crudo de la REST API.
+- **Sesión propia con cookie firmada** (`dashboard/session.js`, HMAC-SHA256) en vez de
+  `express-session`/`jsonwebtoken` — no hace falta un store de sesiones ni el resto de
+  features de esas libs para guardar un solo dato (el user ID).
+- **100% solo lectura**: ninguna ruta escribe en Supabase ni en Discord. Si en algún
+  momento se necesita escritura (ej. resolver un warn desde el panel), es una decisión
+  aparte con su propio análisis de permisos — no asumir que se puede extender directo.
+
 ## Qué se dejó afuera a propósito
 
 - **Sistema de "presence" rotativo** (`utils/presence.js`/`botStatus.js` en gNoX) —
@@ -84,9 +113,10 @@ código hace aritmética cruda tipo `Date.now() - economy.lastDaily`, nunca
   `refreshPresence()` de los eventos migrados.
 - **Easter egg de "hola"** en `messageCreate.js` — reaccionaba con 2 emojis custom
   subidos a un servidor específico de gNoX, no existen acá.
-- **Dashboard de monitoreo, streams (Kick/YouTube), páginas legales de gNoX** —
+- **Dashboard de monitoreo de gNoX, streams (Kick/YouTube), páginas legales de gNoX** —
   excluidos desde el blueprint original: son específicos de un operador o de una
-  comunidad, no aportan a "que funcione para cualquier servidor".
+  comunidad, no aportan a "que funcione para cualquier servidor". (Distinto del panel
+  genérico multi-tenant de `dashboard/` agregado después — ver arriba.)
 - **`shopItems.js`** es una plantilla en código con 4 ítems genéricos (sin `roleId`,
   para que funcionen sin configuración) — no el catálogo de gNoX, que tenía roles de
   color con IDs reales de un servidor específico.
