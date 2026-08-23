@@ -252,6 +252,19 @@ export function createTimeoutLogEmbed({ user, executor, reason, until, removed }
   });
 }
 
+export function createAntiSpamLogEmbed({ user, channel, reason, timedOut }) {
+  return baseLogEmbed({
+    color: LOG_COLOR,
+    title: '🚨 Auto-moderación: spam detectado',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: 'Canal', value: `${channel}`, inline: true },
+      { name: 'Motivo', value: reason, inline: true },
+      { name: 'Timeout aplicado', value: timedOut ? '✅ 5 minutos' : '❌ No (falta permiso o jerarquía)' },
+    ],
+  });
+}
+
 export function createBulkDeleteLogEmbed({ cantidad, channel, executor, viaComando }) {
   return baseLogEmbed({
     color: LOG_COLOR,

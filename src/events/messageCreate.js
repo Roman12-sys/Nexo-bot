@@ -4,10 +4,12 @@ import { processLevelUp } from '../utils/xpEngine.js';
 import { getGuildConfig } from '../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { detectSecret } from '../utils/secretDetector.js';
-import { createSecretLeakLogEmbed, createPunishFilterLogEmbed } from '../utils/logEmbeds.js';
+import { createSecretLeakLogEmbed, createPunishFilterLogEmbed, createAntiSpamLogEmbed } from '../utils/logEmbeds.js';
 import { getAfk, clearAfk } from '../utils/afkStore.js';
+import { detectSpam, SPAM_REASON_LABELS } from '../utils/spamDetector.js';
 
 const URL_REGEX = /https?:\/\/\S+|www\.\S+/i;
+const SPAM_TIMEOUT_MS = 5 * 60 * 1000;
 
 export const name = Events.MessageCreate;
 export const once = false;
@@ -62,7 +64,44 @@ export async function execute(message, client) {
       }
     }
 
-    // --- PARTE 2: XP por actividad ---
+    // --- PARTE 2: auto-moderación de spam (flood, contenido repetido, menciones masivas) ---
+
+    if (cfg.features?.moderacion && member) {
+      const isStaffMember = Boolean(
+        (cfg.admin_role_id && member.roles.cache.has(cfg.admin_role_id)) ||
+          (cfg.moderator_role_id && member.roles.cache.has(cfg.moderator_role_id)),
+      );
+
+      const spamReason = isStaffMember ? null : detectSpam(message);
+      if (spamReason) {
+        await message.delete().catch(() => {});
+
+        let timedOut = false;
+        if (member.moderatable) {
+          timedOut = await member
+            .timeout(SPAM_TIMEOUT_MS, `Auto-moderación: ${SPAM_REASON_LABELS[spamReason]}`)
+            .then(() => true)
+            .catch(() => false);
+        }
+
+        if (timedOut) {
+          await message.author
+            .send(`⚠️ Se te aplicó un timeout de 5 minutos en **${message.guild.name}** por actividad de spam (${SPAM_REASON_LABELS[spamReason]}).`)
+            .catch(() => {});
+        }
+
+        const spamLogChannel = await getGuildLogChannel(client, message.guild.id, 'moderation');
+        if (spamLogChannel) {
+          await spamLogChannel.send({
+            embeds: [createAntiSpamLogEmbed({ user: message.author, channel: message.channel, reason: SPAM_REASON_LABELS[spamReason], timedOut })],
+          });
+        }
+
+        return;
+      }
+    }
+
+    // --- PARTE 3: XP por actividad ---
 
     if (cfg.features?.xp && member) {
       const result = await grantMessageXp(message.guild.id, message.author.id, message.content);
@@ -75,7 +114,7 @@ export async function execute(message, client) {
       }
     }
 
-    // --- PARTE 3: filtro de imágenes/enlaces para usuarios sancionados ---
+    // --- PARTE 4: filtro de imágenes/enlaces para usuarios sancionados ---
 
     if (!cfg.punish_role_id) return;
     if (!member || !member.roles.cache.has(cfg.punish_role_id)) return;
