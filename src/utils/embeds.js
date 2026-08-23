@@ -16,6 +16,39 @@ export function progressPercent(current, total) {
   return total > 0 ? Math.floor((current / total) * 100) : 0;
 }
 
+// Construye el embed del anuncio a partir del draft del panel /anuncio (ver
+// src/commands/anuncios/anuncio.js). Cada pieza es opcional salvo título+descripción,
+// que el panel exige antes de habilitar "Enviar" — así el embed nunca queda vacío (la
+// API de Discord rechaza un embed sin ningún campo con contenido).
+export function buildAnuncioEmbed(draft) {
+  const embed = new EmbedBuilder().setColor(draft.color || BRAND_COLOR);
+
+  if (draft.title) embed.setTitle(draft.title);
+  if (draft.description) embed.setDescription(draft.description);
+  if (draft.url && draft.title) embed.setURL(draft.url);
+
+  if (draft.authorName) {
+    embed.setAuthor({
+      name: draft.authorName,
+      iconURL: draft.authorIconURL || undefined,
+      url: draft.authorURL || undefined,
+    });
+  }
+
+  if (draft.thumbnailURL) embed.setThumbnail(draft.thumbnailURL);
+  if (draft.imageURL) embed.setImage(draft.imageURL);
+
+  if (draft.fields?.length) {
+    embed.addFields(draft.fields.map((f) => ({ name: f.name || '​', value: f.value || '​', inline: !!f.inline })));
+  }
+
+  // Un iconURL de footer sin texto no es válido para la API — se ignora en silencio en vez de bloquear al usuario.
+  if (draft.footerText) embed.setFooter({ text: draft.footerText, iconURL: draft.footerIconURL || undefined });
+  if (draft.timestamp) embed.setTimestamp();
+
+  return embed;
+}
+
 // participantsCount solo lo pasa /sorteo crear explícitamente (arranca en 0, no hay
 // array todavía). El resto de los call sites (entrar/salir, terminar, reroll, cancelar)
 // spread-ean el objeto guardado, que tiene "participants" (el array) pero no "participantsCount" —
