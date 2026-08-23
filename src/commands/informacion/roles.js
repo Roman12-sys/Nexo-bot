@@ -8,6 +8,12 @@ const COUNTRY_NAMES = new Set([
   'panamá', 'panama', 'puerto rico', 'españa', 'espana',
 ]);
 
+// Separadores visuales comunes en Discord — antes solo se reconocían guiones ASCII
+// ("---"), dejando pasar variantes igual de comunes (raya —, líneas de dibujo de
+// cajas ─/━, signos igual ═, viñetas •/▬) sin categorizarlas como separador.
+const SEP_CHARS = '\\-–—_~=•·▪▬▭▮▯━─═╌╍┄┅';
+const SEPARATOR_RE = new RegExp(`^[${SEP_CHARS}]+$|^[${SEP_CHARS}]+[a-záéíóúñ]+[${SEP_CHARS}]+$`, 'i');
+
 const STAFF_PERMISSIONS = [
   PermissionFlagsBits.Administrator,
   PermissionFlagsBits.BanMembers,
@@ -23,7 +29,7 @@ function categorize(role) {
   const name = role.name.trim();
   const lower = name.toLowerCase();
 
-  if (/^-+$|^-+[a-záéíóúñ]+-+$/i.test(name.replace(/\s/g, ''))) return null; // separador visual, no es un rol funcional
+  if (SEPARATOR_RE.test(name.replace(/\s/g, ''))) return null; // separador visual, no es un rol funcional
   if (name === 'Server Booster') return '💎 Nitro Boost';
   if (COUNTRY_NAMES.has(lower)) return '🌎 Países';
   if (role.managed) return '🤖 Bots / Integraciones';

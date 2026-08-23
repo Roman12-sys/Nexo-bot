@@ -236,13 +236,17 @@ async function runSetup(interaction, state) {
     summary.push(`${result.created ? '🆕 Creada' : '♻️ Reusada'} categoría: **${category.name}**`);
   }
 
-  const patch = {
+  // Se persiste ACÁ (rol + categoría), apenas se resuelven — setGuildConfig hace un
+  // upsert parcial (solo toca las columnas que se le pasan), así que esto no pisa
+  // nada más de guild_config. Sin este guardado incremental, si algo más abajo fallaba
+  // (ej. creando un canal de log), el rol/categoría ya creados en Discord quedaban sin
+  // reflejarse acá hasta que se re-corriera /setup entero.
+  await setGuildConfig(interaction.guildId, {
     admin_role_id: cfg.admin_role_id ?? staffRole.id,
     moderator_role_id: staffRole.id,
     features: { moderacion: state.moderacion, economia: state.economia, xp: state.xp },
     setup_category_id: category?.id ?? cfg.setup_category_id ?? null,
-    setup_completed_at: new Date().toISOString(),
-  };
+  });
 
   for (const logChannel of LOG_CHANNELS) {
     const isEconomyColumn = logChannel.column === 'log_channel_economy_id';
@@ -250,15 +254,16 @@ async function runSetup(interaction, state) {
     if (!featureEnabled) continue;
 
     const { channel, created } = await resolveLogChannel(interaction, cfg, category, staffRole, logChannel);
-    patch[logChannel.column] = channel.id;
     summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} canal: ${channel}`);
+    // Igual que arriba: se guarda cada canal apenas se crea, no recién al final.
+    await setGuildConfig(interaction.guildId, { [logChannel.column]: channel.id });
   }
 
   if (state.xp) {
     summary.push('⭐ XP activado (sin canal de anuncio de nivel — configurable más adelante).');
   }
 
-  await setGuildConfig(interaction.guildId, patch);
+  await setGuildConfig(interaction.guildId, { setup_completed_at: new Date().toISOString() });
 
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)

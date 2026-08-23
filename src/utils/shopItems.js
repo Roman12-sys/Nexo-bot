@@ -16,9 +16,6 @@
 //                cosmético/inventario).
 // - type: 'mystery_box' es un caso especial que maneja buy.js de forma distinta (da una
 //         recompensa en monedas al azar, en vez de guardarse en el inventario).
-// - exclusiveGroup: ítems que otorgan roles mutuamente excluyentes (ej: colores). buy.js
-//                    le saca los roles de los otros ítems del mismo grupo antes de
-//                    asignar el nuevo, para que no se acumulen varios a la vez.
 export default [
   {
     id: 'caja_misteriosa',
