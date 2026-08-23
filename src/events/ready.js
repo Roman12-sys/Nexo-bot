@@ -2,6 +2,7 @@ import { rescheduleActiveGiveaways } from '../utils/giveawayEngine.js';
 import { reconcileOnStartup } from '../utils/tempVoiceEngine.js';
 import { rescheduleReminders } from '../utils/reminderEngine.js';
 import { startVoiceXpLoop } from '../utils/voiceXpEngine.js';
+import { startLogPurgeLoop } from '../utils/logPurgeEngine.js';
 
 export const name = 'clientReady';
 export const once = true;
@@ -24,4 +25,8 @@ export async function execute(client) {
   // Barrido de XP por tiempo en voz — arranca acá y se repite solo cada 5 minutos,
   // no hace falta reprogramar nada al reiniciar (no depende de estado guardado).
   startVoiceXpLoop(client);
+
+  // Purga de logs con más de 5 días — mismo motivo: se repite sola cada 12hs, no
+  // depende de estado guardado en ningún lado.
+  startLogPurgeLoop(client);
 }
