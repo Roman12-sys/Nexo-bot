@@ -1,6 +1,7 @@
 import { getActiveGiveaways, getGiveaway, updateGiveaway } from './giveawaysStore.js';
 import { createGiveawayEmbed } from './embeds.js';
 import { withLock } from './asyncLock.js';
+import { unlockAchievement } from './achievements.js';
 
 // Elige "count" ganadores al azar de la lista de participantes, sin repetir a nadie
 export function pickWinners(participants, count) {
@@ -42,6 +43,9 @@ export async function endGiveaway(client, guildId, messageId) {
       await channel
         .send({ content: `🎉 ¡Felicidades ${winners.map((id) => `<@${id}>`).join(', ')}! Ganaste **${giveaway.prize}**` })
         .catch(() => {});
+      for (const winnerId of winners) {
+        await unlockAchievement(guildId, winnerId, 'con_suerte').catch(() => {});
+      }
     } else {
       await channel.send({ content: `😢 Nadie participó en el sorteo de **${giveaway.prize}**, no hubo ganadores.` }).catch(() => {});
     }

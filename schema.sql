@@ -193,6 +193,18 @@ create table if not exists reputation (
 );
 
 -- =========================================================
+-- Logros (set fijo, definido en src/utils/achievements.js — esta tabla solo
+-- guarda CUÁLES desbloqueó cada usuario, no la definición de cada uno)
+-- =========================================================
+create table if not exists achievements_unlocked (
+  guild_id text not null,
+  user_id text not null,
+  achievement_id text not null,
+  unlocked_at timestamptz not null default now(),
+  primary key (guild_id, user_id, achievement_id)
+);
+
+-- =========================================================
 -- Confesiones (contador correlativo por servidor)
 -- =========================================================
 create table if not exists confession_counters (

@@ -6,6 +6,13 @@ import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
 import { getGuildConfig } from './guildConfigStore.js';
 import { getGuildLogChannel } from './guildLogChannels.js';
 import { createLevelUpLogEmbed, createLevelRoleAssignedLogEmbed, createLevelRoleErrorLogEmbed } from './logEmbeds.js';
+import { unlockAchievement, buildAchievementUnlockedEmbed } from './achievements.js';
+
+const LEVEL_ACHIEVEMENTS = [
+  { level: 5, id: 'nivel_5' },
+  { level: 10, id: 'nivel_10' },
+  { level: 25, id: 'nivel_25' },
+];
 
 function buildLevelUpAnnounceEmbed({ member, newLevel, totalXp }) {
   return new EmbedBuilder()
@@ -97,10 +104,26 @@ export async function processLevelUp(member, { previousLevel, newLevel, totalXp 
     }
   }
 
+  let announceChannel = null;
   if (cfg.xp_announce_channel_id) {
-    const announceChannel = await client.channels.fetch(cfg.xp_announce_channel_id).catch(() => null);
+    announceChannel = await client.channels.fetch(cfg.xp_announce_channel_id).catch(() => null);
     if (announceChannel?.isTextBased()) {
       await announceChannel.send({ embeds: [buildLevelUpAnnounceEmbed({ member, newLevel, totalXp })] }).catch(() => {});
+    }
+  }
+
+  // Los 3 hitos de nivel son el único logro que se evalúa fuera de un comando (la
+  // subida de nivel pasa tanto por actividad en el chat como por /xp de staff) —
+  // se anuncia en el canal de anuncio de XP si hay uno configurado, si no en el de
+  // logs de actividad; si no hay ninguno de los dos, queda desbloqueado en silencio
+  // (igual visible después en /perfil → Logros).
+  const celebrationChannel = announceChannel?.isTextBased() ? announceChannel : logChannel;
+  for (const { level, id } of LEVEL_ACHIEVEMENTS) {
+    if (previousLevel < level && newLevel >= level) {
+      const achievement = await unlockAchievement(guildId, member.id, id);
+      if (achievement && celebrationChannel) {
+        await celebrationChannel.send({ embeds: [buildAchievementUnlockedEmbed(member.user, achievement)] }).catch(() => {});
+      }
     }
   }
 }

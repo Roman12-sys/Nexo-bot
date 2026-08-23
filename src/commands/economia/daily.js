@@ -2,6 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, setCooldown } from '../../utils/economyStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
+import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
 
 const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MIN_REWARD = 100;
@@ -25,12 +26,13 @@ export async function execute(interaction) {
       return { onCooldown: true, remaining: COOLDOWN_MS - elapsed, now };
     }
 
+    const isFirstDaily = economy.lastDaily === 0;
     const reward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
 
     const newBalance = await addBalance(guildId, userId, reward, { type: 'daily' });
     await setCooldown(guildId, userId, 'daily', now);
 
-    return { onCooldown: false, reward, newBalance };
+    return { onCooldown: false, reward, newBalance, isFirstDaily };
   });
 
   if (result.onCooldown) {
@@ -42,7 +44,7 @@ export async function execute(interaction) {
     return;
   }
 
-  const { reward, newBalance } = result;
+  const { reward, newBalance, isFirstDaily } = result;
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🎁 Recompensa diaria')
@@ -51,4 +53,9 @@ export async function execute(interaction) {
     .setTimestamp();
 
   await interaction.reply({ embeds: [embed] });
+
+  await announceUnlockedAchievements(interaction, userId, [
+    isFirstDaily ? unlockAchievement(guildId, userId, 'primera_moneda') : null,
+    newBalance >= 10000 ? unlockAchievement(guildId, userId, 'millonario') : null,
+  ]);
 }

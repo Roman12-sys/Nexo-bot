@@ -3,6 +3,7 @@ import { getGuildShopItems, getShopItem } from '../../utils/shopStore.js';
 import { getUserEconomy, deductBalanceIfSufficient, incrementInventoryItem, addBalance, recordTransaction } from '../../utils/economyStore.js';
 import { createShopPurchaseLogEmbed } from '../../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
 
 const MIN_MYSTERY = 50;
 const MAX_MYSTERY = 600;
@@ -68,6 +69,7 @@ export async function execute(interaction) {
     throw error;
   }
   await recordTransaction(guildId, userId, { type: 'purchase', amount: -item.price, balanceAfter: balanceAfterCharge, reason: item.name });
+  const firstPurchaseAchievement = unlockAchievement(guildId, userId, 'primera_compra');
 
   // --- Caso especial: caja misteriosa (solo existe en el catálogo por defecto) ---
   // No se guarda en el inventario, se resuelve al instante con una recompensa al azar
@@ -84,6 +86,7 @@ export async function execute(interaction) {
     await interaction.editReply({
       content: `🎁 Abriste la caja misteriosa...\n${resultText}\nBalance actual: **${finalBalance.toLocaleString('es-ES')}**.`,
     });
+    await announceUnlockedAchievements(interaction, userId, [firstPurchaseAchievement]);
     return;
   }
 
@@ -114,4 +117,5 @@ export async function execute(interaction) {
   }
 
   await interaction.editReply({ content: confirmText });
+  await announceUnlockedAchievements(interaction, userId, [firstPurchaseAchievement]);
 }

@@ -43,7 +43,7 @@ export function buildInfoEmbed() {
     .setTitle('ℹ️ Información')
     .addFields(
       { name: '/info [usuario]', value: 'Muestra información de tu perfil o el de otro usuario.' },
-      { name: '/perfil [usuario]', value: 'Perfil completo: nivel, XP, monedas, trivia, reputación, warns y sorteos ganados.' },
+      { name: '/perfil [usuario]', value: 'Perfil completo: nivel, XP, monedas, trivia, reputación, warns, sorteos ganados y logros desbloqueados.' },
       { name: '/nivel [usuario]', value: 'Muestra tu nivel, XP y progreso hacia el siguiente nivel.' },
       { name: '/ranking', value: 'Top de niveles/XP del servidor.' },
       { name: '/servidor', value: 'Muestra información general sobre el servidor.' },

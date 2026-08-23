@@ -2,6 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, setCooldown } from '../../utils/economyStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
+import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
 
 const COOLDOWN_MS = 60 * 60 * 1000; // 1 hora
 const MIN_REWARD = 50;
@@ -33,13 +34,14 @@ export async function execute(interaction) {
       return { onCooldown: true, remaining: COOLDOWN_MS - elapsed, now };
     }
 
+    const isFirstWork = economy.lastWork === 0;
     const reward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
     const flavorText = FLAVOR_TEXTS[Math.floor(Math.random() * FLAVOR_TEXTS.length)];
 
     const newBalance = await addBalance(guildId, userId, reward, { type: 'work', reason: flavorText });
     await setCooldown(guildId, userId, 'work', now);
 
-    return { onCooldown: false, reward, flavorText, newBalance };
+    return { onCooldown: false, reward, flavorText, newBalance, isFirstWork };
   });
 
   if (result.onCooldown) {
@@ -51,7 +53,7 @@ export async function execute(interaction) {
     return;
   }
 
-  const { reward, flavorText, newBalance } = result;
+  const { reward, flavorText, newBalance, isFirstWork } = result;
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('💼 A trabajar')
@@ -60,4 +62,9 @@ export async function execute(interaction) {
     .setTimestamp();
 
   await interaction.reply({ embeds: [embed] });
+
+  await announceUnlockedAchievements(interaction, userId, [
+    isFirstWork ? unlockAchievement(guildId, userId, 'a_laburar') : null,
+    newBalance >= 10000 ? unlockAchievement(guildId, userId, 'millonario') : null,
+  ]);
 }

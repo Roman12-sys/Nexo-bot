@@ -21,6 +21,7 @@ import {
   buildAdminTransferSelect,
 } from './tempVoicePanel.js';
 import { isStaff } from './permissions.js';
+import { unlockAchievement, buildAchievementUnlockedEmbed } from './achievements.js';
 import { registerButtonPrefix } from '../components/buttons.js';
 import { registerSelectPrefix } from '../components/selects.js';
 import { registerModalPrefix } from '../components/modals.js';
@@ -262,6 +263,11 @@ async function createTempChannelForMember(newState, guildConfig) {
       memberCountOverride: 1,
     });
     await newChannel.send({ embeds, components }).catch(() => {});
+
+    const achievement = await unlockAchievement(guild.id, member.id, 'anfitrion').catch(() => null);
+    if (achievement) {
+      await newChannel.send({ embeds: [buildAchievementUnlockedEmbed(member.user, achievement)] }).catch(() => {});
+    }
   } finally {
     creatingUsers.delete(lockKey);
   }

@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { getSession, startSession, clearSession } from '../../utils/guessSessions.js';
 import { addBalance } from '../../utils/economyStore.js';
+import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
 
 const MIN_NUMBER = 1;
 const MAX_NUMBER = 100;
@@ -42,6 +43,12 @@ export async function execute(interaction) {
     await interaction.editReply({
       content: `🎉 ¡Correcto! El número era **${numero}**. Lo lograste en **${attemptsUsed}** intento(s).\nGanaste **${reward}** monedas. Balance: **${newBalance}**.`,
     });
+
+    if (attemptsUsed === 1) {
+      await announceUnlockedAchievements(interaction, interaction.user.id, [
+        unlockAchievement(interaction.guild.id, interaction.user.id, 'racha_perfecta'),
+      ]);
+    }
     return;
   }
 

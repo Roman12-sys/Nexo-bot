@@ -6,6 +6,7 @@ import { getUserReputation } from '../../utils/reputationStore.js';
 import { getUserWarns } from '../../utils/warnsStore.js';
 import { getUserWinCount } from '../../utils/giveawaysStore.js';
 import { buildInventoryEmbed } from '../economia/inventory.js';
+import { getUnlockedAchievementIds, buildLogrosEmbed, ACHIEVEMENTS } from '../../utils/achievements.js';
 import { BRAND_COLOR, BRAND_NAME, buildProgressBar, progressPercent } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
@@ -13,9 +14,9 @@ import { registerButtonPrefix } from '../../components/buttons.js';
 // etc.) queda atrás del botón "📊 Estadísticas" para no convertir esto en una pared de texto.
 async function buildPerfilEmbed(guild, targetUser, member) {
   const guildId = guild.id;
-  // Las 7 lecturas son independientes entre sí — en paralelo en vez de una por una
-  // ahorra la suma de las 7 latencias de red y deja solo la del más lento.
-  const [xp, rank, economy, trivia, reputation, warns, wins] = await Promise.all([
+  // Las 8 lecturas son independientes entre sí — en paralelo en vez de una por una
+  // ahorra la suma de las 8 latencias de red y deja solo la del más lento.
+  const [xp, rank, economy, trivia, reputation, warns, wins, achievements] = await Promise.all([
     getUserXp(guildId, targetUser.id),
     getRank(guildId, targetUser.id),
     getUserEconomy(guildId, targetUser.id),
@@ -23,6 +24,7 @@ async function buildPerfilEmbed(guild, targetUser, member) {
     getUserReputation(guildId, targetUser.id),
     getUserWarns(guildId, targetUser.id),
     getUserWinCount(guildId, targetUser.id),
+    getUnlockedAchievementIds(guildId, targetUser.id),
   ]);
   const progress = getLevelProgress(xp.xp);
 
@@ -47,7 +49,7 @@ async function buildPerfilEmbed(guild, targetUser, member) {
       { name: '❤️ Reputación', value: `${reputation.total}`, inline: true },
       { name: '⚠️ Warns activos', value: `${warns.length}`, inline: true },
       { name: '🎉 Sorteos ganados', value: `${wins}`, inline: true },
-      { name: '🏅 Logros', value: 'Próximamente', inline: true },
+      { name: '🏅 Logros', value: `${achievements.size}/${ACHIEVEMENTS.length}`, inline: true },
     );
 
   if (joinedTimestamp) {
@@ -94,17 +96,6 @@ async function buildStatsEmbed(guildId, targetUser) {
     .setTimestamp();
 }
 
-// Placeholder a propósito: deja el espacio/formato ya listo para cuando exista un
-// sistema de logros real (lista de IDs desbloqueados en algún store nuevo).
-function buildLogrosEmbed(targetUser) {
-  return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
-    .setTitle(`🏅 Logros de ${targetUser.tag}`)
-    .setDescription('El sistema de logros todavía no está implementado. ¡Pronto vas a poder desbloquearlos acá!')
-    .setFooter({ text: BRAND_NAME })
-    .setTimestamp();
-}
-
 export const data = new SlashCommandBuilder()
   .setName('perfil')
   .setDescription(`Muestra tu perfil completo de ${BRAND_NAME} (o el de otro usuario).`)
@@ -141,7 +132,8 @@ registerButtonPrefix('perfil_logros_', async (i) => {
   const targetUserId = i.customId.slice('perfil_logros_'.length);
   const targetUser = await i.client.users.fetch(targetUserId).catch(() => null);
   if (!targetUser) return i.reply({ content: '❌ No se pudo encontrar a ese usuario.', flags: MessageFlags.Ephemeral });
-  await i.reply({ embeds: [buildLogrosEmbed(targetUser)], flags: MessageFlags.Ephemeral });
+  const unlockedIds = await getUnlockedAchievementIds(i.guildId, targetUserId);
+  await i.reply({ embeds: [buildLogrosEmbed(targetUser, unlockedIds)], flags: MessageFlags.Ephemeral });
 });
 
 registerButtonPrefix('perfil_inventario_', async (i) => {

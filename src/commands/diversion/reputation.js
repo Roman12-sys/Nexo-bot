@@ -2,6 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserReputation, addReputation, touchLastGiven } from '../../utils/reputationStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
+import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
 
 const COOLDOWN_MS = 12 * 60 * 60 * 1000; // 12 horas entre cada vez que PODÉS dar reputación
 
@@ -62,4 +63,10 @@ export async function execute(interaction) {
     .setFooter({ text: BRAND_NAME });
 
   await interaction.editReply({ embeds: [embed] });
+
+  if (newTotal >= 10) {
+    await announceUnlockedAchievements(interaction, targetUser.id, [
+      unlockAchievement(guildId, targetUser.id, 'querido'),
+    ]);
+  }
 }

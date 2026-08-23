@@ -12,6 +12,7 @@ import {
   POINTS_PER_CORRECT,
 } from '../../utils/triviaStore.js';
 import { withLock } from '../../utils/asyncLock.js';
+import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
 const LETTERS = ['🇦', '🇧', '🇨', '🇩'];
@@ -138,6 +139,12 @@ registerButtonPrefix('trivia_', async (interaction) => {
       content: `✅ ¡Correcto! Ganaste **${POINTS_PER_CORRECT}** puntos de trivia. Total: **${record.points}** (${record.correct}/${record.answered} correctas).`,
       flags: MessageFlags.Ephemeral,
     });
+
+    if (record.correct >= 10) {
+      await announceUnlockedAchievements(interaction, interaction.user.id, [
+        unlockAchievement(interaction.guild.id, interaction.user.id, 'sabelotodo'),
+      ]);
+    }
   } else {
     await interaction.followUp({
       content: `❌ Incorrecto. La respuesta correcta era la opción ${LETTERS[correctIndex]}. Puntos de trivia: **${record.points}**.`,
