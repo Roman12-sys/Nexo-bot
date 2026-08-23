@@ -1,8 +1,7 @@
-import { Events, AuditLogEvent, PermissionFlagsBits } from 'discord.js';
+import { Events, AuditLogEvent } from 'discord.js';
 import { createBulkDeleteLogEmbed } from '../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
-
-const AUDIT_LOG_WINDOW_MS = 5000;
+import { findExecutor } from '../utils/auditLog.js';
 
 export const name = Events.MessageBulkDelete;
 export const once = false;
@@ -12,14 +11,9 @@ export async function execute(messages, channel, client) {
     const guild = channel.guild;
     if (!guild) return;
 
-    const me = guild.members.me;
-    if (!me?.permissions.has(PermissionFlagsBits.ViewAuditLog)) return;
-
-    const auditLogs = await guild.fetchAuditLogs({ type: AuditLogEvent.MessageBulkDelete, limit: 5 });
-    const entry = auditLogs.entries.find((e) => {
-      const isSameChannel = e.target?.id === channel.id || e.extra?.channel?.id === channel.id;
-      const isRecent = Date.now() - e.createdTimestamp < AUDIT_LOG_WINDOW_MS;
-      return isSameChannel && isRecent;
+    const entry = await findExecutor(guild, {
+      type: AuditLogEvent.MessageBulkDelete,
+      filter: (e) => e.target?.id === channel.id || e.extra?.channel?.id === channel.id,
     });
 
     // Si no hay entrada, o si el ejecutor fue el propio bot (ej: ya registrado por /clear), no duplicar

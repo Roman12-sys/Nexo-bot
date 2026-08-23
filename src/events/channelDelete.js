@@ -23,6 +23,10 @@ export async function execute(channel, client) {
 
     const entry = await findExecutor(channel.guild, { type: AuditLogEvent.ChannelDelete, targetId: channel.id });
 
+    // Mismo guard que channelCreate.js — cada sala de voz temporal que se vacía o se
+    // borra por /voice admin genera este evento con el bot como ejecutor.
+    if (entry?.executor?.id === client.user.id) return;
+
     await logChannel.send({
       embeds: [createChannelLogEmbed({ action: 'delete', channel, executor: entry?.executor || null })],
     });

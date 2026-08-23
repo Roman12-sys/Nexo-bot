@@ -51,6 +51,11 @@ async function handleNicknameChange(oldMember, newMember, client) {
     filter: (e) => e.changes?.some((c) => c.key === 'nick'),
   });
 
+  // Mismo guard que handleTimeoutChange/handleRoleChange en este mismo archivo —
+  // ningún comando setea nicknames todavía, pero si alguno lo hace en el futuro, ya
+  // queda cubierto en vez de duplicarse acá con el ejecutor mal atribuido.
+  if (entry?.executor?.id === client.user.id) return;
+
   const embed = createNicknameChangeLogEmbed({
     member: newMember,
     executor: entry?.executor || null,

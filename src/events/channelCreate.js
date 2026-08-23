@@ -15,6 +15,11 @@ export async function execute(channel, client) {
 
     const entry = await findExecutor(channel.guild, { type: AuditLogEvent.ChannelCreate, targetId: channel.id });
 
+    // Cada sala de voz temporal (Join to Create) crea un canal por el bot — sin este
+    // guard, cada una generaba un log sin contexto real (mismo criterio que
+    // channelUpdate.js con /lock y /unlock).
+    if (entry?.executor?.id === client.user.id) return;
+
     await logChannel.send({
       embeds: [createChannelLogEmbed({ action: 'create', channel, executor: entry?.executor || null })],
     });

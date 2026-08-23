@@ -70,6 +70,12 @@ export async function execute(message, client) {
       if (entry) executor = entry.executor;
     }
 
+    // El propio bot borra mensajes en varios lugares (detector de secretos, anti-spam,
+    // filtro de castigo, /clear con 1 solo mensaje) — cada uno ya loguea su propio
+    // contexto en el canal de moderación. Sin este guard, acá se duplicaba con un
+    // "🗑️ Mensaje eliminado" genérico atribuido a "Nexo Bot" en el canal de actividad.
+    if (executor?.id === client.user.id) return;
+
     const [{ files, results }, extraEmbeds] = await Promise.all([
       reuploadAttachments(message),
       Promise.resolve(forwardedEmbeds(message)),

@@ -1,8 +1,8 @@
-import { Events, AuditLogEvent, PermissionFlagsBits } from 'discord.js';
+import { Events, AuditLogEvent } from 'discord.js';
 import { createWebhookLogEmbed } from '../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
+import { findExecutor } from '../utils/auditLog.js';
 
-const AUDIT_LOG_WINDOW_MS = 5000;
 const WEBHOOK_ACTION_MAP = {
   [AuditLogEvent.WebhookCreate]: 'create',
   [AuditLogEvent.WebhookUpdate]: 'update',
@@ -19,15 +19,8 @@ export async function execute(channel, client) {
   if (!guild) return;
 
   try {
-    const me = guild.members.me;
-    if (!me?.permissions.has(PermissionFlagsBits.ViewAuditLog)) return;
-
-    const auditLogs = await guild.fetchAuditLogs({ limit: 5 });
-    const entry = auditLogs.entries.find((e) => {
-      const isWebhookAction = e.action in WEBHOOK_ACTION_MAP;
-      const isSameChannel = e.target?.channelId === channel.id || e.extra?.channel?.id === channel.id;
-      const isRecent = Date.now() - e.createdTimestamp < AUDIT_LOG_WINDOW_MS;
-      return isWebhookAction && isSameChannel && isRecent;
+    const entry = await findExecutor(guild, {
+      filter: (e) => e.action in WEBHOOK_ACTION_MAP && (e.target?.channelId === channel.id || e.extra?.channel?.id === channel.id),
     });
     if (!entry) return;
 
