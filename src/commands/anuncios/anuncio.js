@@ -424,7 +424,7 @@ async function sendDraft(interaction, draft) {
 
 // ---------- Entrada del comando ----------
 
-async function startBuilder(interaction, { colorPrefill, imagenPrefill, rol, usuario, everyone } = {}) {
+export async function startBuilder(interaction, { colorPrefill, imagenPrefill, rol, usuario, everyone } = {}) {
   if (!(await isStaff(interaction))) {
     await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
     return;

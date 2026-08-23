@@ -3,7 +3,7 @@ import { createBulkDeleteLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, isStaffConfigured } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 
-async function runClear(interaction, cantidad) {
+export async function runClear(interaction, cantidad) {
   if (!(await isStaffConfigured(interaction.guildId))) {
     await interaction.reply({
       content: '⚠️ Este servidor todavía no configuró un rol de staff. Corré /setup primero.',

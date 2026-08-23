@@ -21,6 +21,196 @@ function baseLogEmbed({ color = NEUTRAL_COLOR, title, description, fields = [], 
   return embed;
 }
 
+// ---- Mensajes (borrado / edición) ----
+
+function toDiffBlock(lines) {
+  const MAX_LEN = 950; // deja margen para el resto del embed dentro del límite de 1024 por campo
+  let text = lines.join('\n');
+  if (text.length > MAX_LEN) text = `${text.slice(0, MAX_LEN)}...`;
+  return `\`\`\`diff\n${text}\n\`\`\``;
+}
+
+function diffLines(content, marker) {
+  return content.split('\n').map((line) => `${marker}${line}`);
+}
+
+export function createMessageDeleteLogEmbed({ message, executor, attachmentResults }) {
+  const author = message.author
+    ? userTag(message.author)
+    : 'Desconocido (`mensaje no disponible en caché`)';
+  const channelText = message.channel ? `<#${message.channel.id}>` : 'Desconocido';
+
+  const embed = baseLogEmbed({
+    color: LOG_COLOR,
+    title: '🗑️ Mensaje eliminado',
+    description: `👤 ${author}  ·  📍 ${channelText}  ·  🛡️ ${executorText(executor)}`,
+  });
+
+  let contentText = 'No disponible (el mensaje no estaba almacenado en caché)';
+  if (!message.partial && typeof message.content === 'string') {
+    contentText =
+      message.content.length > 0
+        ? toDiffBlock(diffLines(message.content, '- '))
+        : 'Sin contenido de texto (posible embed/adjunto)';
+  }
+  embed.addFields({ name: 'Contenido eliminado', value: contentText });
+
+  if (attachmentResults?.length > 0) {
+    const failed = attachmentResults.filter((a) => !a.reuploaded);
+    if (failed.length > 0) {
+      const list = failed.map((a) => `[${a.name}](${a.url}) — ${a.reason}`).join('\n');
+      embed.addFields({ name: '⚠️ Adjuntos no recuperados', value: list.slice(0, 1024) });
+    }
+  }
+
+  return embed;
+}
+
+export function createMessageEditLogEmbed({ oldMessage, newMessage, channel }) {
+  const author = newMessage.author ? userTag(newMessage.author) : 'Desconocido';
+  const channelText = channel ? `<#${channel.id}>` : 'Desconocido';
+
+  const oldContent = typeof oldMessage.content === 'string' && oldMessage.content.length > 0
+    ? oldMessage.content
+    : '(sin contenido en caché)';
+  const newContent = newMessage.content.length > 0 ? newMessage.content : '(sin contenido de texto)';
+
+  const diff = toDiffBlock([...diffLines(oldContent, '- '), ...diffLines(newContent, '+ ')]);
+
+  return baseLogEmbed({
+    color: WARN_COLOR,
+    title: '📝 Mensaje editado',
+    description: `👤 ${author}  ·  📍 ${channelText}`,
+    fields: [
+      { name: 'Cambios', value: diff },
+      { name: 'Ir al mensaje', value: `[Saltar al mensaje](${newMessage.url})` },
+    ],
+  });
+}
+
+// ---- Lock / punish ----
+
+export function createLockLogEmbed({ channel, executor, locked }) {
+  return baseLogEmbed({
+    color: locked ? LOG_COLOR : OK_COLOR,
+    title: locked ? '🔒 Canal bloqueado' : '🔓 Canal desbloqueado',
+    fields: [
+      { name: 'Canal', value: `<#${channel.id}>`, inline: true },
+      { name: locked ? 'Bloqueado por' : 'Desbloqueado por', value: userTag(executor), inline: true },
+    ],
+  });
+}
+
+export function createPunishLogEmbed({ user, executor, reason, applied }) {
+  return baseLogEmbed({
+    color: applied ? LOG_COLOR : OK_COLOR,
+    title: applied ? '🚫 Restricción de imágenes/enlaces aplicada' : '✅ Restricción de imágenes/enlaces removida',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: applied ? 'Aplicada por' : 'Removida por', value: userTag(executor), inline: true },
+      { name: 'Motivo', value: reason || 'Sin motivo especificado' },
+    ],
+  });
+}
+
+export function createPunishFilterLogEmbed({ user, channel, reason }) {
+  return baseLogEmbed({
+    color: LOG_COLOR,
+    title: '🛑 Mensaje bloqueado (usuario sancionado)',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: 'Canal', value: `<#${channel.id}>`, inline: true },
+      { name: 'Motivo del bloqueo', value: reason },
+    ],
+  });
+}
+
+export function createSecretLeakLogEmbed({ user, channel, type, preview }) {
+  return baseLogEmbed({
+    color: LOG_COLOR,
+    title: '🔑 Mensaje borrado: posible secreto expuesto',
+    description: 'El mensaje se borró automáticamente. Si el secreto es real, hay que revocarlo/rotarlo YA.',
+    fields: [
+      { name: 'Usuario', value: userTag(user), inline: true },
+      { name: 'Canal', value: `${channel}`, inline: true },
+      { name: 'Tipo detectado', value: type, inline: true },
+      { name: 'Vista previa (redactada)', value: `\`${preview}\`` },
+    ],
+  });
+}
+
+// ---- Economía (staff / abuso) ----
+
+export function createEconomyAdminLogEmbed({ type, targetUser, executor, amount, balanceBefore, balanceAfter, reason }) {
+  const titles = {
+    admin_add: '➕ Staff agregó monedas',
+    admin_remove: '➖ Staff quitó monedas',
+    admin_set: '🛠️ Staff estableció el balance',
+  };
+
+  return baseLogEmbed({
+    color: WARN_COLOR,
+    title: titles[type] || '💰 Movimiento de economía (staff)',
+    footer: 'Economía',
+    fields: [
+      { name: 'Usuario', value: userTag(targetUser), inline: true },
+      { name: 'Staff', value: userTag(executor), inline: true },
+      { name: 'Monto', value: `${amount >= 0 ? '+' : ''}${amount.toLocaleString('es-ES')}`, inline: true },
+      { name: 'Balance anterior', value: `${balanceBefore.toLocaleString('es-ES')}`, inline: true },
+      { name: 'Balance nuevo', value: `${balanceAfter.toLocaleString('es-ES')}`, inline: true },
+      { name: 'Motivo', value: reason || 'Sin motivo especificado' },
+    ],
+  });
+}
+
+export function createXpAdminLogEmbed({ type, targetUser, executor, amount, xpBefore, xpAfter, levelBefore, levelAfter, reason }) {
+  const titles = {
+    admin_add: '➕ Staff agregó XP',
+    admin_remove: '➖ Staff quitó XP',
+    admin_set: '🛠️ Staff estableció la XP',
+    admin_set_level: '🛠️ Staff estableció el nivel',
+  };
+
+  return baseLogEmbed({
+    color: WARN_COLOR,
+    title: titles[type] || '✨ Movimiento de XP (staff)',
+    footer: 'XP y niveles',
+    fields: [
+      { name: 'Usuario', value: userTag(targetUser), inline: true },
+      { name: 'Staff', value: userTag(executor), inline: true },
+      { name: 'Monto', value: `${amount >= 0 ? '+' : ''}${amount.toLocaleString('es-ES')} XP`, inline: true },
+      { name: 'XP anterior → nueva', value: `${xpBefore.toLocaleString('es-ES')} → ${xpAfter.toLocaleString('es-ES')}`, inline: true },
+      { name: 'Nivel anterior → nuevo', value: `${levelBefore} → ${levelAfter}`, inline: true },
+      { name: 'Motivo', value: reason || 'Sin motivo especificado' },
+    ],
+  });
+}
+
+export function createGiveSuspiciousLogEmbed({ sender, pattern }) {
+  const isRepeat = pattern.pattern === 'repeat';
+  return baseLogEmbed({
+    color: LOG_COLOR,
+    footer: 'Economía',
+    title: isRepeat ? '⚠️ Patrón sospechoso: transferencias repetidas' : '⚠️ Patrón sospechoso: distribución a múltiples usuarios',
+    description: isRepeat
+      ? 'Puede ser normal (pagar una deuda), pero conviene revisar si no fue así.'
+      : 'Puede indicar una cuenta comprometida repartiendo el balance antes de que lo reviertan.',
+    fields: isRepeat
+      ? [
+          { name: 'Emisor', value: userTag(sender), inline: true },
+          { name: 'Receptor', value: `<@${pattern.receiverId}>`, inline: true },
+          { name: 'Transferencias', value: `${pattern.count} en ${pattern.windowMinutes} min`, inline: true },
+          { name: 'Monto total', value: `${pattern.totalAmount.toLocaleString('es-ES')} monedas` },
+        ]
+      : [
+          { name: 'Emisor', value: userTag(sender), inline: true },
+          { name: 'Receptores distintos', value: `${pattern.receiverIds.length}`, inline: true },
+          { name: 'Transferencias', value: `${pattern.count} en ${pattern.windowMinutes} min`, inline: true },
+          { name: 'A quiénes', value: pattern.receiverIds.map((id) => `<@${id}>`).join(', ') },
+        ],
+  });
+}
+
 // ---- Bans / kicks / timeouts / clear ----
 
 export function createBanLogEmbed({ user, executor, reason }) {

@@ -16,6 +16,21 @@ export function progressPercent(current, total) {
   return total > 0 ? Math.floor((current / total) * 100) : 0;
 }
 
+export function createWelcomeEmbed({ member }) {
+  const guild = member.guild;
+  const memberCount = guild.memberCount.toLocaleString('es-ES');
+
+  return new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle(`👋 ¡Bienvenido/a a ${guild.name}!`)
+    .setDescription(
+      `¡Bienvenido/a ${member}!\n\nYa somos **${memberCount} miembros**.\nEsperamos que disfrutes de la comunidad.`,
+    )
+    .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
+}
+
 // Construye el embed del anuncio a partir del draft del panel /anuncio (ver
 // src/commands/anuncios/anuncio.js). Cada pieza es opcional salvo título+descripción,
 // que el panel exige antes de habilitar "Enviar" — así el embed nunca queda vacío (la
