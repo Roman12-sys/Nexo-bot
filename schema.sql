@@ -26,6 +26,12 @@ create table if not exists guild_config (
   -- niveles
   level_roles jsonb not null default '{}',
   level_roles_mode text not null default 'cumulative',
+  xp_ignored_channel_ids jsonb not null default '[]', -- canales que no dan XP por mensaje
+  xp_weekend_boost boolean not null default false, -- sáb/dom: doble XP por mensaje y voz
+
+  -- confesiones
+  confession_require_approval boolean not null default false,
+  confession_blocked_ids jsonb not null default '[]',
 
   -- features activadas por /setup (economía, xp, moderación, sorteos, trivia, voz, confesiones)
   features jsonb not null default '{}',
@@ -76,9 +82,16 @@ create table if not exists voice_channel_stats (
 create table if not exists economy (
   guild_id text not null,
   user_id text not null,
-  balance bigint not null default 0,
+  balance bigint not null default 0, -- "wallet": arriesgable por /rob
   last_daily bigint not null default 0, -- epoch ms, no timestamptz: el bot hace Date.now() - last_daily
   last_work bigint not null default 0,  -- idem
+  daily_streak integer not null default 0, -- días consecutivos reclamando /daily
+  bank bigint not null default 0, -- protegido de /rob, rinde interés (ver collectBankInterest)
+  last_interest_ts bigint not null default 0, -- se resetea en cada depósito/retiro, ver deposit_to_bank/withdraw_from_bank
+  last_rob bigint not null default 0, -- cooldown de quien roba
+  last_robbed bigint not null default 0, -- protección de quien fue robado
+  last_crime bigint not null default 0,
+  last_weekly bigint not null default 0,
   inventory jsonb not null default '{}',
   primary key (guild_id, user_id)
 );
@@ -87,7 +100,7 @@ create table if not exists economy_transactions (
   id bigint generated always as identity primary key,
   guild_id text not null,
   user_id text not null,
-  type text not null, -- 'daily' | 'work' | 'trivia' | 'guess' | 'purchase' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set' | 'gamble_bet' | 'gamble_win' | 'bank_deposit' | 'bank_withdraw' | 'bank_interest' | 'rob_win' | 'rob_loss' | 'rob_fine'
+  type text not null, -- 'daily' | 'work' | 'weekly' | 'crime_win' | 'crime_fine' | 'trivia' | 'guess' | 'purchase' | 'sell' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set' | 'gamble_bet' | 'gamble_win' | 'bank_deposit' | 'bank_withdraw' | 'bank_interest' | 'rob_win' | 'rob_loss' | 'rob_fine'
   amount bigint not null,
   balance_after bigint not null,
   actor_id text,
@@ -110,6 +123,7 @@ create table if not exists shop_items (
   price bigint not null,
   role_id text,
   fulfillment text, -- null (automático, va al inventario) | 'manual' (staff lo entrega a mano)
+  type text, -- null (ítem normal) | 'xp_boost' | 'mystery_box'
   created_at timestamptz not null default now(),
   unique (guild_id, item_id)
 );
@@ -124,6 +138,8 @@ create table if not exists xp (
   level integer not null default 0,
   last_xp_ts bigint not null default 0, -- epoch ms, no timestamptz: Date.now() - last_xp_ts
   last_content text,
+  xp_boost_until bigint not null default 0, -- epoch ms, item de tienda type:'xp_boost'
+  prestige integer not null default 0, -- /prestigio
   primary key (guild_id, user_id)
 );
 
@@ -139,6 +155,20 @@ create table if not exists warnings (
   created_at timestamptz not null default now()
 );
 create index if not exists warnings_guild_user_idx on warnings (guild_id, user_id);
+
+-- Historial persistente de bans/kicks/timeouts/punish/unban (/sanciones usuario:) — a
+-- diferencia de warnings, estas acciones antes solo quedaban en el canal de logs.
+create table if not exists moderation_actions (
+  id bigint generated always as identity primary key,
+  guild_id text not null,
+  user_id text not null,
+  action_type text not null, -- 'ban' | 'kick' | 'timeout' | 'timeout_remove' | 'punish' | 'punish_remove' | 'unban'
+  moderator_id text not null,
+  reason text,
+  extra jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+create index if not exists moderation_actions_guild_user_idx on moderation_actions (guild_id, user_id);
 
 -- =========================================================
 -- Sorteos
@@ -235,6 +265,19 @@ create index if not exists reminders_remind_at_idx on reminders (remind_at);
 create table if not exists confession_counters (
   guild_id text primary key,
   counter bigint not null default 0
+);
+
+-- =========================================================
+-- Plantillas guardadas de /anuncio ("Guardar plantilla" / "Cargar plantilla")
+-- =========================================================
+create table if not exists announcement_templates (
+  id bigint generated always as identity primary key,
+  guild_id text not null,
+  name text not null,
+  data jsonb not null,
+  created_by text not null,
+  created_at timestamptz not null default now(),
+  unique (guild_id, name)
 );
 
 -- =========================================================
@@ -413,5 +456,100 @@ begin
   values (p_guild_id, p_command_name, 1, now())
   on conflict (guild_id, command_name)
   do update set uses = command_usage.uses + 1, last_used_at = now();
+end;
+$$;
+
+-- p_now se pasa desde JS (Date.now()) en vez de usar now() de Postgres para quedar
+-- consistente con el resto de los timestamps del bot (epoch ms, no timestamptz) — y
+-- porque reiniciar last_interest_ts EN CADA depósito/retiro es lo que evita que un
+-- depósito posterior a una cuenta vaciada cobre interés de un período en que el banco
+-- estuvo en 0 (bug real, encontrado y corregido antes de sumar más features encima).
+create or replace function deposit_to_bank(p_guild_id text, p_user_id text, p_amount bigint, p_now bigint)
+returns table (wallet bigint, bank bigint)
+language plpgsql
+as $$
+declare
+  v_wallet bigint;
+  v_bank bigint;
+begin
+  select balance into v_wallet
+  from economy
+  where guild_id = p_guild_id and user_id = p_user_id
+  for update;
+
+  if v_wallet is null or v_wallet < p_amount then
+    raise exception 'insufficient_funds';
+  end if;
+
+  update economy
+  set balance = balance - p_amount, bank = bank + p_amount, last_interest_ts = p_now
+  where guild_id = p_guild_id and user_id = p_user_id
+  returning balance, bank into v_wallet, v_bank;
+
+  return query select v_wallet, v_bank;
+end;
+$$;
+
+create or replace function withdraw_from_bank(p_guild_id text, p_user_id text, p_amount bigint, p_now bigint)
+returns table (wallet bigint, bank bigint)
+language plpgsql
+as $$
+declare
+  v_wallet bigint;
+  v_bank bigint;
+begin
+  select bank into v_bank
+  from economy
+  where guild_id = p_guild_id and user_id = p_user_id
+  for update;
+
+  if v_bank is null or v_bank < p_amount then
+    raise exception 'insufficient_funds';
+  end if;
+
+  update economy
+  set balance = balance + p_amount, bank = bank - p_amount, last_interest_ts = p_now
+  where guild_id = p_guild_id and user_id = p_user_id
+  returning balance, bank into v_wallet, v_bank;
+
+  return query select v_wallet, v_bank;
+end;
+$$;
+
+create or replace function rob_wallet(p_guild_id text, p_robber_id text, p_victim_id text, p_percent numeric, p_max_amount bigint)
+returns table (stolen bigint, robber_balance bigint, victim_balance bigint)
+language plpgsql
+as $$
+declare
+  v_victim_balance bigint;
+  v_robber_balance bigint;
+  v_stolen bigint;
+begin
+  select balance into v_victim_balance
+  from economy
+  where guild_id = p_guild_id and user_id = p_victim_id
+  for update;
+
+  if v_victim_balance is null or v_victim_balance <= 0 then
+    raise exception 'nothing_to_steal';
+  end if;
+
+  v_stolen := least(p_max_amount, floor(v_victim_balance * p_percent));
+  if v_stolen <= 0 then
+    raise exception 'nothing_to_steal';
+  end if;
+
+  update economy
+  set balance = balance - v_stolen
+  where guild_id = p_guild_id and user_id = p_victim_id
+  returning balance into v_victim_balance;
+
+  insert into economy (guild_id, user_id, balance)
+  values (p_guild_id, p_robber_id, v_stolen)
+  on conflict (guild_id, user_id)
+  do update set balance = economy.balance + v_stolen
+  returning balance into v_robber_balance;
+
+  return query select v_stolen, v_robber_balance, v_victim_balance;
 end;
 $$;

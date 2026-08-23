@@ -26,6 +26,7 @@ export function buildMainMenuRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('help_cat_info').setLabel('ℹ️ Información').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('help_cat_economia').setLabel('💰 Economía').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('help_cat_casino').setLabel('🎰 Casino').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('help_cat_diversion').setLabel('🎲 Diversión').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('help_cat_accion').setLabel('🎭 Acción').setStyle(ButtonStyle.Secondary),
   );
@@ -61,16 +62,34 @@ export function buildEconomiaEmbed() {
     .setTitle('💰 Economía')
     .addFields(
       { name: '/balance [usuario]', value: 'Muestra cuántas monedas tenés.' },
-      { name: '/daily', value: 'Reclamá tu recompensa diaria.' },
+      { name: '/daily', value: 'Reclamá tu recompensa diaria (con racha: más días seguidos, más bonus).' },
+      { name: '/weekly', value: 'Recompensa semanal, mucho más grande que /daily.' },
       { name: '/work', value: 'Trabajá para ganar monedas (cooldown 1 hora).' },
-      { name: '/coinflip <apuesta> <cara/cruz>', value: 'Apostá monedas a cara o cruz. 50/50, sin ventaja de la casa.' },
-      { name: '/rob <usuario>', value: 'Intentá robarle monedas del wallet a otro usuario. 40% de éxito, con riesgo de multa.' },
-      { name: '/bank ver/depositar/retirar', value: 'Guardá monedas en el banco — a salvo de /rob, y rinde interés.' },
+      { name: '/crime', value: 'Alternativa arriesgada a /work: mejor paga, cooldown más corto, pero podés perder monedas si te agarran.' },
       { name: '/give <usuario> <cantidad>', value: 'Transferí monedas a otro usuario.' },
+      { name: '🎰 Casino', value: 'Ver botón de abajo — coinflip, dado, slots y ruleta tienen su propia categoría.' },
       { name: '/shop', value: 'Muestra la tienda.' },
       { name: '/buy <item>', value: 'Comprá un ítem.' },
+      { name: '/vender <item>', value: 'Vendé un ítem de tu inventario por la mitad de su precio.' },
       { name: '/inventory [usuario]', value: 'Muestra tu inventario.' },
       { name: '/leaderboard', value: 'Top de monedas del servidor, paginado.' },
+      { name: '/bank ver/depositar/retirar', value: 'Guardá monedas en el banco — a salvo de /rob, y rinde interés.' },
+      { name: '/rob <usuario>', value: 'Intentá robarle monedas del wallet a otro usuario. 40% de éxito, con riesgo de multa.' },
+    )
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
+}
+
+export function buildCasinoEmbed() {
+  return new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('🎰 Casino')
+    .setDescription('Todos apuestan monedas de tu wallet — usá `/bank depositar` para guardar lo que no querés arriesgar.')
+    .addFields(
+      { name: '/coinflip <apuesta> <cara/cruz>', value: 'Cara o cruz. 50/50, sin ventaja de la casa.' },
+      { name: '/dado <apuesta>', value: 'Duelo de dados contra el bot (1-100). Empate devuelve la apuesta.' },
+      { name: '/slots <apuesta>', value: 'Tragamonedas: 3 iguales pagan según el símbolo, 2 iguales devuelve la apuesta.' },
+      { name: '/ruleta <apuesta> <color>', value: 'Rojo/negro pagan x2, verde (el 0) paga x14.' },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -126,6 +145,9 @@ registerButtonPrefix('help_avatar', async (i) => {
 });
 registerButtonPrefix('help_cat_economia', async (i) => {
   await i.update({ embeds: [buildEconomiaEmbed()], components: [buildBackRow()] });
+});
+registerButtonPrefix('help_cat_casino', async (i) => {
+  await i.update({ embeds: [buildCasinoEmbed()], components: [buildBackRow()] });
 });
 registerButtonPrefix('help_cat_diversion', async (i) => {
   await i.update({ embeds: [buildDiversionEmbed()], components: [buildBackRow()] });

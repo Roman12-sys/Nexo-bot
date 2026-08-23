@@ -30,6 +30,10 @@ const TYPE_LABELS = {
   rob_win: '🥷 Robo exitoso',
   rob_loss: '💸 Te robaron',
   rob_fine: '🚨 Multa por robo',
+  crime_win: '🕵️ Golpe exitoso',
+  crime_fine: '🚨 Multa por crimen',
+  weekly: '🎁 Semanal',
+  sell: '💱 Venta de ítem',
 };
 
 // Se llama SIEMPRE después de que el ajuste de balance ya se aplicó y ya se le confirmó

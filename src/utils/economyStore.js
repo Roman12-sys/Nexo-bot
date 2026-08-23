@@ -8,19 +8,26 @@ const TRANSACTIONS_TABLE = 'economy_transactions';
 
 // La tabla usa snake_case; el resto del bot sigue trabajando con camelCase.
 function rowToRecord(row) {
-  if (!row) return { balance: 0, lastDaily: 0, lastWork: 0, dailyStreak: 0, bank: 0, lastInterestTs: 0, lastRob: 0, lastRobbed: 0, inventory: {} };
+  if (!row) {
+    return {
+      balance: 0, lastDaily: 0, lastWork: 0, dailyStreak: 0, bank: 0, lastInterestTs: 0,
+      lastRob: 0, lastRobbed: 0, lastCrime: 0, lastWeekly: 0, inventory: {},
+    };
+  }
   return {
     balance: row.balance,
     lastDaily: row.last_daily,
     lastWork: row.last_work,
     // Filas viejas (creadas antes de agregar estas columnas) no las tienen todavía en el
     // objeto que devuelve Supabase si la migración correspondiente no corrió — 0 es "sin
-    // banco/racha/robo todavía".
+    // banco/racha/robo/crimen/semanal todavía".
     dailyStreak: row.daily_streak || 0,
     bank: row.bank || 0,
     lastInterestTs: row.last_interest_ts || 0,
     lastRob: row.last_rob || 0,
     lastRobbed: row.last_robbed || 0,
+    lastCrime: row.last_crime || 0,
+    lastWeekly: row.last_weekly || 0,
     // inventory viene como jsonb; por las dudas (fila vieja sin este campo) se
     // rellena vacío, mismo fallback que tenía getUserEconomy() con el JSON.
     inventory: row.inventory || {},
@@ -38,6 +45,8 @@ function recordToRow(guildId, userId, record) {
     bank: record.bank || 0,
     last_interest_ts: record.lastInterestTs || 0,
     last_rob: record.lastRob || 0,
+    last_crime: record.lastCrime || 0,
+    last_weekly: record.lastWeekly || 0,
     last_robbed: record.lastRobbed || 0,
     inventory: record.inventory || {},
   };
@@ -49,7 +58,7 @@ function recordToRow(guildId, userId, record) {
 export async function getUserEconomy(guildId, userId) {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('balance, last_daily, last_work, daily_streak, bank, last_interest_ts, last_rob, last_robbed, inventory')
+    .select('balance, last_daily, last_work, daily_streak, bank, last_interest_ts, last_rob, last_robbed, last_crime, last_weekly, inventory')
     .eq('guild_id', guildId)
     .eq('user_id', userId)
     .maybeSingle();
@@ -93,8 +102,10 @@ export async function addBalance(guildId, userId, amount, meta) {
 // por otro lado (ej. un /give) entre que se leyó y que se guardó el cooldown, acá no hay
 // forma de pisarlo — solo se toca la columna del cooldown. Requiere que la fila ya
 // exista (por eso siempre se llama DESPUÉS de addBalance, que la crea si hace falta).
+const COOLDOWN_COLUMNS = { daily: 'last_daily', work: 'last_work', crime: 'last_crime', weekly: 'last_weekly' };
+
 export async function setCooldown(guildId, userId, field, timestamp) {
-  const column = field === 'daily' ? 'last_daily' : 'last_work';
+  const column = COOLDOWN_COLUMNS[field];
   const { error } = await supabase
     .from(TABLE)
     .update({ [column]: timestamp })
@@ -127,6 +138,7 @@ export async function depositToBank(guildId, userId, amount) {
     p_guild_id: guildId,
     p_user_id: userId,
     p_amount: amount,
+    p_now: Date.now(),
   });
   if (error) {
     if (error.message?.includes('insufficient_funds')) {
@@ -146,6 +158,7 @@ export async function withdrawFromBank(guildId, userId, amount) {
     p_guild_id: guildId,
     p_user_id: userId,
     p_amount: amount,
+    p_now: Date.now(),
   });
   if (error) {
     if (error.message?.includes('insufficient_funds')) {
@@ -321,7 +334,7 @@ export async function transferBalance(guildId, senderId, receiverId, amount) {
 export async function getGuildEconomy(guildId, { limit } = {}) {
   let query = supabase
     .from(TABLE)
-    .select('user_id, balance, last_daily, last_work, daily_streak, inventory')
+    .select('user_id, balance, last_daily, last_work, daily_streak, bank, last_interest_ts, last_rob, last_robbed, last_crime, last_weekly, inventory')
     .eq('guild_id', guildId)
     .order('balance', { ascending: false });
 
