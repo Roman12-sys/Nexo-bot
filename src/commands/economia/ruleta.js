@@ -16,7 +16,7 @@ function spin() {
 export const data = new SlashCommandBuilder()
   .setName('ruleta')
   .setDescription('Apostá a un color. Rojo/negro pagan x2, verde (el 0) paga x14.')
-  .addIntegerOption((o) => o.setName('apuesta').setDescription('Cuántas monedas apostar').setRequired(true).setMinValue(10))
+  .addIntegerOption((o) => o.setName('apuesta').setDescription('Cuántas monedas apostar').setRequired(true).setMinValue(10).setMaxValue(100000))
   .addStringOption((o) =>
     o
       .setName('color')

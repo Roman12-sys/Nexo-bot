@@ -11,7 +11,7 @@ function rowToRecord(row) {
   if (!row) {
     return {
       balance: 0, lastDaily: 0, lastWork: 0, dailyStreak: 0, bank: 0, lastInterestTs: 0,
-      lastRob: 0, lastRobbed: 0, lastCrime: 0, lastWeekly: 0, inventory: {},
+      lastRob: 0, lastRobbed: 0, lastCrime: 0, lastWeekly: 0, robShieldUntil: 0, inventory: {},
     };
   }
   return {
@@ -28,6 +28,7 @@ function rowToRecord(row) {
     lastRobbed: row.last_robbed || 0,
     lastCrime: row.last_crime || 0,
     lastWeekly: row.last_weekly || 0,
+    robShieldUntil: row.rob_shield_until || 0,
     // inventory viene como jsonb; por las dudas (fila vieja sin este campo) se
     // rellena vacío, mismo fallback que tenía getUserEconomy() con el JSON.
     inventory: row.inventory || {},
@@ -48,6 +49,7 @@ function recordToRow(guildId, userId, record) {
     last_crime: record.lastCrime || 0,
     last_weekly: record.lastWeekly || 0,
     last_robbed: record.lastRobbed || 0,
+    rob_shield_until: record.robShieldUntil || 0,
     inventory: record.inventory || {},
   };
 }
@@ -58,7 +60,7 @@ function recordToRow(guildId, userId, record) {
 export async function getUserEconomy(guildId, userId) {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('balance, last_daily, last_work, daily_streak, bank, last_interest_ts, last_rob, last_robbed, last_crime, last_weekly, inventory')
+    .select('balance, last_daily, last_work, daily_streak, bank, last_interest_ts, last_rob, last_robbed, last_crime, last_weekly, rob_shield_until, inventory')
     .eq('guild_id', guildId)
     .eq('user_id', userId)
     .maybeSingle();
@@ -243,6 +245,19 @@ export async function setRobCooldowns(guildId, { robberId, robberTimestamp, vict
   if (victimResult.error) throw victimResult.error;
 }
 
+// Ítem de tienda type:'rob_shield' (ver buy.js) — mismo patrón que extendXpBoost en
+// xpStore.js: extiende en vez de reemplazar, para no desperdiciar tiempo restante si ya
+// tenía uno activo.
+export async function extendRobShield(guildId, userId, durationMs) {
+  const record = await getUserEconomy(guildId, userId);
+  const now = Date.now();
+  const newUntil = Math.max(record.robShieldUntil, now) + durationMs;
+
+  const { error } = await supabase.from(TABLE).update({ rob_shield_until: newUntil }).eq('guild_id', guildId).eq('user_id', userId);
+  if (error) throw error;
+  return newUntil;
+}
+
 // Fija el balance de un usuario a un valor exacto (a diferencia de addBalance, que suma/resta).
 // Lo usa el panel de staff para "establecer" una cantidad específica.
 //
@@ -334,7 +349,7 @@ export async function transferBalance(guildId, senderId, receiverId, amount) {
 export async function getGuildEconomy(guildId, { limit } = {}) {
   let query = supabase
     .from(TABLE)
-    .select('user_id, balance, last_daily, last_work, daily_streak, bank, last_interest_ts, last_rob, last_robbed, last_crime, last_weekly, inventory')
+    .select('user_id, balance, last_daily, last_work, daily_streak, bank, last_interest_ts, last_rob, last_robbed, last_crime, last_weekly, rob_shield_until, inventory')
     .eq('guild_id', guildId)
     .order('balance', { ascending: false });
 

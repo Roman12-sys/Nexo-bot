@@ -49,6 +49,10 @@ export async function execute(interaction) {
     await interaction.reply({ content: `🛡️ ${targetUser.tag} está protegido — alguien ya intentó robarle hace poco.`, flags: MessageFlags.Ephemeral });
     return;
   }
+  if (victim.robShieldUntil > now) {
+    await interaction.reply({ content: `🛡️ ${targetUser.tag} tiene un escudo anti-robo activo hasta <t:${Math.floor(victim.robShieldUntil / 1000)}:R>.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
   if (victim.balance < MIN_VICTIM_WALLET) {
     await interaction.reply({ content: `❌ ${targetUser.tag} no tiene suficiente en el wallet como para que valga la pena robarle.`, flags: MessageFlags.Ephemeral });
     return;

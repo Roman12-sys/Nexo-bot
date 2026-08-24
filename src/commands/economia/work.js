@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, setCooldown } from '../../utils/economyStore.js';
+import { getPet, getPetBonusMultiplier } from '../../utils/petsStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
@@ -50,13 +51,18 @@ export async function execute(interaction) {
     }
 
     const isFirstWork = economy.lastWork === 0;
-    const reward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
+    // Mascota bien alimentada y feliz (ver petsStore.js) da +10% — bonus chico, no
+    // determinante, pero premia cuidarla en vez de dejarla como un cosmético más.
+    const pet = await getPet(guildId, userId);
+    const petBonus = getPetBonusMultiplier(pet);
+    const baseReward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
+    const reward = Math.floor(baseReward * petBonus);
     const flavorText = FLAVOR_TEXTS[Math.floor(Math.random() * FLAVOR_TEXTS.length)];
 
     const newBalance = await addBalance(guildId, userId, reward, { type: 'work', reason: flavorText });
     await setCooldown(guildId, userId, 'work', now);
 
-    return { onCooldown: false, reward, flavorText, newBalance, isFirstWork };
+    return { onCooldown: false, reward, flavorText, newBalance, isFirstWork, petBonusActive: petBonus > 1 };
   });
 
   if (result.onCooldown) {
@@ -67,11 +73,13 @@ export async function execute(interaction) {
     return;
   }
 
-  const { reward, flavorText, newBalance, isFirstWork } = result;
+  const { reward, flavorText, newBalance, isFirstWork, petBonusActive } = result;
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('💼 A trabajar')
-    .setDescription(`${flavorText}\n\nGanaste **${reward.toLocaleString('es-ES')}** monedas.\nTu nuevo balance: **${newBalance.toLocaleString('es-ES')}**.`)
+    .setDescription(
+      `${flavorText}\n\nGanaste **${reward.toLocaleString('es-ES')}** monedas.${petBonusActive ? ' (🐾 +10% por tu mascota)' : ''}\nTu nuevo balance: **${newBalance.toLocaleString('es-ES')}**.`,
+    )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 

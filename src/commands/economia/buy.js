@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { getGuildShopItems, getShopItem } from '../../utils/shopStore.js';
-import { getUserEconomy, deductBalanceIfSufficient, incrementInventoryItem, addBalance, recordTransaction } from '../../utils/economyStore.js';
+import { getUserEconomy, deductBalanceIfSufficient, incrementInventoryItem, addBalance, recordTransaction, extendRobShield } from '../../utils/economyStore.js';
 import { extendXpBoost } from '../../utils/xpStore.js';
 import { createShopPurchaseLogEmbed } from '../../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
@@ -10,6 +10,7 @@ import { withLock } from '../../utils/asyncLock.js';
 const MIN_MYSTERY = 50;
 const MAX_MYSTERY = 600;
 const XP_BOOST_DURATION_MS = 24 * 60 * 60 * 1000;
+const ROB_SHIELD_DURATION_MS = 2 * 60 * 60 * 1000;
 
 export const data = new SlashCommandBuilder()
   .setName('buy')
@@ -117,7 +118,19 @@ export async function execute(interaction) {
       return;
     }
 
-    // --- Ítems normales: se guardan en el inventario ---
+    // --- Caso especial: escudo anti-robo (2hs, se extiende si ya tenía uno activo) ---
+    if (item.type === 'rob_shield') {
+      const until = await extendRobShield(guildId, userId, ROB_SHIELD_DURATION_MS);
+      await interaction.editReply({
+        content: `🛡️ ¡Escudo activado! Nadie puede robarte hasta <t:${Math.floor(until / 1000)}:f>.\nBalance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`,
+      });
+      await announceUnlockedAchievements(interaction, userId, [firstPurchaseAchievement]);
+      return;
+    }
+
+    // --- Ítems normales: se guardan en el inventario (esto incluye comida de mascota,
+    // type:'pet_food' — /pet alimentar la busca en el inventario por tipo, no hace
+    // falta un caso especial acá) ---
     await incrementInventoryItem(guildId, userId, item.id, 1);
 
     // Si tiene un rol asociado, se lo damos automáticamente

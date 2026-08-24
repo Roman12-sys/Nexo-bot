@@ -92,6 +92,7 @@ create table if not exists economy (
   last_robbed bigint not null default 0, -- protección de quien fue robado
   last_crime bigint not null default 0,
   last_weekly bigint not null default 0,
+  rob_shield_until bigint not null default 0, -- item de tienda type:'rob_shield'
   inventory jsonb not null default '{}',
   primary key (guild_id, user_id)
 );
@@ -100,7 +101,7 @@ create table if not exists economy_transactions (
   id bigint generated always as identity primary key,
   guild_id text not null,
   user_id text not null,
-  type text not null, -- 'daily' | 'work' | 'weekly' | 'crime_win' | 'crime_fine' | 'trivia' | 'guess' | 'purchase' | 'sell' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set' | 'gamble_bet' | 'gamble_win' | 'bank_deposit' | 'bank_withdraw' | 'bank_interest' | 'rob_win' | 'rob_loss' | 'rob_fine'
+  type text not null, -- 'daily' | 'work' | 'weekly' | 'crime_win' | 'crime_fine' | 'trivia' | 'guess' | 'purchase' | 'sell' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set' | 'gamble_bet' | 'gamble_win' | 'bank_deposit' | 'bank_withdraw' | 'bank_interest' | 'rob_win' | 'rob_loss' | 'rob_fine' | 'pet_battle_win'
   amount bigint not null,
   balance_after bigint not null,
   actor_id text,
@@ -278,6 +279,28 @@ create table if not exists announcement_templates (
   created_by text not null,
   created_at timestamptz not null default now(),
   unique (guild_id, name)
+);
+
+-- =========================================================
+-- Mascotas (/pet) — una por usuario. Hambre/felicidad decaen en JS (lazy, sin cron),
+-- cada una desde su propio last_fed/last_played — ver src/utils/petsStore.js.
+-- =========================================================
+create table if not exists pets (
+  guild_id text not null,
+  user_id text not null,
+  species text not null,
+  name text not null,
+  level integer not null default 0,
+  xp bigint not null default 0,
+  hunger integer not null default 100,
+  happiness integer not null default 100,
+  last_fed bigint not null default 0,
+  last_played bigint not null default 0,
+  last_battle bigint not null default 0,
+  wins integer not null default 0,
+  losses integer not null default 0,
+  created_at timestamptz not null default now(),
+  primary key (guild_id, user_id)
 );
 
 -- =========================================================

@@ -11,7 +11,7 @@ const CHOICES = { cara: 'Cara', cruz: 'Cruz' };
 export const data = new SlashCommandBuilder()
   .setName('coinflip')
   .setDescription('Apostá monedas a cara o cruz. 50/50, sin ventaja de la casa.')
-  .addIntegerOption((o) => o.setName('apuesta').setDescription('Cuántas monedas apostar').setRequired(true).setMinValue(10))
+  .addIntegerOption((o) => o.setName('apuesta').setDescription('Cuántas monedas apostar').setRequired(true).setMinValue(10).setMaxValue(100000))
   .addStringOption((o) =>
     o
       .setName('eleccion')

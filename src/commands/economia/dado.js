@@ -4,7 +4,7 @@ import { playCasinoGame } from '../../utils/casinoHelpers.js';
 export const data = new SlashCommandBuilder()
   .setName('dado')
   .setDescription('Duelo de dados contra el bot (1-100). Quien saque más alto gana. Empate devuelve la apuesta.')
-  .addIntegerOption((o) => o.setName('apuesta').setDescription('Cuántas monedas apostar').setRequired(true).setMinValue(10))
+  .addIntegerOption((o) => o.setName('apuesta').setDescription('Cuántas monedas apostar').setRequired(true).setMinValue(10).setMaxValue(100000))
   .setDMPermission(false);
 
 export async function execute(interaction) {

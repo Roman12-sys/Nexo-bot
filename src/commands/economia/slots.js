@@ -15,7 +15,7 @@ const SYMBOLS = [
 export const data = new SlashCommandBuilder()
   .setName('slots')
   .setDescription('Tragamonedas: 3 símbolos iguales pagan según cuál sea, 2 iguales te devuelve la apuesta.')
-  .addIntegerOption((o) => o.setName('apuesta').setDescription('Cuántas monedas apostar').setRequired(true).setMinValue(10))
+  .addIntegerOption((o) => o.setName('apuesta').setDescription('Cuántas monedas apostar').setRequired(true).setMinValue(10).setMaxValue(100000))
   .setDMPermission(false);
 
 export async function execute(interaction) {
