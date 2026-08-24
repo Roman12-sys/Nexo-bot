@@ -31,10 +31,25 @@ async function buildShopEmbed(guildId, page) {
     embed.addFields({ name: 'Sin ítems', value: 'Todavía no hay nada en la tienda de este servidor.' });
   } else {
     const category = categoryNames[clampedPage];
-    const value = categories[category]
-      .map((item) => `**${item.name}** — ${item.price.toLocaleString('es-ES')} monedas\n${item.description}`)
-      .join('\n\n');
-    embed.addFields({ name: `📦 ${category}`, value: value.slice(0, 1024) });
+    const lines = categories[category].map((item) => `**${item.name}** — ${item.price.toLocaleString('es-ES')} monedas\n${item.description}`);
+    let value = lines.join('\n\n');
+
+    // El comentario de arriba decía "ahora pagina por categoría" como si eso ya
+    // resolviera el límite de 1024 — no del todo: una categoría CON MUCHOS ítems
+    // (ej. un admin agregando 15 cosas a la misma categoría con /shop-admin) todavía
+    // puede superarlo dentro de su propia página. Antes se cortaba en silencio.
+    if (value.length > 1024) {
+      let shown = 0;
+      let acc = '';
+      for (const line of lines) {
+        if (acc.length + line.length + 2 > 950) break;
+        acc += (acc ? '\n\n' : '') + line;
+        shown += 1;
+      }
+      value = `${acc}\n\n*(+${lines.length - shown} ítem(s) más — no entran en esta página, usá /shop-admin listar para verlos todos)*`;
+    }
+
+    embed.addFields({ name: `📦 ${category}`, value });
   }
 
   return { embed, clampedPage, totalPages };

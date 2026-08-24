@@ -61,7 +61,15 @@ export async function execute(message, client) {
         }
       }
       if (afkMentions.length > 0) {
-        await message.reply({ content: afkMentions.join('\n'), allowedMentions: { repliedUser: false, users: [] } }).catch(() => {});
+        // Mencionar a MUCHOS usuarios AFK a la vez (ej. un @everyone-like con varios
+        // ausentes) podía armar un content de más de 2000 caracteres — el límite real
+        // de un mensaje de Discord, no un límite de embed — y esto fallaba en
+        // silencio (el .catch(() => {}) se comía el error sin dejar rastro).
+        let content = afkMentions.join('\n');
+        if (content.length > 2000) {
+          content = `${afkMentions.slice(0, 15).join('\n')}\n*(+${afkMentions.length - 15} más ausentes, no entran acá)*`;
+        }
+        await message.reply({ content, allowedMentions: { repliedUser: false, users: [] } }).catch(() => {});
       }
     }
 

@@ -249,15 +249,14 @@ async function handlePerfil(interaction) {
   const workReady = now - economy.lastWork >= 60 * 60 * 1000;
 
   const owned = Object.entries(economy.inventory || {}).filter(([, qty]) => qty > 0);
-  const inventoryText =
-    owned.length === 0
-      ? 'Sin ítems.'
-      : owned
-          .map(([itemId, qty]) => {
-            const item = shopItems.find((i) => i.id === itemId);
-            return `${item ? item.name : itemId} x${qty}`;
-          })
-          .join('\n');
+  const ownedLines = owned.map(([itemId, qty]) => {
+    const item = shopItems.find((i) => i.id === itemId);
+    return `${item ? item.name : itemId} x${qty}`;
+  });
+  let inventoryText = owned.length === 0 ? 'Sin ítems.' : ownedLines.join('\n');
+  if (inventoryText.length > 1024) {
+    inventoryText = `${ownedLines.join('\n').slice(0, 970)}\n*(hay más — usá /inventory para verlo completo)*`;
+  }
 
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
