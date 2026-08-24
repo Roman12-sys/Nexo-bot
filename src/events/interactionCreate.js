@@ -1,3 +1,4 @@
+import { MessageFlags } from 'discord.js';
 import { routeButton } from '../components/buttons.js';
 import { routeModal } from '../components/modals.js';
 import { routeSelect } from '../components/selects.js';
@@ -43,7 +44,7 @@ export async function execute(interaction, client) {
   // hace falta para un /ban o un /clear real. Ver rateLimiter.js.
   const command = interaction.isChatInputCommand() ? client.commands.get(interaction.commandName) : null;
   if (!checkRateLimit(interaction.user.id, command?.rateLimitCategory)) {
-    const payload = { content: '⏳ Estás usando comandos muy rápido. Esperá unos segundos y probá de nuevo.', ephemeral: true };
+    const payload = { content: '⏳ Estás usando comandos muy rápido. Esperá unos segundos y probá de nuevo.', flags: MessageFlags.Ephemeral };
     await interaction.reply(payload).catch(() => {});
     return;
   }
@@ -55,7 +56,7 @@ export async function execute(interaction, client) {
       trackUsageAndCheckAchievements(interaction.guildId, interaction.commandName, client);
     } catch (error) {
       console.error(`Error ejecutando /${interaction.commandName}:`, error);
-      const payload = { content: 'Hubo un error ejecutando este comando.', ephemeral: true };
+      const payload = { content: 'Hubo un error ejecutando este comando.', flags: MessageFlags.Ephemeral };
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp(payload).catch(() => {});
       } else {
@@ -78,7 +79,7 @@ export async function execute(interaction, client) {
       // que quedara ningún rastro en consola para diagnosticarlo.
       if (!handled) {
         console.warn(`[WARN] Ninguna interacción registrada matcheó el customId "${interaction.customId}".`);
-        const payload = { content: '⚠️ Este botón/menú ya no es válido (puede ser de un mensaje viejo).', ephemeral: true };
+        const payload = { content: '⚠️ Este botón/menú ya no es válido (puede ser de un mensaje viejo).', flags: MessageFlags.Ephemeral };
         if (interaction.replied || interaction.deferred) {
           await interaction.followUp(payload).catch(() => {});
         } else {
@@ -87,7 +88,7 @@ export async function execute(interaction, client) {
       }
     } catch (error) {
       console.error(`Error procesando interacción ${interaction.customId}:`, error);
-      const payload = { content: 'Hubo un error procesando esto.', ephemeral: true };
+      const payload = { content: 'Hubo un error procesando esto.', flags: MessageFlags.Ephemeral };
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp(payload).catch(() => {});
       } else {
