@@ -111,6 +111,92 @@ código hace aritmética cruda tipo `Date.now() - economy.lastDaily`, nunca
 `/daily`/`/work`). Columnas que sí se leen con `new Date(x).getTime()` (ej.
 `warnings.created_at`) están bien como `timestamptz`.
 
+## Economía: wallet, banco, casino y sumideros
+
+`economy.balance` ("wallet") y `economy.bank` son deliberadamente dos columnas
+separadas, no una sola. `/rob` solo puede tocar el wallet — el banco es el lugar donde
+"guardar y estar a salvo", y encima rinde un interés simple (2%/día, tope de 14 días
+acumulados) que se calcula lazy (sin cron) cuando el usuario mira `/bank ver`. El interés
+se reinicia en CADA depósito/retiro (columna `last_interest_ts`, ver
+`deposit_to_bank`/`withdraw_from_bank` en `schema.sql`) — sin ese reset hay un bug real
+que pisamos una vez: vaciar la cuenta y depositar de nuevo mucho después cobraba interés
+de un período en que el banco estuvo en 0, porque el reloj de interés seguía anclado al
+último movimiento viejo.
+
+`/coinflip`, `/dado`, `/slots`, `/ruleta` comparten `src/utils/casinoHelpers.js`
+(chequeo de saldo, lock, cobro atómico, resolución, embed) para no triplicar esa
+cascada. Coinflip y dado son 50/50 limpio, sin ventaja de la casa — slots y ruleta sí
+tienen una ventaja natural, pero viene sola del paytable/probabilidades, no de ningún
+ajuste oculto.
+
+`/crime` (alternativa arriesgada a `/work`) y `/rob` reparten "multas" de forma
+DISTINTA a propósito: la multa de `/crime` se destruye (no va a nadie — es el único
+sumidero real de dinero que no sea comprar en la tienda, algo que la economía casi no
+tenía: `/daily`+`/work`+interés del banco crean plata de la nada sin límite, pero antes
+de esto casi nada la destruía). La multa de `/rob`, en cambio, va a la víctima (no es un
+sumidero, es una compensación). `/pet pelear` tampoco transfiere plata entre los dos
+jugadores — el premio lo pone "la casa", igual que un `/work` — a propósito, para no
+abrir la misma puerta de lavado entre alts que ya vigila `giveTracker.js` para `/give`.
+
+`/vender` es el primer lugar donde se puede recuperar parte de lo gastado: 50% del
+precio de un ítem de vuelta, pero nunca de ítems con `roleId` (el rol ya se entregó,
+"devolverlo" sería cobrar dos veces por el mismo rol si se recompra después).
+
+## Mascotas (`/pet`)
+
+Una mascota por usuario, a propósito — no hay cría/breeding entre mascotas de dos
+usuarios. Se evaluó y se descartó: hubiera significado rehacer `getPet`, el cálculo del
+bonus y medio comando `/pet`, que asumen una sola mascota en todos lados. En cambio, la
+misma mascota "crece" con el cuidado: evoluciona de etapa (Cría → Adulto → Veterano →
+Legendario) según el nivel, y el bonus a `/work`/`/crime` escala con la etapa (`getPetStage`
+en `src/utils/petsStore.js`).
+
+Hambre y felicidad decaen solas con el tiempo, calculado lazy (sin cron) — pero cada una
+decae desde SU PROPIO último toque (`last_fed` para hambre, `last_played` para
+felicidad), nunca un reloj único compartido entre las dos. Es el mismo tipo de bug que
+el del interés del banco (arriba), evitado desde el diseño en vez de parcheado después.
+
+Descuidar la mascota nunca la "mata" ni le borra progreso — solo le saca el bonus hasta
+que se la cuide de nuevo. Decisión deliberada para que el sistema no sea punitivo/de
+culpa (a diferencia de un Tamagotchi clásico).
+
+## Gotchas ya pisados (además del de las columnas de cooldown, arriba)
+
+**Emoji dentro de un canvas.** `@napi-rs/canvas` (usado en `welcomeImage.js`,
+`rankCardImage.js`, `petCardImage.js`) no tiene ninguna fuente de emoji de color
+disponible en el contenedor de Railway — cualquier emoji dibujado con `ctx.fillText()`
+se ve como un cuadrado vacío, sin ningún error que lo avise. Pasó dos veces en la misma
+sesión (una vez arreglado en `rankCardImage.js`, después repetido sin querer en
+`petCardImage.js` recién escrito). Nunca poner un emoji en texto de canvas — usar texto
++ color, o formas dibujadas a mano (`ctx.arc`/`ctx.ellipse`, ver la huella de
+`petCardImage.js`). Y no alcanza con que la función no tire error: hay que generar la
+imagen de verdad, guardarla y mirarla antes de darla por buena.
+
+**Límites de longitud de Discord, ninguno de los cuales atrapa `node --check`:**
+- Descripción de un comando, subcomando u opción: **100 caracteres**. Se revienta recién
+  al bootear el bot (`❌ No se pudo cargar el comando...`), no al editar el archivo — le
+  pasó a `/crime`. Conviene bootear el bot local (`node src/index.js`, 10-15s) después de
+  cualquier cambio a un `SlashCommandBuilder`, no solo correr `node --check`.
+- Valor de un campo de embed (`addFields`): **1024 caracteres**. Sin un chequeo explícito,
+  una lista armada con `.join()` que crece (categorías de `/shop`, inventario en
+  `/economia-staff perfil`) se corta en silencio sin avisar que faltó contenido. Patrón
+  para arreglarlo: cortar antes del límite y agregar `"(+N más)"` en vez de un
+  `.slice(0, 1024)` mudo — ver `roles.js`/`shop.js`.
+- `content` de un mensaje normal (no embed): **2000 caracteres** — le pasó al aviso de
+  AFK cuando se mencionaba a varios usuarios ausentes a la vez.
+
+## Dos proyectos de Supabase — no confundirlos
+
+El usuario tiene DOS proyectos de Supabase que se prestan a confundir (pueden estar los
+dos abiertos en pestañas del navegador a la vez): **`gmcqbvrqqpmcqjrbtauk`** es el real
+de Nexo Bot (coincide con `SUPABASE_URL` en Railway y en `.env` — el `.env` tiene un
+comentario que lo dice: "proyecto nuevo, separado del de gNoX"). **`wglbcbwgrtadcnavtpxg`**
+es el proyecto viejo de gNoX — tiene una tabla `stream_state` (feature exclusiva de
+gNoX que Nexo no tiene) y le falta `guild_config` por completo (gNoX usa `.env`, no esa
+tabla). Correr una migración de Nexo en el proyecto equivocado da "Success" en el SQL
+Editor pero no arregla nada — verificar contra la base real por API después de correr
+cualquier SQL, no confiar solo en el mensaje de éxito.
+
 ## Dashboard web (`dashboard/`)
 
 Panel de solo lectura (actividad/economía/moderación por servidor) — **proceso Express
@@ -174,6 +260,23 @@ Decisiones puntuales:
 - `node src/deploy-commands.js` (sin `dev`) registra los comandos **globalmente** —
   correrlo solo cuando se confirma explícitamente, porque afecta a cualquier server que
   tenga el bot invitado (no solo el de test) y tarda hasta 1h en propagar.
+
+## Anunciador de patch notes de League of Legends
+
+`src/utils/lolPatchEngine.js` manda un embed a un canal fijo (`1542041482918109235`, un
+solo servidor) cada vez que sale un patch nuevo de LoL. A propósito **no** es una
+feature de `guild_config`: el pedido fue "este canal, este server", no "cualquier
+servidor pueda configurar esto" — mismo criterio que la presencia fija de `ready.js`.
+
+Riot no tiene API pública de patch notes. Se lee el JSON `__NEXT_DATA__` embebido en
+`leagueoflegends.com/en-us/news/tags/patch-notes/` (el mismo dato que renderiza la
+grilla de artículos del sitio) — un endpoint no documentado, puede romperse si Riot
+cambia el markup. Si eso pasa, `fetchLatestPatchArticle` tira o devuelve `null` y el
+barrido queda en no-op silencioso (logueado en consola), nunca tira el bot abajo. Barre
+cada 20 minutos (`lolPatchEngine.js`), guarda la última URL anunciada en
+`lol_patch_state` (una sola fila, no por guild) para no duplicar avisos entre reinicios
+— y en la primera corrida siembra el estado sin anunciar, para no mandar como "nuevo"
+un patch que puede tener semanas.
 
 ## Timers en memoria: qué persiste y qué no
 

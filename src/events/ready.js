@@ -4,6 +4,7 @@ import { reconcileOnStartup } from '../utils/tempVoiceEngine.js';
 import { rescheduleReminders } from '../utils/reminderEngine.js';
 import { startVoiceXpLoop } from '../utils/voiceXpEngine.js';
 import { startLogPurgeLoop } from '../utils/logPurgeEngine.js';
+import { startLolPatchLoop } from '../utils/lolPatchEngine.js';
 
 export const name = 'clientReady';
 export const once = true;
@@ -34,4 +35,8 @@ export async function execute(client) {
   // Purga de logs con más de 5 días — mismo motivo: se repite sola cada 12hs, no
   // depende de estado guardado en ningún lado.
   startLogPurgeLoop(client);
+
+  // Anuncia patch notes nuevos de LoL en un canal fijo — se repite sola cada 20 min,
+  // el estado de "último patch anunciado" vive en Supabase (lol_patch_state).
+  startLolPatchLoop(client);
 }

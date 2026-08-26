@@ -316,6 +316,17 @@ create table if not exists command_usage (
 );
 
 -- =========================================================
+-- Estado del anunciador de patch notes de League of Legends
+-- (src/utils/lolPatchEngine.js) — una sola fila fija, no es por guild: el canal de
+-- anuncio está hardcodeado en el engine, no en guild_config.
+-- =========================================================
+create table if not exists lol_patch_state (
+  id text primary key, -- fijo: 'league_of_legends'
+  last_url text,
+  updated_at timestamptz not null default now()
+);
+
+-- =========================================================
 -- RPCs atómicas
 -- =========================================================
 
