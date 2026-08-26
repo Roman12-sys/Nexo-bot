@@ -323,7 +323,12 @@ create table if not exists command_usage (
 create table if not exists lol_patch_state (
   id text primary key, -- fijo: 'league_of_legends'
   last_url text,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  -- Monitor secundario de Data Dragon (src/utils/lolPatchMonitor.js) — nunca anuncia
+  -- nada, solo detecta si el scraper de arriba dejó de encontrar artículos nuevos.
+  last_ddragon_version text,
+  ddragon_version_detected_at bigint, -- epoch ms, mismo criterio que last_daily/last_work (ver CLAUDE.md)
+  ddragon_warning_sent_at bigint -- epoch ms; null = todavía no se avisó nada para la versión actual
 );
 
 -- =========================================================

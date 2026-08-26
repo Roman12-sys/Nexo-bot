@@ -278,6 +278,44 @@ cada 20 minutos (`lolPatchEngine.js`), guarda la última URL anunciada en
 — y en la primera corrida siembra el estado sin anunciar, para no mandar como "nuevo"
 un patch que puede tener semanas.
 
+Para forzar un reenvío manual (probar el embed, o mandar de nuevo el patch actual):
+`update lol_patch_state set last_url = 'reset' where id = 'league_of_legends';` y
+reiniciar el bot (o esperar el próximo barrido de 20 min) — al no coincidir con la URL
+real, la anuncia y pisa `last_url` con la correcta. No hay comando de staff para esto
+a propósito, es un caso de uso raro (una vez cada tanto, para debug).
+
+### Monitor secundario de Data Dragon (detección de scraper roto)
+
+`src/utils/lolPatchMonitor.js` (investigado y agregado 2026-08-26) es una señal
+ADITIVA, no reemplaza el scraper de arriba ni anuncia nada en Discord — solo deja un
+`console.warn` si parece que el scraper se rompió. Investigación previa (ver historial
+de esa fecha) confirmó que Riot no tiene webhook/API/RSS oficial para parches: 13
+categorías del Developer API (`developer.riotgames.com/apis`) y ninguna es de
+versiones/changelog; no hay `rss.xml`/`sitemap.xml` reales en leagueoflegends.com (dan
+404 o el shell de Next.js). Data Dragon es lo más "oficial" que hay, pero Riot mismo
+documenta que "*Updating Data Dragon after each patch is a manual process, so it is not
+always updated immediately after a patch*" — sin SLA de timing, y sin contenido de
+patch notes.
+
+Por eso Data Dragon nunca es la fuente de anuncio, solo un chequeo de salud: cada 20
+min compara `ddragon/api/versions.json`\[0\] contra `last_ddragon_version` guardado. Si
+cambió, guarda la nueva versión + `ddragon_version_detected_at` (epoch ms — mismo
+criterio que `last_daily`/`last_work`, ver el gotcha de columnas de cooldown más abajo)
+y arranca de cero la ventana de tolerancia. Si pasan más de
+`DDRAGON_PATCH_WARNING_DELAY_HOURS` (24h, constante en el propio archivo) sin que
+`lol_patch_state.updated_at` (que el scraper ya toca solo cuando encuentra un artículo
+nuevo — no hizo falta una columna nueva para eso) se haya movido **en una ventana
+simétrica** alrededor de ese momento, deja el warning una sola vez (`ddragon_warning_sent_at`,
+se resetea a null cada vez que la versión de Data Dragon vuelve a cambiar).
+
+La ventana es simétrica (hacia atrás Y hacia adelante) a propósito: en el orden real
+más común el artículo de patch notes se publica ANTES de que Data Dragon se actualice
+(por la demora manual de arriba), así que exigir progreso del scraper *después* del
+cambio de versión generaría un falso positivo en casi todos los parches. Limitación
+conocida y aceptada: si el atraso real de Data Dragon supera esas 24h hacia atrás,
+puede saltar un falso positivo igual — es un heurístico de "avisale al staff para que
+mire", no una garantía.
+
 ## Timers en memoria: qué persiste y qué no
 
 Recordatorios (`reminderEngine.js`) y sorteos (`giveawayEngine.js`) se reprograman al

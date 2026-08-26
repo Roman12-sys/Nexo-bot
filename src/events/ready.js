@@ -5,6 +5,7 @@ import { rescheduleReminders } from '../utils/reminderEngine.js';
 import { startVoiceXpLoop } from '../utils/voiceXpEngine.js';
 import { startLogPurgeLoop } from '../utils/logPurgeEngine.js';
 import { startLolPatchLoop } from '../utils/lolPatchEngine.js';
+import { startLolDdragonMonitorLoop } from '../utils/lolPatchMonitor.js';
 
 export const name = 'clientReady';
 export const once = true;
@@ -39,4 +40,9 @@ export async function execute(client) {
   // Anuncia patch notes nuevos de LoL en un canal fijo — se repite sola cada 20 min,
   // el estado de "último patch anunciado" vive en Supabase (lol_patch_state).
   startLolPatchLoop(client);
+
+  // Señal secundaria de monitoreo (Data Dragon) para detectar si el scraper de arriba
+  // se rompió — nunca publica nada, solo deja un warning en consola. No necesita el
+  // client porque no manda mensajes a Discord.
+  startLolDdragonMonitorLoop();
 }
