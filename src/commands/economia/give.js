@@ -51,7 +51,11 @@ export async function execute(interaction) {
     throw error;
   }
 
-  await Promise.all([
+  // allSettled en vez de all: la plata YA se movió (transferBalance es la autoridad
+  // atómica real, arriba). Si el registro de historial de UNO de los dos falla acá
+  // (ej. blip de red), no queremos que el usuario se quede sin la confirmación de que
+  // la transferencia sí ocurrió — solo logueamos qué mitad del historial faltó.
+  const transactionResults = await Promise.allSettled([
     recordTransaction(guildId, interaction.user.id, {
       type: 'transfer_out',
       amount: -cantidad,
@@ -67,6 +71,11 @@ export async function execute(interaction) {
       reason: `De ${interaction.user.tag}`,
     }),
   ]);
+  transactionResults.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      console.error(`❌ Error registrando transacción de /give (${i === 0 ? 'emisor' : 'receptor'}, guild ${guildId}):`, r.reason);
+    }
+  });
 
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)

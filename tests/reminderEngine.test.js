@@ -98,6 +98,30 @@ describe('recordatorios recurrentes', () => {
   });
 });
 
+describe('scheduleReminder — reschedule no deja timers fantasma (auditoría 2026-08-27)', () => {
+  it('reprogramar el mismo id antes de que dispare cancela el timer viejo (no dispara dos veces)', async () => {
+    const { client, send } = makeClient();
+    const reminder = makeReminder({ id: 'r-1', remindAt: Date.now() + 60_000 });
+
+    scheduleReminder(client, reminder);
+    // Se reprograma para más tarde ANTES de que el primer timer llegue a disparar —
+    // sin el fix, el handle viejo queda vivo y también dispara en su horario original.
+    const reprogramado = { ...reminder, remindAt: Date.now() + 120_000 };
+    scheduleReminder(client, reprogramado);
+
+    await vi.advanceTimersByTimeAsync(60_000); // horario del timer VIEJO
+    expect(send).not.toHaveBeenCalled(); // si el leak existiera, ya habría disparado acá
+
+    await vi.advanceTimersByTimeAsync(60_000); // horario del timer NUEVO (total 120s)
+    expect(send).toHaveBeenCalledTimes(1); // dispara UNA sola vez, no dos
+  });
+
+  it('reprogramar un id que no tenía timer activo no revienta', () => {
+    const { client } = makeClient();
+    expect(() => scheduleReminder(client, makeReminder({ id: 'r-nuevo' }))).not.toThrow();
+  });
+});
+
 describe('cancelReminder', () => {
   it('cancelar antes de que dispare evita el DM y el borrado', async () => {
     const { client, send } = makeClient();

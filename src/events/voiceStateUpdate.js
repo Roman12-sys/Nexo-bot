@@ -33,7 +33,10 @@ export async function execute(oldState, newState, client) {
 
     if (!action) return;
 
-    const logChannel = await getGuildLogChannel(client, newState.guild?.id || oldState.guild.id, 'activity');
+    const guildId = newState.guild?.id || oldState.guild?.id;
+    if (!guildId) return;
+
+    const logChannel = await getGuildLogChannel(client, guildId, 'activity');
     if (!logChannel) return;
 
     const embed = createVoiceLogEmbed({

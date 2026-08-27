@@ -16,7 +16,10 @@ async function reuploadAttachments(message) {
   const settled = await Promise.allSettled(
     attachments.map(async (a) => {
       if (a.size > MAX_ATTACHMENT_BYTES) throw new Error('supera 8MB, no se pudo re-subir');
-      const res = await fetch(a.url);
+      // Sin timeout, un CDN lento/caído cuelga esta descarga indefinidamente — y como
+      // se espera con Promise.all más abajo, el mensaje entero de log queda sin
+      // mandarse hasta que Discord mate la conexión por su cuenta (si es que lo hace).
+      const res = await fetch(a.url, { signal: AbortSignal.timeout(10_000) });
       if (!res.ok) throw new Error(`no se pudo descargar (HTTP ${res.status})`);
       const buffer = Buffer.from(await res.arrayBuffer());
       return new AttachmentBuilder(buffer, { name: a.name || 'archivo' });

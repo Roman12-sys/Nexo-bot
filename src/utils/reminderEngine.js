@@ -49,6 +49,14 @@ async function fireReminder(client, reminder) {
 // inmediatamente en vez de tirar error — para recordatorios más largos que eso, hay
 // que encadenar timeouts intermedios en vez de uno solo.
 export function scheduleReminder(client, reminder) {
+  // Si ya había un timer viejo para este id (ej. reschedule antes de que el
+  // encadenamiento intermedio de más de MAX_DELAY_MS llegue a disparar), hay que
+  // cancelarlo explícitamente. Sin esto, el handle viejo queda huérfano en el event
+  // loop de Node (nunca se limpia solo) y dispara más tarde con el `reminder` de la
+  // clausura vieja — desincronizado del remindAt real ya actualizado en Supabase.
+  const oldHandle = activeTimeouts.get(reminder.id);
+  if (oldHandle) clearTimeout(oldHandle);
+
   const delay = reminder.remindAt - Date.now();
 
   if (delay <= 0) {

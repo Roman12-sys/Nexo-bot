@@ -10,7 +10,7 @@ import { createSupabaseMock } from './helpers/supabaseMock.js';
 const supabaseMock = createSupabaseMock();
 vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMock; } }));
 
-const { addBalance, deductBalanceIfSufficient, transferBalance, setBalance } = await import('../src/utils/economyStore.js');
+const { addBalance, deductBalanceIfSufficient, transferBalance, setBalance, setRobCooldowns } = await import('../src/utils/economyStore.js');
 
 beforeEach(() => {
   // clearAllMocks limpia el historial de llamadas de TODOS los vi.fn() vivos —
@@ -104,6 +104,40 @@ describe('transferBalance', () => {
     await expect(transferBalance('guild-1', 'sender-1', 'receiver-1', 999)).rejects.toMatchObject({
       code: 'insufficient_funds',
     });
+  });
+});
+
+describe('setRobCooldowns', () => {
+  // Auditoría 2026-08-27: antes eran dos UPDATE independientes vía Promise.all() —
+  // si el segundo fallaba después de que el primero ya había commiteado, el robber
+  // quedaba con cooldown pero la víctima sin protección. Ahora es una sola RPC
+  // (set_rob_cooldowns) que corre los dos UPDATE en una única transacción de Postgres.
+  it('llama a la RPC set_rob_cooldowns con los 4 valores esperados', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: null, error: null });
+
+    await setRobCooldowns('guild-1', {
+      robberId: 'robber-1',
+      robberTimestamp: 1000,
+      victimId: 'victim-1',
+      victimTimestamp: 2000,
+    });
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('set_rob_cooldowns', {
+      p_guild_id: 'guild-1',
+      p_robber_id: 'robber-1',
+      p_robber_ts: 1000,
+      p_victim_id: 'victim-1',
+      p_victim_ts: 2000,
+    });
+  });
+
+  it('si la RPC falla, el error se propaga (nunca queda a medio aplicar)', async () => {
+    const dbError = { message: 'connection refused' };
+    supabaseMock.rpc.mockResolvedValue({ data: null, error: dbError });
+
+    await expect(
+      setRobCooldowns('guild-1', { robberId: 'r', robberTimestamp: 1, victimId: 'v', victimTimestamp: 2 }),
+    ).rejects.toBe(dbError);
   });
 });
 

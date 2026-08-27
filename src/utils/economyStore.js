@@ -237,12 +237,17 @@ export async function robWallet(guildId, robberId, victimId, percent, maxAmount)
 }
 
 export async function setRobCooldowns(guildId, { robberId, robberTimestamp, victimId, victimTimestamp }) {
-  const [robberResult, victimResult] = await Promise.all([
-    supabase.from(TABLE).update({ last_rob: robberTimestamp }).eq('guild_id', guildId).eq('user_id', robberId),
-    supabase.from(TABLE).update({ last_robbed: victimTimestamp }).eq('guild_id', guildId).eq('user_id', victimId),
-  ]);
-  if (robberResult.error) throw robberResult.error;
-  if (victimResult.error) throw victimResult.error;
+  // RPC atómica (set_rob_cooldowns, ver schema.sql) en vez de dos UPDATE por
+  // separado: si el robber quedaba con cooldown pero la víctima sin protección por un
+  // fallo a mitad de camino, podía ser robada de nuevo al instante.
+  const { error } = await supabase.rpc('set_rob_cooldowns', {
+    p_guild_id: guildId,
+    p_robber_id: robberId,
+    p_robber_ts: robberTimestamp,
+    p_victim_id: victimId,
+    p_victim_ts: victimTimestamp,
+  });
+  if (error) throw error;
 }
 
 // Ítem de tienda type:'rob_shield' (ver buy.js) — mismo patrón que extendXpBoost en

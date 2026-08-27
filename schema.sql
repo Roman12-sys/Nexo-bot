@@ -75,6 +75,10 @@ create table if not exists voice_channel_stats (
   unique_users_count integer not null default 0,
   max_concurrent_users integer not null default 0
 );
+-- A diferencia de temporary_voice_channels (donde unique(guild_id, owner_id) ya sirve
+-- de índice para filtrar por guild_id), esta tabla no tenía NINGÚN índice por guild_id
+-- — /voice estadísticas y el dashboard la consultan filtrando solo por guild_id.
+create index if not exists voice_channel_stats_guild_idx on voice_channel_stats (guild_id);
 
 -- =========================================================
 -- Economía
@@ -185,6 +189,7 @@ create table if not exists giveaways (
   cancelled boolean not null default false,
   winners jsonb not null default '[]',
   creator_id text not null,
+  required_role_id text, -- rol requerido para participar (null = sin restricción)
   created_at timestamptz not null default now(),
   primary key (guild_id, message_id)
 );
@@ -256,9 +261,14 @@ create table if not exists reminders (
   user_id text not null,
   message text not null,
   remind_at bigint not null, -- epoch ms, igual criterio que los cooldowns: aritmética cruda con Date.now()
+  repeat_ms bigint, -- null = una sola vez; con valor, reminderEngine.js lo reprograma en vez de borrarlo
   created_at timestamptz not null default now()
 );
 create index if not exists reminders_remind_at_idx on reminders (remind_at);
+-- getUserReminders filtra por guild_id+user_id y ordena por remind_at — la PK de esta
+-- tabla es solo "id" (identity), a diferencia de la mayoría de las demás tablas donde
+-- (guild_id, user_id) ES la PK y ya sirve de índice.
+create index if not exists reminders_guild_user_idx on reminders (guild_id, user_id);
 
 -- =========================================================
 -- Confesiones (contador correlativo por servidor)
@@ -552,6 +562,22 @@ begin
   returning balance, bank into v_wallet, v_bank;
 
   return query select v_wallet, v_bank;
+end;
+$$;
+
+-- Une los dos UPDATE de cooldown de /rob (robber y víctima) en una sola llamada RPC:
+-- antes eran dos updates independientes vía Promise.all() en JS — si el segundo fallaba
+-- (red, rate limit de Supabase) después de que el primero ya había commiteado, el
+-- robber quedaba con cooldown pero la víctima sin protección, pudiendo ser robada de
+-- nuevo al instante. Al ser un solo plpgsql function body, Postgres lo corre como una
+-- única transacción: o pegan los dos updates, o ninguno.
+create or replace function set_rob_cooldowns(p_guild_id text, p_robber_id text, p_robber_ts bigint, p_victim_id text, p_victim_ts bigint)
+returns void
+language plpgsql
+as $$
+begin
+  update economy set last_rob = p_robber_ts where guild_id = p_guild_id and user_id = p_robber_id;
+  update economy set last_robbed = p_victim_ts where guild_id = p_guild_id and user_id = p_victim_id;
 end;
 $$;
 

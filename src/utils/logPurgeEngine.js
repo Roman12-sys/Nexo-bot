@@ -3,6 +3,7 @@
 // de mensajes ya viene acotado por defecto — pero sin esto el canal se vuelve una pared
 // de miles de mensajes en unos meses, imposible de navegar para el staff. Mismo patrón
 // que voiceXpEngine.js: un barrido periódico sobre todos los guilds.
+import { PermissionFlagsBits } from 'discord.js';
 import { getGuildLogChannel } from './guildLogChannels.js';
 
 const TICK_MS = 12 * 60 * 60 * 1000; // cada 12 horas alcanza de sobra para una retención de días
@@ -51,6 +52,14 @@ async function purgeTick(client) {
         continue;
       }
       if (!channel) continue;
+
+      // Sin este chequeo, un bot sin "Gestionar mensajes" en el canal de logs fallaba
+      // en silencio cada 12hs para siempre (bulkDelete atrapado por el .catch(() => new
+      // Map()) de purgeOldMessages) — nadie se enteraba nunca de que la purga no corría.
+      if (!channel.permissionsFor(channel.guild.members.me)?.has(PermissionFlagsBits.ManageMessages)) {
+        console.warn(`⚠️ [purga de logs] Al bot le falta "Gestionar mensajes" en #${channel.name} (${guild.name}, ${category}) — no se puede purgar.`);
+        continue;
+      }
 
       try {
         const deleted = await purgeOldMessages(channel);

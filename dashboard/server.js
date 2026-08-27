@@ -10,9 +10,11 @@ import { createSessionCookie, clearSessionCookie, createStateCookie, clearStateC
 import { listManagedGuilds, checkGuildAccess, loadGuildDashboardData } from './queries.js';
 import { layout } from './html.js';
 import { renderLoginPage, renderGuildList, renderGuildDashboard } from './views.js';
+import { rateLimitMiddleware } from './rateLimiter.js';
 
 const app = express();
 app.disable('x-powered-by');
+app.use(rateLimitMiddleware);
 
 // Snowflake de Discord: 17-20 dígitos. Sin este chequeo, un guildId con %2F/.. decodificado
 // por Express podía terminar armando una ruta de la REST API de Discord distinta a
