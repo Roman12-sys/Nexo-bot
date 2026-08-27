@@ -329,6 +329,22 @@ restart no rompe nada de negocio, así que NO se persisten en Supabase; cada uno
 auto-limpia solo (barrido periódico con `setInterval(...).unref()`, o timeout por
 entrada) para no crecer sin límite.
 
+## Limpieza al salir de un servidor (`guildDelete`)
+
+Hasta la auditoría de 2026-08-27 no existía la contraparte de `guildCreate.js` — si el
+bot era expulsado o el servidor se borraba, `guild_config` y el resto de las tablas
+por-guild quedaban huérfanas para siempre. `src/events/guildDelete.js` borra por
+`guild_id` en un array explícito (`GUILD_SCOPED_TABLES`), con `Promise.allSettled` para
+que una tabla fallando no frene la limpieza de las demás.
+
+**Al agregar una tabla nueva con columna `guild_id`, hay que sumarla a ese array a
+mano** — no hay forma automática de detectarlo (introspección de schema es más frágil
+que una lista explícita acá). Dos tablas quedan afuera a propósito:
+- `reminders` — se entregan por DM, `guild_id` es solo referencia de dónde se creó, no
+  acota la entrega; borrar el recordatorio de un usuario porque el bot se fue de ESE
+  server no tiene sentido.
+- `lol_patch_state` — una sola fila fija (`league_of_legends`), sin `guild_id`.
+
 ## Seguridad Supabase: RLS preparado pero apagado (a propósito)
 
 Bot y dashboard usan el mismo cliente con la `service_role` key (`src/supabaseClient.js`)
