@@ -1,3 +1,12 @@
+// QUÉ CAMBIÓ: MAX_MYSTERY bajó de 600 a 400 (constante, sin tocar el flujo de compra).
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 12) — con MAX_MYSTERY=600 el
+// valor esperado de la caja misteriosa era (50+600)/2=325, por encima de su precio de
+// 250. Comprarla en loop imprimía ~+75 monedas por unidad en expectativa, sin cooldown
+// ni tope de compras. Con MAX_MYSTERY=400, EV=(50+400)/2=225 < 250: vuelve a ser un
+// sink neto en expectativa, como el resto de la tienda.
+// VERIFICACIÓN: abrir varias cajas y confirmar que el promedio de recompensas tiende a
+// ~225 (nunca sobre 400), y que el balance total del servidor no sube solo por abrir
+// cajas en loop.
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { getGuildShopItems, getShopItem } from '../../utils/shopStore.js';
 import { getUserEconomy, deductBalanceIfSufficient, incrementInventoryItem, addBalance, recordTransaction, extendRobShield } from '../../utils/economyStore.js';
@@ -8,7 +17,7 @@ import { unlockAchievement, announceUnlockedAchievements } from '../../utils/ach
 import { withLock } from '../../utils/asyncLock.js';
 
 const MIN_MYSTERY = 50;
-const MAX_MYSTERY = 600;
+const MAX_MYSTERY = 400;
 const XP_BOOST_DURATION_MS = 24 * 60 * 60 * 1000;
 const ROB_SHIELD_DURATION_MS = 2 * 60 * 60 * 1000;
 

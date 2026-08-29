@@ -1,10 +1,25 @@
-// Primer comando de la economía con riesgo real — /daily, /work y hasta la caja
-// misteriosa de /buy siempre "ganan algo". 50/50 limpio, sin ventaja de la casa: quien
-// gana se lleva el doble de lo que apostó, quien pierde pierde exactamente eso.
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
-import { getUserEconomy, deductBalanceIfSufficient, addBalance, recordTransaction } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
-import { withLock } from '../../utils/asyncLock.js';
+// QUÉ CAMBIÓ: /coinflip pasó a usar playCasinoGame (casinoHelpers.js), el mismo motor
+// que ya usan /dado, /slots y /ruleta, en vez de reimplementar su propio flujo de
+// precheck/defer/lock/cobro/pago.
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 4 y Parte 22) — coinflip.js era
+// el único de los cuatro juegos que no usaba casinoHelpers.js, duplicando ~50 líneas de
+// una lógica ya centralizada. casinoHelpers.playCasinoGame ya aceptaba exactamente el
+// contrato que coinflip necesita (resolve() -> {outcome, payout, title, description}),
+// así que no hizo falta tocar casinoHelpers.js para nada.
+// COMPORTAMIENTO OBSERVABLE — sin cambios, verificado línea por línea contra el original:
+//   - Sigue siendo 50/50 exacto (Math.random() < 0.5).
+//   - Payout ganador sigue siendo apuesta*2. EV = 0.5*(+apuesta) + 0.5*(-apuesta) = 0.
+//   - Mismo mínimo/máximo de apuesta (10 / 100.000), misma respuesta ephemeral si no
+//     alcanza el saldo, mismo texto de resultado ("Salió **Cara/Cruz**...").
+// DIFERENCIA MENOR (no de comportamiento hacia el usuario): el motivo que queda en el
+// historial de /economia-staff pasa de "Coinflip: apostaste a X" / "Coinflip: salió Y"
+// a un "Coinflip" plano — mismo criterio que ya usan /dado y /ruleta (gameLabel fijo),
+// no algo que el jugador vea en ningún momento.
+// VERIFICACIÓN: correr /coinflip varias veces y confirmar que paga exactamente el doble
+// de la apuesta al ganar, cero al perder, y que el balance mostrado coincide con lo que
+// ya hacían /dado y /ruleta tras el cobro.
+import { SlashCommandBuilder } from 'discord.js';
+import { playCasinoGame } from '../../utils/casinoHelpers.js';
 
 const CHOICES = { cara: 'Cara', cruz: 'Cruz' };
 
@@ -22,68 +37,23 @@ export const data = new SlashCommandBuilder()
   .setDMPermission(false);
 
 export async function execute(interaction) {
-  const guildId = interaction.guild.id;
-  const userId = interaction.user.id;
   const apuesta = interaction.options.getInteger('apuesta');
   const eleccion = interaction.options.getString('eleccion');
 
-  // Chequeo previo ANTES de deferir: mismo motivo que /daily, /work, /buy — permite
-  // responder ephemeral si no alcanza, y evita arriesgar la ventana de 3s de Discord
-  // con el round-trip a Supabase antes de la primera respuesta.
-  const preCheck = await getUserEconomy(guildId, userId);
-  if (preCheck.balance < apuesta) {
-    await interaction.reply({ content: `❌ No tenés suficientes monedas. Tu balance: **${preCheck.balance.toLocaleString('es-ES')}**.`, flags: MessageFlags.Ephemeral });
-    return;
-  }
+  await playCasinoGame(interaction, {
+    apuesta,
+    gameKey: 'coinflip',
+    gameLabel: 'Coinflip',
+    resolve: () => {
+      const resultado = Math.random() < 0.5 ? 'cara' : 'cruz';
+      const linea = `Salió **${CHOICES[resultado]}**.`;
 
-  await interaction.deferReply();
-
-  await withLock(`coinflip:${guildId}:${userId}`, async () => {
-    // deductBalanceIfSufficient cobra la apuesta en una sola sentencia atómica: si el
-    // balance bajó entre el chequeo de arriba y este punto (otro comando concurrente),
-    // rechaza sin descontar nada en vez de dejar el balance en negativo.
-    let balanceAfterBet;
-    try {
-      balanceAfterBet = await deductBalanceIfSufficient(guildId, userId, apuesta);
-    } catch (error) {
-      if (error.code === 'insufficient_funds') {
-        await interaction.editReply({ content: '❌ No tenés suficientes monedas para esa apuesta.' });
-        return;
+      if (resultado === eleccion) {
+        const payout = apuesta * 2;
+        return { outcome: 'win', payout, title: '🪙 Coinflip — ¡ganaste!', description: `${linea}\nGanaste **${payout.toLocaleString('es-ES')}** monedas.` };
       }
-      throw error;
-    }
-    await recordTransaction(guildId, userId, {
-      type: 'gamble_bet',
-      amount: -apuesta,
-      balanceAfter: balanceAfterBet,
-      reason: `Coinflip: apostaste a ${CHOICES[eleccion]}`,
-    });
 
-    const resultado = Math.random() < 0.5 ? 'cara' : 'cruz';
-    const gano = resultado === eleccion;
-
-    if (!gano) {
-      const embed = new EmbedBuilder()
-        .setColor('#c22b3f')
-        .setTitle('🪙 Coinflip — perdiste')
-        .setDescription(`Salió **${CHOICES[resultado]}**. Perdiste **${apuesta.toLocaleString('es-ES')}** monedas.\nBalance: **${balanceAfterBet.toLocaleString('es-ES')}**.`)
-        .setFooter({ text: BRAND_NAME })
-        .setTimestamp();
-      await interaction.editReply({ embeds: [embed] });
-      return;
-    }
-
-    const finalBalance = await addBalance(guildId, userId, apuesta * 2, {
-      type: 'gamble_win',
-      reason: `Coinflip: salió ${CHOICES[resultado]}`,
-    });
-
-    const embed = new EmbedBuilder()
-      .setColor(BRAND_COLOR)
-      .setTitle('🪙 Coinflip — ¡ganaste!')
-      .setDescription(`Salió **${CHOICES[resultado]}**. Ganaste **${apuesta.toLocaleString('es-ES')}** monedas.\nBalance: **${finalBalance.toLocaleString('es-ES')}**.`)
-      .setFooter({ text: BRAND_NAME })
-      .setTimestamp();
-    await interaction.editReply({ embeds: [embed] });
+      return { outcome: 'lose', payout: 0, title: '🪙 Coinflip — perdiste', description: `${linea}\nPerdiste **${apuesta.toLocaleString('es-ES')}** monedas.` };
+    },
   });
 }
