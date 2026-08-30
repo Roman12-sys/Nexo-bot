@@ -14,7 +14,8 @@ import {
   StreamType,
 } from '@discordjs/voice';
 import * as musicSessionStore from './musicSessionStore.js';
-import { resolveTrack, createTrackAudioStream, TrackNotFoundError, TrackUnavailableError } from './musicSource.js';
+import { resolveTrack, resolveAudioForKnownTrack, createTrackAudioStream, TrackNotFoundError, TrackUnavailableError } from './musicSource.js';
+import { isSpotifyUrl, resolveSpotifyInput, SpotifyNotFoundError, SpotifyUnavailableError, SpotifyPrivateError } from './spotifyResolver.js';
 import {
   buildErrorEmbed,
   buildDisconnectedEmbed,
@@ -137,6 +138,23 @@ function handlePlayerError(session, error) {
 async function playTrack(session, track) {
   clearIdleTimer(session);
 
+  // Genérico, no específico de Spotify: cualquier track que llegue sin url propia
+  // (hoy, solo los que vienen de spotifyResolver.js) recién consigue su fuente de audio
+  // ACÁ, cuando le toca sonar de verdad — nunca por adelantado para toda la cola. Así
+  // agregar una playlist de 50 canciones no dispara 50 procesos yt-dlp de una.
+  if (!track.url) {
+    try {
+      const resolved = await resolveAudioForKnownTrack(track);
+      track.url = resolved.url;
+      track.isLive = resolved.isLive;
+    } catch (error) {
+      console.error(`❌ [música] No se pudo resolver audio para "${track.title}":`, error.message);
+      musicSessionStore.markCurrentTrackFailed(session.guildId);
+      await notifyPlaybackFailure(session, track);
+      return handleTrackEnd(session);
+    }
+  }
+
   let audio;
   try {
     audio = createTrackAudioStream(track);
@@ -223,12 +241,45 @@ async function playNext(session) {
   await playTrack(session, next);
 }
 
+// Compartido por el camino normal y el de Spotify: "si no hay sesión, creála y conectate
+// a voz; si ya hay una, verificá que sea el mismo canal". Antes vivía inline dentro de
+// playRequest — se extrajo para no duplicarlo en playFromSpotify.
+async function ensureVoiceSession(guildId, voiceChannel, textChannel) {
+  let session = musicSessionStore.getSession(guildId);
+  if (session && session.voiceChannelId !== voiceChannel.id) {
+    return { error: 'El bot ya está reproduciendo música en otro canal de voz de este servidor.' };
+  }
+  if (session) return { session };
+
+  session = musicSessionStore.createSession(guildId, { voiceChannelId: voiceChannel.id, textChannel });
+  try {
+    const connection = await connectVoice(guildId, voiceChannel);
+    session.connection = connection;
+    session.player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
+    connection.subscribe(session.player);
+    wireSession(session);
+    return { session };
+  } catch (error) {
+    musicSessionStore.deleteSession(guildId);
+    console.error('❌ [música] Error conectando al canal de voz:', error);
+    return { error: 'No se pudo conectar al canal de voz (¿tiene permisos el bot?).' };
+  }
+}
+
 // --- API consumida por los comandos ---
 
 export async function playRequest({ guildId, voiceChannel, textChannel, query, requestedByUserId, requestedByTag }) {
+  const requestedBy = { id: requestedByUserId, tag: requestedByTag };
+
+  // Único punto de despacho — toda la lógica real de Spotify vive en spotifyResolver.js
+  // y playFromSpotify(), acá es un solo if.
+  if (isSpotifyUrl(query)) {
+    return playFromSpotify({ guildId, voiceChannel, textChannel, query, requestedBy });
+  }
+
   let track;
   try {
-    track = await resolveTrack(query, { id: requestedByUserId, tag: requestedByTag });
+    track = await resolveTrack(query, requestedBy);
   } catch (error) {
     if (error instanceof TrackNotFoundError || error instanceof TrackUnavailableError) {
       return { status: 'error', message: error.message };
@@ -237,25 +288,8 @@ export async function playRequest({ guildId, voiceChannel, textChannel, query, r
     return { status: 'error', message: 'Ocurrió un error buscando esa canción.' };
   }
 
-  let session = musicSessionStore.getSession(guildId);
-  if (session && session.voiceChannelId !== voiceChannel.id) {
-    return { status: 'error', message: 'El bot ya está reproduciendo música en otro canal de voz de este servidor.' };
-  }
-
-  if (!session) {
-    session = musicSessionStore.createSession(guildId, { voiceChannelId: voiceChannel.id, textChannel });
-    try {
-      const connection = await connectVoice(guildId, voiceChannel);
-      session.connection = connection;
-      session.player = createAudioPlayer({ behaviors: { noSubscriber: NoSubscriberBehavior.Pause } });
-      connection.subscribe(session.player);
-      wireSession(session);
-    } catch (error) {
-      musicSessionStore.deleteSession(guildId);
-      console.error('❌ [música] Error conectando al canal de voz:', error);
-      return { status: 'error', message: 'No se pudo conectar al canal de voz (¿tiene permisos el bot?).' };
-    }
-  }
+  const { session, error } = await ensureVoiceSession(guildId, voiceChannel, textChannel);
+  if (error) return { status: 'error', message: error };
 
   const added = musicSessionStore.addTrack(guildId, track);
   if (!added.ok) {
@@ -272,6 +306,71 @@ export async function playRequest({ guildId, voiceChannel, textChannel, query, r
   }
 
   return { status: 'queued', track, position: added.position, queueLength: session.queue.length, session };
+}
+
+// Spotify SOLO aporta identificación/metadata acá — el audio real sigue viniendo de
+// resolveAudioForKnownTrack() (musicSource.js/yt-dlp), resuelto lazy en playTrack() para
+// cada canción recién cuando le toca sonar. Nunca se extrae ni retransmite audio de
+// Spotify de ninguna forma.
+async function playFromSpotify({ guildId, voiceChannel, textChannel, query, requestedBy }) {
+  const existing = musicSessionStore.getSession(guildId);
+  const maxTracks = Math.max(0, musicSessionStore.MAX_QUEUE_SIZE - (existing ? existing.queue.length : 0));
+
+  let resolved;
+  try {
+    resolved = await resolveSpotifyInput(query, { requestedBy, maxTracks });
+  } catch (error) {
+    if (error instanceof SpotifyNotFoundError || error instanceof SpotifyUnavailableError || error instanceof SpotifyPrivateError) {
+      return { status: 'error', message: error.message };
+    }
+    console.error('❌ [música] Error resolviendo enlace de Spotify:', error);
+    return { status: 'error', message: 'Ocurrió un error consultando Spotify.' };
+  }
+
+  if (resolved.tracks.length === 0) {
+    return {
+      status: 'error',
+      message: resolved.type === 'track' ? 'Esa canción no está disponible.' : 'No encontré canciones disponibles para agregar de esa playlist/álbum.',
+    };
+  }
+
+  const { session, error } = await ensureVoiceSession(guildId, voiceChannel, textChannel);
+  if (error) return { status: 'error', message: error };
+
+  if (resolved.type === 'track') {
+    const track = resolved.tracks[0];
+    const added = musicSessionStore.addTrack(guildId, track);
+    if (!added.ok) {
+      const message =
+        added.reason === 'queue_full'
+          ? `La cola ya tiene el máximo de ${musicSessionStore.MAX_QUEUE_SIZE} canciones.`
+          : 'No se pudo agregar la canción a la cola.';
+      return { status: 'error', message };
+    }
+    if (!session.current) {
+      await playNext(session);
+      return { status: 'now_playing', track, session };
+    }
+    return { status: 'queued', track, position: added.position, queueLength: session.queue.length, session };
+  }
+
+  // Playlist o álbum: una sola respuesta resumida, nunca un mensaje por canción.
+  let addedCount = 0;
+  for (const track of resolved.tracks) {
+    if (musicSessionStore.addTrack(guildId, track).ok) addedCount++;
+  }
+
+  if (!session.current) await playNext(session);
+
+  return {
+    status: 'spotify_batch',
+    type: resolved.type,
+    name: resolved.name,
+    totalCount: resolved.totalCount,
+    addedCount,
+    skippedCount: resolved.skippedCount,
+    session,
+  };
 }
 
 export function pause(session) {

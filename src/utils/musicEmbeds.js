@@ -38,7 +38,7 @@ export function buildNowPlayingEmbed({ track, loopMode, volume, queueLength, pla
     .setTitle('🎵 Reproduciendo ahora')
     .addFields(
       { name: 'Título', value: track.title.slice(0, 256) },
-      { name: 'Canal/Artista', value: track.uploader || 'Desconocido', inline: true },
+      { name: 'Canal/Artista', value: track.uploader || track.artist || 'Desconocido', inline: true },
       { name: 'Duración', value: formatDuration(track.durationSec), inline: true },
       { name: 'Solicitado por', value: requesterText(track), inline: true },
       { name: 'Volumen', value: `${volume}%`, inline: true },
@@ -47,6 +47,12 @@ export function buildNowPlayingEmbed({ track, loopMode, volume, queueLength, pla
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
+
+  // La canción se identificó vía Spotify, pero el audio siempre lo sirve el sistema
+  // existente (yt-dlp) — nunca se presenta a Spotify como fuente de streaming.
+  if (track.source === 'spotify') {
+    embed.addFields({ name: 'Fuente', value: 'Identificado desde Spotify', inline: true });
+  }
 
   if (track.thumbnail) embed.setThumbnail(track.thumbnail);
 
@@ -69,8 +75,29 @@ export function buildAddedToQueueEmbed({ track, position, queueLength }) {
       { name: 'Solicitado por', value: requesterText(track), inline: true },
       { name: 'Posición en cola', value: `${position} de ${queueLength}`, inline: true },
     );
+
+  if (track.source === 'spotify') {
+    embed.addFields(
+      { name: 'Artista', value: track.artist || 'Desconocido', inline: true },
+      { name: 'Álbum', value: track.album || 'Desconocido', inline: true },
+      { name: 'Fuente', value: 'Identificado desde Spotify', inline: true },
+    );
+  }
+
   if (track.thumbnail) embed.setThumbnail(track.thumbnail);
   return embed;
+}
+
+// Playlist/álbum de Spotify: UNA sola respuesta resumida, nunca un mensaje por canción
+// agregada.
+export function buildSpotifyBatchAddedEmbed({ type, name, totalCount, addedCount, skippedCount }) {
+  const isAlbum = type === 'album';
+  return baseMusicEmbed({ color: OK_COLOR, title: isAlbum ? '🎵 Álbum agregado' : '🎵 Playlist agregada' }).addFields(
+    { name: isAlbum ? 'Álbum' : 'Playlist', value: name || 'Desconocido/a' },
+    { name: 'Cantidad de canciones', value: `${totalCount}`, inline: true },
+    { name: 'Canciones agregadas', value: `${addedCount}`, inline: true },
+    { name: 'Canciones omitidas', value: `${skippedCount}`, inline: true },
+  );
 }
 
 export function buildQueueEmbed(session, page = 0) {

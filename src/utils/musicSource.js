@@ -44,17 +44,13 @@ function classifyExtractionError(error, isUrl) {
     : new TrackNotFoundError('No se encontraron resultados para esa búsqueda.');
 }
 
-// query puede ser una URL (YouTube y, gracias a yt-dlp, cientos de sitios más) o texto
-// libre — en ese caso se busca con ytsearch1: (yt-dlp resuelve la búsqueda solo, sin
-// depender de ningún paquete de búsqueda aparte).
-export async function resolveTrack(query, requestedBy) {
-  const trimmed = query.trim();
-  const isUrl = /^https?:\/\//i.test(trimmed);
-  const target = isUrl ? trimmed : `ytsearch1:${trimmed}`;
-
-  let result;
+// Núcleo compartido por resolveTrack() (búsqueda/URL directa) y
+// resolveAudioForKnownTrack() (título+artista ya conocidos, ej. desde Spotify) — el
+// único punto que realmente invoca yt-dlp --dump-json. classifyExtractionError() ya
+// mapea los casos reales (privado, borrado, URL no soportada, timeout).
+async function runYtDlpMetadata(target, isUrl) {
   try {
-    result = await youtubedl(
+    return await youtubedl(
       target,
       {
         dumpSingleJson: true,
@@ -68,10 +64,24 @@ export async function resolveTrack(query, requestedBy) {
   } catch (error) {
     throw classifyExtractionError(error, isUrl);
   }
+}
 
-  // ytsearchN: (y algunas URLs de playlist) devuelven un contenedor { entries: [...] }
-  // en vez de un objeto de video directo — se cubren ambas formas.
-  const info = result && Array.isArray(result.entries) ? result.entries[0] : result;
+// ytsearchN: (y algunas URLs de playlist) devuelven un contenedor { entries: [...] } en
+// vez de un objeto de video directo — se cubren ambas formas acá, una sola vez.
+function firstEntry(result) {
+  return result && Array.isArray(result.entries) ? result.entries[0] : result;
+}
+
+// query puede ser una URL (YouTube y, gracias a yt-dlp, cientos de sitios más) o texto
+// libre — en ese caso se busca con ytsearch1: (yt-dlp resuelve la búsqueda solo, sin
+// depender de ningún paquete de búsqueda aparte).
+export async function resolveTrack(query, requestedBy) {
+  const trimmed = query.trim();
+  const isUrl = /^https?:\/\//i.test(trimmed);
+  const target = isUrl ? trimmed : `ytsearch1:${trimmed}`;
+
+  const result = await runYtDlpMetadata(target, isUrl);
+  const info = firstEntry(result);
   if (!info || !info.title) {
     throw new TrackNotFoundError(
       isUrl ? 'No se pudo obtener información de esa URL.' : `No se encontraron resultados para "${trimmed}".`,
@@ -88,6 +98,31 @@ export async function resolveTrack(query, requestedBy) {
     requestedBy,
     addedAt: Date.now(),
   };
+}
+
+// Genérico — NO es específico de Spotify, aunque hoy sea su único caller (vía
+// musicEngine.js). Dado un título/artista ya conocidos por el caller (de cualquier
+// fuente de metadata), busca en yt-dlp una fuente de audio que coincida. A propósito
+// NO devuelve título/thumbnail/duración propios — esos ya los tiene quien llama; esto
+// solo resuelve "de dónde sale el audio". Nunca duplica la lógica de extracción de
+// arriba, solo la reusa con un target de búsqueda distinto.
+export async function resolveAudioForKnownTrack({ title, artist }) {
+  const target = `ytsearch1:${artist ? `${artist} - ${title}` : title}`;
+
+  let result;
+  try {
+    result = await runYtDlpMetadata(target, false);
+  } catch {
+    throw new TrackUnavailableError('Encontré la canción, pero no pude obtener una fuente de reproducción.');
+  }
+
+  const info = firstEntry(result);
+  const url = info?.webpage_url || info?.original_url;
+  if (!info || !info.title || !url) {
+    throw new TrackUnavailableError('Encontré la canción, pero no pude obtener una fuente de reproducción.');
+  }
+
+  return { url, isLive: Boolean(info.is_live) };
 }
 
 // Spawnea yt-dlp para UNA sola canción (la que se está por reproducir ya mismo, nunca

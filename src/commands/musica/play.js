@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { playRequest, attachPanel } from '../../utils/musicEngine.js';
 import { requireUserInVoiceChannel, requireBotVoicePermissions, getUserVoiceChannel } from '../../utils/musicPermissions.js';
-import { buildNowPlayingEmbed, buildAddedToQueueEmbed, buildErrorEmbed, buildControlPanelRow } from '../../utils/musicEmbeds.js';
+import { buildNowPlayingEmbed, buildAddedToQueueEmbed, buildErrorEmbed, buildControlPanelRow, buildSpotifyBatchAddedEmbed } from '../../utils/musicEmbeds.js';
 
 // Spawnea un proceso yt-dlp nuevo cada vez — cupo más chico que el resto de los
 // comandos (ver rateLimiter.js).
@@ -62,6 +62,25 @@ export async function execute(interaction) {
       components: buildControlPanelRow({ isPaused: false, loopMode: result.session.loopMode }),
     });
     attachPanel(result.session, message);
+    return;
+  }
+
+  if (result.status === 'spotify_batch') {
+    // Playlist/álbum de Spotify: una sola respuesta resumida (nunca un mensaje por
+    // canción). No toca el panel — si nada sonaba, musicEngine ya arrancó la primera
+    // canción y el panel se actualiza solo vía refreshPanel() cuando esa canción
+    // efectivamente empiece a sonar (no acá, que es solo la confirmación de /play).
+    await interaction.editReply({
+      embeds: [
+        buildSpotifyBatchAddedEmbed({
+          type: result.type,
+          name: result.name,
+          totalCount: result.totalCount,
+          addedCount: result.addedCount,
+          skippedCount: result.skippedCount,
+        }),
+      ],
+    });
     return;
   }
 

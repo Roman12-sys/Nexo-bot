@@ -83,10 +83,35 @@ vi.mock('@discordjs/voice', () => ({
 
 const resolveTrack = vi.fn();
 const createTrackAudioStream = vi.fn();
+const resolveAudioForKnownTrack = vi.fn();
 class TrackNotFoundError extends Error {}
 class TrackUnavailableError extends Error {}
 
-vi.mock('../src/utils/musicSource.js', () => ({ resolveTrack, createTrackAudioStream, TrackNotFoundError, TrackUnavailableError }));
+vi.mock('../src/utils/musicSource.js', () => ({
+  resolveTrack,
+  resolveAudioForKnownTrack,
+  createTrackAudioStream,
+  TrackNotFoundError,
+  TrackUnavailableError,
+}));
+
+// spotifyResolver.js también se mockea acá — musicEngine.js solo lo usa para el
+// despacho (isSpotifyUrl) y para pedirle tracks normalizados; spotifyResolver.js ya
+// tiene su propia batería de tests (tests/spotifyResolver.test.js) para su lógica
+// interna real (auth, paginación, etc.).
+const isSpotifyUrl = vi.fn(() => false);
+const resolveSpotifyInput = vi.fn();
+class SpotifyNotFoundError extends Error {}
+class SpotifyUnavailableError extends Error {}
+class SpotifyPrivateError extends Error {}
+
+vi.mock('../src/utils/spotifyResolver.js', () => ({
+  isSpotifyUrl,
+  resolveSpotifyInput,
+  SpotifyNotFoundError,
+  SpotifyUnavailableError,
+  SpotifyPrivateError,
+}));
 
 const store = await import('../src/utils/musicSessionStore.js');
 const engine = await import('../src/utils/musicEngine.js');
@@ -134,6 +159,7 @@ beforeEach(() => {
   resolveTrack.mockImplementation(async (query, requestedBy) => makeTrack({ title: query, requestedBy }));
   createTrackAudioStream.mockImplementation(() => ({ process: makeFakeProcess(), stream: {} }));
   entersState.mockImplementation(() => Promise.resolve());
+  isSpotifyUrl.mockReturnValue(false); // por defecto ningún test es "una URL de Spotify" salvo que se pise explícito
 });
 
 afterEach(() => {
@@ -489,5 +515,194 @@ describe('botones del panel (routeButton)', () => {
     const interaction = makeButtonInteraction('music_panel_skip', { guildId: 'sin-sesion' });
     await routeButton(interaction);
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringMatching(/no hay ninguna reproducción/i) }));
+  });
+});
+
+// Integración Spotify URL -> spotifyResolver -> track normalizado -> musicSource ->
+// musicEngine, sin duplicar la lógica de reproducción (spotifyResolver.js está mockeado
+// acá — su lógica interna real ya se prueba en tests/spotifyResolver.test.js; lo que
+// importa acá es que musicEngine.js consuma su resultado correctamente).
+function spotifyTrack(overrides = {}) {
+  return {
+    title: 'Nightcall',
+    artist: 'Kavinsky',
+    album: 'OutRun',
+    durationSec: 257,
+    thumbnail: null,
+    isrc: null,
+    source: 'spotify',
+    sourceUrl: 'https://open.spotify.com/track/abc',
+    requestedBy: { id: 'user-1' },
+    addedAt: Date.now(),
+    url: null, // sin fuente de audio todavía -- la resuelve musicSource, lazy
+    ...overrides,
+  };
+}
+
+describe('Spotify — integración con el pipeline existente', () => {
+  it('track de Spotify: resuelve metadata, NUNCA usa esa url para el audio -- la consigue vía resolveAudioForKnownTrack (musicSource)', async () => {
+    isSpotifyUrl.mockReturnValue(true);
+    resolveSpotifyInput.mockResolvedValue({ type: 'track', name: 'Nightcall', tracks: [spotifyTrack()], totalCount: 1, skippedCount: 0 });
+    resolveAudioForKnownTrack.mockResolvedValue({ url: 'https://youtube.com/watch?v=matched', isLive: false });
+
+    const result = await engine.playRequest({
+      guildId: 'guild-1',
+      voiceChannel: makeVoiceChannel(),
+      textChannel: makeTextChannel(),
+      query: 'https://open.spotify.com/track/abc',
+      requestedByUserId: 'user-1',
+    });
+
+    expect(result.status).toBe('now_playing');
+    expect(resolveAudioForKnownTrack).toHaveBeenCalledWith(expect.objectContaining({ title: 'Nightcall', artist: 'Kavinsky' }));
+    expect(createTrackAudioStream).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://youtube.com/watch?v=matched' }));
+    expect(store.getSession('guild-1').current.source).toBe('spotify'); // la metadata de Spotify se conserva
+    expect(store.getSession('guild-1').current.title).toBe('Nightcall');
+  });
+
+  it('playlist de Spotify: una sola respuesta resumida, agrega solo las válidas, y NO resuelve audio por adelantado para las que todavía no suenan', async () => {
+    isSpotifyUrl.mockReturnValue(true);
+    resolveSpotifyInput.mockResolvedValue({
+      type: 'playlist',
+      name: 'Synthwave hits',
+      tracks: [spotifyTrack({ title: 'Nightcall' }), spotifyTrack({ title: 'Genesis' }), spotifyTrack({ title: 'Turbo Killer' })],
+      totalCount: 5,
+      skippedCount: 2,
+    });
+    resolveAudioForKnownTrack.mockResolvedValue({ url: 'https://youtube.com/watch?v=1', isLive: false });
+
+    const result = await engine.playRequest({
+      guildId: 'guild-1',
+      voiceChannel: makeVoiceChannel(),
+      textChannel: makeTextChannel(),
+      query: 'https://open.spotify.com/playlist/xyz',
+      requestedByUserId: 'user-1',
+    });
+
+    expect(result.status).toBe('spotify_batch');
+    expect(result.type).toBe('playlist');
+    expect(result.name).toBe('Synthwave hits');
+    expect(result.totalCount).toBe(5);
+    expect(result.addedCount).toBe(3);
+    expect(result.skippedCount).toBe(2);
+
+    const session = store.getSession('guild-1');
+    expect(session.current.title).toBe('Nightcall'); // la primera arranca sola
+    expect(session.queue.map((t) => t.title)).toEqual(['Genesis', 'Turbo Killer']); // el resto queda en cola, sin tocar
+
+    // Clave: solo se resolvió audio para la que YA está sonando, no para las 3.
+    expect(resolveAudioForKnownTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it('álbum de Spotify se comporta igual que una playlist (mismo camino, distinto label)', async () => {
+    isSpotifyUrl.mockReturnValue(true);
+    resolveSpotifyInput.mockResolvedValue({
+      type: 'album',
+      name: 'OutRun',
+      tracks: [spotifyTrack({ title: 'Nightcall' })],
+      totalCount: 1,
+      skippedCount: 0,
+    });
+    resolveAudioForKnownTrack.mockResolvedValue({ url: 'https://youtube.com/watch?v=1', isLive: false });
+
+    const result = await engine.playRequest({
+      guildId: 'guild-1',
+      voiceChannel: makeVoiceChannel(),
+      textChannel: makeTextChannel(),
+      query: 'https://open.spotify.com/album/xyz',
+      requestedByUserId: 'user-1',
+    });
+
+    expect(result.status).toBe('spotify_batch');
+    expect(result.type).toBe('album');
+  });
+
+  it('maxTracks pasado al resolver respeta el espacio libre real de la cola', async () => {
+    isSpotifyUrl.mockReturnValue(true);
+    resolveSpotifyInput.mockResolvedValue({ type: 'playlist', name: 'X', tracks: [], totalCount: 0, skippedCount: 0 });
+
+    // Sesión ya con 2 canciones en cola (+ 1 sonando) -- se arma a mano para no depender
+    // de otro playRequest previo.
+    store.createSession('guild-1', { voiceChannelId: 'vc-1', textChannel: makeTextChannel() });
+    const existingSession = store.getSession('guild-1');
+    existingSession.current = spotifyTrack({ title: 'actual' });
+    store.addTrack('guild-1', spotifyTrack({ title: 'a' }));
+    store.addTrack('guild-1', spotifyTrack({ title: 'b' }));
+    existingSession.connection = joinVoiceChannel(); // para que ensureVoiceSession la reuse sin reconectar
+    existingSession.player = createAudioPlayer();
+
+    await engine.playRequest({
+      guildId: 'guild-1',
+      voiceChannel: makeVoiceChannel(),
+      textChannel: makeTextChannel(),
+      query: 'https://open.spotify.com/playlist/xyz',
+      requestedByUserId: 'user-1',
+    });
+
+    const call = resolveSpotifyInput.mock.calls[0];
+    expect(call[1].maxTracks).toBe(store.MAX_QUEUE_SIZE - 2);
+  });
+
+  it('error de Spotify (playlist privada, etc.): mensaje claro, nunca se conecta a voz', async () => {
+    isSpotifyUrl.mockReturnValue(true);
+    resolveSpotifyInput.mockRejectedValue(new SpotifyPrivateError('No puedo acceder a esa playlist de Spotify.'));
+
+    const result = await engine.playRequest({
+      guildId: 'guild-1',
+      voiceChannel: makeVoiceChannel(),
+      textChannel: makeTextChannel(),
+      query: 'https://open.spotify.com/playlist/privada',
+      requestedByUserId: 'user-1',
+    });
+
+    expect(result.status).toBe('error');
+    expect(result.message).toBe('No puedo acceder a esa playlist de Spotify.');
+    expect(joinVoiceChannel).not.toHaveBeenCalled();
+  });
+
+  it('la canción de Spotify sin fuente de audio disponible: avisa y NO crashea el resto de la cola', async () => {
+    isSpotifyUrl.mockReturnValue(true);
+    resolveSpotifyInput.mockResolvedValue({
+      type: 'playlist',
+      name: 'X',
+      tracks: [spotifyTrack({ title: 'sin-match' }), spotifyTrack({ title: 'siguiente' })],
+      totalCount: 2,
+      skippedCount: 0,
+    });
+    resolveAudioForKnownTrack.mockRejectedValueOnce(new TrackUnavailableError('Encontré la canción, pero no pude obtener una fuente de reproducción.'));
+    resolveAudioForKnownTrack.mockResolvedValueOnce({ url: 'https://youtube.com/watch?v=2', isLive: false });
+
+    const textChannel = makeTextChannel();
+    await engine.playRequest({
+      guildId: 'guild-1',
+      voiceChannel: makeVoiceChannel(),
+      textChannel,
+      query: 'https://open.spotify.com/playlist/xyz',
+      requestedByUserId: 'user-1',
+    });
+
+    // handleTrackEnd avanza sola tras el fallo de resolución -- termina sonando "siguiente".
+    expect(store.getSession('guild-1').current.title).toBe('siguiente');
+    expect(textChannel.send).toHaveBeenCalled(); // avisó el fallo, no lo escondió
+  });
+
+  it('/queue, /skip, /pause tratan una canción de Spotify exactamente igual que cualquier otra -- no hay una "cola Spotify" aparte', async () => {
+    isSpotifyUrl.mockReturnValue(true);
+    resolveSpotifyInput.mockResolvedValue({ type: 'track', name: 'Nightcall', tracks: [spotifyTrack()], totalCount: 1, skippedCount: 0 });
+    resolveAudioForKnownTrack.mockResolvedValue({ url: 'https://youtube.com/watch?v=1', isLive: false });
+
+    await engine.playRequest({
+      guildId: 'guild-1',
+      voiceChannel: makeVoiceChannel(),
+      textChannel: makeTextChannel(),
+      query: 'https://open.spotify.com/track/abc',
+      requestedByUserId: 'user-1',
+    });
+
+    const session = store.getSession('guild-1');
+    expect(engine.pause(session)).toBe(true);
+    expect(engine.resume(session)).toBe(true);
+    const skipped = engine.skip(session);
+    expect(skipped.source).toBe('spotify');
   });
 });
