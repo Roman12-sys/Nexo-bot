@@ -1,7 +1,7 @@
 # Nexo Bot
 
 Bot de Discord multi-servidor (economía, XP, moderación, sorteos, trivia, salas de voz
-temporales, constructor de anuncios, tienda). Basado en gNoX Bot (`c:\Users\Fran\OneDrive\Escritorio\gnoX-bot`),
+temporales, constructor de anuncios, tienda, música con soporte de Spotify). Basado en gNoX Bot (`c:\Users\Fran\OneDrive\Escritorio\gnoX-bot`),
 que es un bot de un solo servidor con toda su configuración fija en `.env`. Nexo Bot es
 el mismo código y las mismas features, pero corre como **un único proceso que sirve a
 cualquier cantidad de servidores a la vez** — nunca importa nada de gNoX en tiempo de
@@ -196,6 +196,15 @@ real (ej. sospecha de un `SlashCommandBuilder` que revienta al cargar, ver el l�
   `.slice(0, 1024)` mudo — ver `roles.js`/`shop.js`.
 - `content` de un mensaje normal (no embed): **2000 caracteres** — le pasó al aviso de
   AFK cuando se mencionaba a varios usuarios ausentes a la vez.
+
+**`youtube-dl-exec` (sistema de música) pide Python para INSTALARSE, no para correr.**
+`npm install` puede fallar con "youtube-dl-exec needs Python" si la máquina no tiene
+`python`/`python3` en PATH — es un chequeo del **preinstall script** de la librería
+(`scripts/preinstall.mjs`), no algo que el bot necesite en runtime (el binario que
+termina descargando es standalone, con Python embebido). Se resuelve con
+`YOUTUBE_DL_SKIP_PYTHON_CHECK=1 npm install` una vez, o instalando Python. En Railway
+(Linux) no pasa nada de esto porque `YOUTUBE_DL_FILENAME=yt-dlp_linux` (ver
+`.env.example`) fuerza a bajar el binario standalone directo, sin pasar por el chequeo.
 
 ## Dos proyectos de Supabase — no confundirlos
 
@@ -504,6 +513,145 @@ de errores entre handlers), extensiones a `economyStore.test.js`/`xpStore.test.j
 `missionsStore.test.js` (filtro de origen, no-doble-pago, caché de
 `ensureCurrentMissions`), `guildDailyStatsStore.test.js` (mismo filtro de origen del
 lado de la analítica) y `achievements.test.js`/`punishEngine.test.js`.
+
+El sistema de música (2026-08-30) sigue el mismo criterio: `musicSessionStore.test.js`
+(cola/loop/aislamiento entre guilds, puro), `musicEngine.test.js` (integración real con
+`@discordjs/voice`/`musicSource.js`/`spotifyResolver.js` mockeados, incluido el panel y
+sus botones vía el router real de interacciones), `spotifyResolver.test.js` (detección de
+URL, auth completa — Client Credentials y Authorization Code Flow, rotación de refresh
+token, 401/403/404/429), `spotifyAuthStore.test.js` y `musicSourceSpotify.test.js`. Las
+dos rutas nuevas del dashboard (`/spotify/authorize`/`/spotify/callback`) no tienen test
+HTTP directo — el proyecto no tiene infraestructura para eso (ni supertest ni
+equivalente), se verificaron a mano contra Spotify real.
+
+## Sistema de música (`src/utils/music*.js`, `src/commands/musica/`)
+
+`/play` acepta texto de búsqueda, una URL de YouTube (o cualquier sitio que yt-dlp
+soporte), o un link de Spotify — pero **Spotify nunca es la fuente de audio real**, solo
+identifica qué canción es; yt-dlp sigue resolviendo el audio para absolutamente todo,
+igual que si se hubiera escrito el nombre a mano. Esta separación está en el nombre de
+los módulos: `spotifyResolver.js` es el único archivo que sabe que Spotify existe;
+`musicSource.js` (yt-dlp) es el único que sabe cómo conseguir audio; `musicEngine.js`
+(el único que toca `@discordjs/voice`) no tiene ni un `if` de lógica de Spotify más allá
+de un despacho de una línea en `playRequest`.
+
+**yt-dlp, no ytdl-core/play-dl** (investigado 2026-08-30 contra developer.spotify.com y
+npm, no de memoria): las reimplementaciones JS del cifrado de YouTube se rompen con cada
+cambio de YouTube y tardan en arreglarse (`play-dl` está reportado como abandonado).
+yt-dlp, en cambio, saca releases cada pocos días reaccionando específicamente a bloqueos
+nuevos — mejor apuesta para algo que depende de que YouTube no cambie nada, aunque sigue
+siendo, en el fondo, el mismo juego del gato y el ratón: un `/play` que falla porque
+YouTube cambió algo esa semana no es un bug de esta implementación. Se usa vía
+`youtube-dl-exec` (descarga y gestiona el binario solo), pero **nunca
+`youtubedl.exec()` para el streaming de audio** — la librería interna que usa
+(`tinyspawn`) bufferea toda la salida en memoria hasta que el proceso termina, pensado
+para JSON chico, no para varios MB de audio por canción; eso hubiera sido un memory leak
+real. `musicSource.js` spawnea yt-dlp directo con `child_process` para el streaming, y
+usa `youtubedl()` (con su buffering) solo para metadata, que sí es texto corto.
+
+**Panel de botones en vez de la mitad de los comandos pedidos.** El plan original tenía
+12 comandos slash (`/play /pause /resume /skip /stop /queue /nowplaying /volume /shuffle
+/remove /loop /disconnect`) — pero eso llevaba al bot de 89 a 101 comandos globales,
+arriba del límite de 100 de Discord. En vez de agrupar todo bajo subcomandos (`/sorteo`
+ya usa ese patrón, hubiera sido consistente pero peor UX — "/music play" en vez de
+"/play"), pausar/reanudar/saltar/mezclar/loop-cycle/ver-cola pasaron a ser botones del
+panel de "reproduciendo ahora" (`musicEmbeds.js` → `buildControlPanelRow`,
+`musicEngine.js` → los `handlePanel*` del final del archivo). Quedaron 7 comandos reales
+(`/play /stop /queue /nowplaying /volume /remove /loop`) — los que necesitan texto o un
+número, o que tiene sentido poder llamar sin tener el panel a mano (`/stop` como "botón
+de pánico", `/queue`/`/nowplaying` de solo lectura). 96/100 comandos con esto, margen
+real para seguir creciendo.
+
+**Multi-servidor:** un `Map<guildId, session>` en `musicSessionStore.js` (mismo patrón
+que `guessSessions.js`/`giveTracker.js` — en memoria, nunca Supabase, se acepta perder la
+cola en un redeploy). Cada sesión tiene su propia conexión de voz, cola, volumen, loop y
+mensaje de panel — nunca hay estado compartido entre servidores.
+
+**Resolución de audio SIEMPRE lazy, nunca por adelantado.** Un track recién agregado a
+la cola (sea de una búsqueda normal o de una playlist de Spotify) puede tener `url: null`
+— es la señal explícita de "todavía no tiene de dónde sacar audio". `musicEngine.js` lo
+resuelve recién en `playTrack()`, justo antes de que le toque sonar de verdad
+(`musicSource.resolveAudioForKnownTrack`, genérico — no sabe qué es Spotify). Sin esto,
+agregar una playlist de 80 canciones dispararía 80 procesos de yt-dlp de una — el mismo
+tipo de problema de recursos que el resto del proyecto evita con timers cortos y colas
+acotadas.
+
+**El panel se repostea al cambiar de canción, se edita in-place para todo lo demás**
+(agregado 2026-08-30, después de que en producción quedara "pegado" arriba del canal con
+actividad normal). `refreshPanel()` edita el mismo mensaje — para pausa/resume/volumen/
+loop/shuffle, y para "se agregó algo a una cola que ya estaba sonando" (el `queueLength`
+cambia pero no la canción). `repostPanel()` borra el mensaje viejo y manda uno nuevo al
+final del canal — solo cuando cambia la canción de verdad (avance normal, `/skip`, un
+fallo que saltea a la siguiente, o la cola se vacía). La regla es "¿cambió lo que está
+sonando?" — si sí, repost; si no, edit. `destroySession()` sigue editando in-place el
+mensaje final (evento terminal, no hace falta que siga la conversación).
+
+**Canción que falla nunca se repite**, sin importar el modo de loop —
+`musicSessionStore.markCurrentTrackFailed()` la marca `.failed`, y `advance()` la trata
+como si el loop estuviera apagado únicamente para esa transición. Sin esto, `loop:
+canción actual` sobre un video borrado reintentaría para siempre (consumo de CPU sin
+límite, justo lo que se pidió evitar en el pedido original).
+
+## Spotify — identificación de metadata, nunca la fuente de audio (`spotifyResolver.js`)
+
+Igual que arriba: Spotify identifica, yt-dlp reproduce. Nada en este archivo extrae,
+descarga ni retransmite audio de Spotify de ninguna forma (nada de Web Playback SDK,
+nada de streaming no oficial) — es una regla de diseño explícita, no solo cómo terminó
+dando la implementación.
+
+**Dos formas de autenticarse, elegidas automáticamente según qué haya configurado:**
+
+- **Client Credentials Flow** (server-to-server, sin login de nadie) — alcanza para
+  tracks y álbumes sueltos (catálogo público puro). Es el modo por defecto, con solo
+  `SPOTIFY_CLIENT_ID`/`SPOTIFY_CLIENT_SECRET` configurados.
+- **Authorization Code Flow** (login real, una vez, con la cuenta de Spotify del dueño
+  del bot) — es el ÚNICO camino que puede listar el contenido de una playlist.
+  Confirmado en producción 2026-08-30: Client Credentials da 401 en
+  `/playlists/{id}/items` aunque el track suelto funcione bien con el mismo token. El
+  flujo vive en el **dashboard** (`dashboard/spotifyAuth.js`, rutas `/spotify/authorize`
+  → `/spotify/callback` en `dashboard/server.js`), reusando la MISMA infraestructura
+  OAuth que ya existía para el login de Discord (`session.js`, cookie de estado
+  anti-CSRF) — no se inventó un mecanismo nuevo. El refresh token queda en la tabla
+  `spotify_auth` (una fila fija, `src/utils/spotifyAuthStore.js`) porque lo escribe un
+  proceso (dashboard) y lo lee otro (el bot) — un env var no sirve para eso, es la única
+  vez que hizo falta una tabla nueva para todo Spotify.
+
+`spotifyResolver.getAccessToken()` prefiere el refresh token guardado; si no hay uno, o
+si el guardado ya no sirve (revocado, expirado), cae solo a Client Credentials —
+tracks/álbumes siguen andando, playlists vuelven a fallar con un mensaje claro, nunca un
+crash. Si Spotify rota el refresh token en una respuesta, se persiste el nuevo solo.
+
+**Quién puede autorizar:** solo el dueño real de la aplicación de Discord — se resuelve
+con `GET /oauth2/applications/@me` (`dashboard/discordApi.js` →
+`fetchApplicationOwnerId`), nunca un ID hardcodeado. **Gotcha real ya pisado:** si la app
+está bajo un **Team** de Discord (no un dueño individual — es el caso de Nexo Bot), el
+campo `owner` del response representa al Team, NO a la persona — el dueño real está en
+`team.owner_user_id`. Sin ese fallback, el dueño real de una app en team queda bloqueado
+por su propio gate.
+
+**Qué SÍ se puede leer de una playlist, y qué nunca va a andar** (confirmado con datos
+reales en producción, no solo teoría):
+- ✅ Cualquier track o álbum (catálogo público).
+- ✅ Playlist pública de cualquiera.
+- ✅ Playlist privada del dueño del bot (scope `playlist-read-private`, ya autorizado).
+- ✅ Playlist donde el dueño es colaborador (`playlist-read-collaborative`).
+- ❌ Playlist privada de OTRA persona que no lo agregó como colaborador — privacidad de
+  Spotify funcionando como debe, no es arreglable con código, ni por esta app ni por
+  ninguna otra.
+- ❌ Playlists oficiales/algorítmicas de Spotify (Top 50, Discover Weekly, Release Radar
+  — se reconocen por el ID `37i9dQZ...`) — Spotify las bloquea para cualquier app fuera
+  de "Extended Quota Mode" (requiere ser una empresa con 250k+ usuarios activos), sin
+  importar que la app de Spotify diga "pública". Tira 404, no es un bug de acá.
+- Un "link para compartir" de la app de Spotify (`?si=...`) NO es lo mismo que "pública"
+  para la Web API — se puede compartir y escuchar una playlist privada dentro de la app
+  sin que deje de ser privada para cualquier integración externa.
+
+**Riesgo real de plataforma, no de esta implementación:** Spotify cambió su política de
+Developer Mode en febrero 2026 — toda app nueva exige que el dueño tenga Premium activo
+para seguir funcionando (si la suscripción vence, la integración se apaga hasta
+renovarla; el resto del bot sigue andando igual, solo Spotify se apaga). También
+removieron `external_ids` (el ISRC) de varias respuestas — el campo existe en el track
+normalizado, pero en la práctica viene `null` casi siempre.
 
 ## Stack
 
