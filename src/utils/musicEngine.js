@@ -57,36 +57,66 @@ function scheduleIdleDisconnect(session) {
   }, IDLE_DISCONNECT_MS).unref();
 }
 
-// Reconstruye el panel de control (embed "reproduciendo ahora" + botones) entero y lo
-// edita in-place — se llama después de CUALQUIER cambio de estado relevante (cambio de
-// canción, pausa/resume, volumen, loop, shuffle, cola). No hace nada si todavía no hay
-// panel adjunto (recién /play lo adjunta después de mandar la primera respuesta) o si la
-// sesión ya no tiene nada sonando (ahí se muestra el estado de "cola vacía" sin botones).
-// Fire-and-forget: nunca se espera desde los callers, un panel que no se pudo editar
-// (mensaje borrado a mano, etc.) no debe romper ninguna acción real.
-function refreshPanel(session) {
-  if (!session.panelMessage) return;
-
+// Arma el contenido del panel (embed + botones) para el estado actual de la sesión —
+// compartido por refreshPanel (edita in-place) y repostPanel (manda uno nuevo). Nunca
+// decide solo cuál de los dos usar, eso lo decide cada caller según si lo que cambió fue
+// la canción o no (ver comentarios de cada función más abajo).
+function buildPanelContent(session) {
   if (!session.current) {
-    session.panelMessage.edit({ embeds: [buildQueueEmptyEmbed()], components: [] }).catch(() => {});
-    return;
+    return { embeds: [buildQueueEmptyEmbed()], components: [] };
   }
 
   const isPaused = session.player?.state?.status === AudioPlayerStatus.Paused;
-  session.panelMessage
-    .edit({
-      embeds: [
-        buildNowPlayingEmbed({
-          track: session.current,
-          loopMode: session.loopMode,
-          volume: session.volume,
-          queueLength: session.queue.length,
-          playbackDurationMs: session.resource?.playbackDuration ?? 0,
-        }),
-      ],
-      components: buildControlPanelRow({ isPaused, loopMode: session.loopMode }),
-    })
-    .catch(() => {});
+  return {
+    embeds: [
+      buildNowPlayingEmbed({
+        track: session.current,
+        loopMode: session.loopMode,
+        volume: session.volume,
+        queueLength: session.queue.length,
+        playbackDurationMs: session.resource?.playbackDuration ?? 0,
+      }),
+    ],
+    components: buildControlPanelRow({ isPaused, loopMode: session.loopMode }),
+  };
+}
+
+// Edita el panel EN EL MISMO mensaje — para cambios de estado que no son "cambió la
+// canción" (pausa/resume, volumen, loop, shuffle, cola). Fire-and-forget: nunca se
+// espera desde los callers, un panel que no se pudo editar (mensaje borrado a mano,
+// etc.) no debe romper ninguna acción real.
+function refreshPanel(session) {
+  if (!session.panelMessage) return;
+  session.panelMessage.edit(buildPanelContent(session)).catch(() => {});
+}
+
+// Borra el mensaje viejo del panel y manda uno nuevo — para cuando SÍ cambió la canción
+// (avance de cola, sea normal o por skip/falla) o la sesión termina. Sin esto, el panel
+// se queda pegado en el mismo punto del canal desde el primer /play, y con actividad
+// normal del server termina enterrado arriba — reenviarlo lo trae siempre al final,
+// mismo criterio "un solo mensaje a la vez" que ya tenía (nunca dos paneles vivos), solo
+// que ese "uno" se mueve con la conversación en vez de editarse ad infinitum en el mismo
+// lugar. No se llama en cada click de botón a propósito (pausar/volumen/etc. sí editan
+// in-place) — spamear un mensaje nuevo por cada uno sería justo el ruido que se pidió
+// evitar.
+async function repostPanel(session) {
+  const oldMessage = session.panelMessage;
+  if (!oldMessage) return;
+
+  const channel = oldMessage.channel;
+  if (!channel) {
+    refreshPanel(session);
+    return;
+  }
+
+  try {
+    session.panelMessage = await channel.send(buildPanelContent(session));
+  } catch (error) {
+    console.error('❌ [música] Error posteando el panel de nuevo:', error);
+    return;
+  }
+
+  oldMessage.delete().catch(() => {}); // ya se mandó el nuevo -- si falla borrar el viejo, no es grave
 }
 
 // Idempotente por canción: si el mismo fallo dispara tanto el chequeo de código de
@@ -118,7 +148,7 @@ function handleTrackEnd(session) {
   const next = musicSessionStore.advance(session.guildId);
   if (!next) {
     scheduleIdleDisconnect(session);
-    refreshPanel(session);
+    repostPanel(session).catch((error) => console.error('❌ [música] Error reposteando el panel (cola vacía):', error));
     return;
   }
   playTrack(session, next).catch((error) => console.error('❌ [música] Error inesperado avanzando de canción:', error));
@@ -180,7 +210,11 @@ async function playTrack(session, track) {
   resource.volume?.setVolume(session.volume / 100);
   session.resource = resource;
   session.player.play(resource);
-  refreshPanel(session);
+  // Cambió la canción -> el panel se repostea (no se edita) para que no quede pegado
+  // arriba del todo del canal a medida que pasa el tiempo. Sin panel adjunto todavía
+  // (la primerísima canción de /play, antes de que play.js llame a attachPanel) esto
+  // no hace nada -- mismo no-op que tenía refreshPanel acá antes.
+  repostPanel(session).catch((error) => console.error('❌ [música] Error reposteando el panel:', error));
 }
 
 async function connectVoice(guildId, voiceChannel) {
@@ -305,6 +339,9 @@ export async function playRequest({ guildId, voiceChannel, textChannel, query, r
     return { status: 'now_playing', track, session };
   }
 
+  // No cambió la canción, pero sí el "En cola: N" del panel -- se edita in-place (no se
+  // repostea, seguimos en la misma canción).
+  refreshPanel(session);
   return { status: 'queued', track, position: added.position, queueLength: session.queue.length, session };
 }
 
@@ -351,6 +388,7 @@ async function playFromSpotify({ guildId, voiceChannel, textChannel, query, requ
       await playNext(session);
       return { status: 'now_playing', track, session };
     }
+    refreshPanel(session);
     return { status: 'queued', track, position: added.position, queueLength: session.queue.length, session };
   }
 
@@ -360,7 +398,11 @@ async function playFromSpotify({ guildId, voiceChannel, textChannel, query, requ
     if (musicSessionStore.addTrack(guildId, track).ok) addedCount++;
   }
 
-  if (!session.current) await playNext(session);
+  if (!session.current) {
+    await playNext(session); // arranca sola -> playTrack ya repostea el panel
+  } else {
+    refreshPanel(session); // seguía sonando lo mismo, solo cambió "En cola: N"
+  }
 
   return {
     status: 'spotify_batch',

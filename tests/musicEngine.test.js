@@ -136,8 +136,18 @@ function makeFakeProcess() {
   return { exitCode: null, killed: false, kill: vi.fn(), stderrTail: '' };
 }
 
-function makeFakeMessage() {
-  return { edit: vi.fn().mockResolvedValue(undefined) };
+// El panel real vive en un canal que puede mandar mensajes nuevos (repostPanel) además
+// de editar el existente (refreshPanel) -- el fake message viene con su propio channel
+// mockeado, y channel.send() devuelve un mensaje fake nuevo que comparte el mismo
+// channel, para poder encadenar varios reposts seguidos como pasaría de verdad.
+function makeFakeChannel() {
+  const channel = { send: vi.fn() };
+  channel.send.mockImplementation(async () => makeFakeMessage(channel));
+  return channel;
+}
+
+function makeFakeMessage(channel = makeFakeChannel()) {
+  return { channel, edit: vi.fn().mockResolvedValue(undefined), delete: vi.fn().mockResolvedValue(undefined) };
 }
 
 function makeButtonInteraction(customId, { guildId = 'guild-1', userId = 'user-1', voiceChannelId = 'vc-1' } = {}) {
@@ -420,7 +430,7 @@ describe('panel de control — attachPanel/refreshPanel', () => {
     expect(panel.edit.mock.calls[0][0].components).toBeDefined();
   });
 
-  it('saltar a la siguiente canción edita el panel con la nueva canción', async () => {
+  it('saltar a la siguiente canción POSTEA un panel nuevo (no edita el viejo) para que no quede pegado arriba del canal', async () => {
     await engine.playRequest({ guildId: 'guild-1', voiceChannel: makeVoiceChannel(), textChannel: makeTextChannel(), query: 'primera', requestedByUserId: 'u1' });
     await engine.playRequest({ guildId: 'guild-1', voiceChannel: makeVoiceChannel(), textChannel: makeTextChannel(), query: 'segunda', requestedByUserId: 'u1' });
     const session = store.getSession('guild-1');
@@ -428,20 +438,43 @@ describe('panel de control — attachPanel/refreshPanel', () => {
     engine.attachPanel(session, panel);
 
     engine.skip(session);
-    expect(panel.edit).toHaveBeenCalled();
-    const lastCall = panel.edit.mock.calls.at(-1)[0];
-    expect(lastCall.components).not.toEqual([]); // sigue habiendo algo sonando -> panel completo
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(panel.edit).not.toHaveBeenCalled(); // el viejo NUNCA se edita en un cambio de canción
+    expect(panel.delete).toHaveBeenCalledTimes(1); // se borra
+    expect(panel.channel.send).toHaveBeenCalledTimes(1); // se manda uno nuevo
+    expect(session.panelMessage).not.toBe(panel); // la sesión ya apunta al mensaje nuevo
+    const sentContent = panel.channel.send.mock.calls[0][0];
+    expect(sentContent.components).not.toEqual([]); // sigue habiendo algo sonando -> panel completo
   });
 
-  it('la cola se queda vacía: el panel se edita a "sin botones"', async () => {
+  it('la cola se queda vacía: se postea el panel de "sin botones" (no se edita el que ya estaba)', async () => {
     await engine.playRequest({ guildId: 'guild-1', voiceChannel: makeVoiceChannel(), textChannel: makeTextChannel(), query: 'única', requestedByUserId: 'u1' });
     const session = store.getSession('guild-1');
     const panel = makeFakeMessage();
     engine.attachPanel(session, panel);
 
     engine.skip(session);
-    const lastCall = panel.edit.mock.calls.at(-1)[0];
-    expect(lastCall.components).toEqual([]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(panel.delete).toHaveBeenCalledTimes(1);
+    const sentContent = panel.channel.send.mock.calls[0][0];
+    expect(sentContent.components).toEqual([]);
+  });
+
+  it('agregar una canción a una cola que ya estaba sonando actualiza "En cola: N" in-place (no repostea, sigue la misma canción)', async () => {
+    await engine.playRequest({ guildId: 'guild-1', voiceChannel: makeVoiceChannel(), textChannel: makeTextChannel(), query: 'primera', requestedByUserId: 'u1' });
+    const session = store.getSession('guild-1');
+    const panel = makeFakeMessage();
+    engine.attachPanel(session, panel);
+
+    await engine.playRequest({ guildId: 'guild-1', voiceChannel: makeVoiceChannel(), textChannel: makeTextChannel(), query: 'segunda', requestedByUserId: 'u1' });
+
+    expect(panel.edit).toHaveBeenCalledTimes(1); // se editó el mismo mensaje
+    expect(panel.channel.send).not.toHaveBeenCalled(); // no se posteó uno nuevo
+    expect(session.panelMessage).toBe(panel);
   });
 
   it('destroySession deja el panel en su estado final sin botones', async () => {
