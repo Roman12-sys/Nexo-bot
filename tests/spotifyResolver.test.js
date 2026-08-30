@@ -151,23 +151,25 @@ describe('Playlist', () => {
     expect(result.skippedCount).toBe(0);
   });
 
-  it('playlist con public:false corta antes de pedir el contenido, con mensaje específico (no el 403 genérico)', async () => {
-    fetch.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(jsonResponse(200, { name: 'Playlist privada', public: false }));
-
-    await expect(resolveSpotifyInput('https://open.spotify.com/playlist/privada', { requestedBy: {}, maxTracks: 200 })).rejects.toThrow(
-      /es privada/i,
-    );
-    expect(fetch).toHaveBeenCalledTimes(2); // token + meta -- nunca llegó a pedir /items
-  });
-
-  it('playlist con public:null (Spotify no lo informa) sigue intentando en vez de bloquear', async () => {
+  it('playlist con public:false IGUAL intenta leer el contenido -- puede ser una privada propia del usuario autorizado (scope playlist-read-private)', async () => {
     fetch
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(jsonResponse(200, { name: 'Sin dato', public: null }))
+      .mockResolvedValueOnce(jsonResponse(200, { name: 'Mi playlist privada', public: false }))
       .mockResolvedValueOnce(jsonResponse(200, { total: 1, items: [{ item: fullTrack() }], next: null }));
 
-    const result = await resolveSpotifyInput('https://open.spotify.com/playlist/sindato', { requestedBy: {}, maxTracks: 200 });
-    expect(result.tracks).toHaveLength(1);
+    const result = await resolveSpotifyInput('https://open.spotify.com/playlist/miaprivada', { requestedBy: {}, maxTracks: 200 });
+    expect(result.tracks).toHaveLength(1); // "privada" no bloqueó -- era del usuario autorizado
+  });
+
+  it('si el contenido de una playlist privada de OTRA persona da 403, el mensaje es claro (no el genérico)', async () => {
+    fetch
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(jsonResponse(200, { name: 'Playlist ajena', public: false }))
+      .mockResolvedValueOnce(jsonResponse(403, {}));
+
+    await expect(resolveSpotifyInput('https://open.spotify.com/playlist/ajena', { requestedBy: {}, maxTracks: 200 })).rejects.toThrow(
+      /puede ser privada y no pertenecerte/i,
+    );
   });
 
   it('playlist vacía: cero tracks, cero omitidas, sin tirar error', async () => {
