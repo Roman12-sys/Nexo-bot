@@ -41,6 +41,17 @@
 -- es la tabla nueva de Fase 3 (misiones diarias/semanales) — este bloque es solo para
 -- que una base YA EXISTENTE alcance al schema.sql nuevo sin recrear todo desde cero.
 -- =========================================================
+--
+-- MIGRACIÓN MANUAL PENDIENTE (Fase A, segunda auditoría, 2026-08-30) — money_destroyed,
+-- nueva columna de guild_daily_stats (ver sección de esa tabla más abajo) + su RPC
+-- actualizada:
+--
+--   alter table guild_daily_stats add column if not exists money_destroyed bigint not null default 0;
+--
+--   -- + reemplazar increment_guild_daily_stat completa por la versión nueva (con
+--   -- p_money_destroyed) definida más abajo, sección RPCs — "create or replace" la
+--   -- pisa sin dropearla, no hace falta borrar la vieja a mano.
+-- =========================================================
 
 -- =========================================================
 -- guild_config: configuración por servidor (reemplaza .env)
@@ -402,10 +413,22 @@ create table if not exists command_usage (
 -- de hoy" o "comandos de hoy" para que un job los sume después — la única forma
 -- correcta de tener esta granularidad es incrementar en el momento en que cada evento
 -- pasa. Deliberadamente NO incluye active_members (necesitaría un conteo de usuarios
--- ÚNICOS, no un contador simple) ni money_destroyed (los "gastos" de este bot son una
--- mezcla de sinks reales y apuestas de casino que pueden volver — categorizarlos bien
--- es más trabajo del que vale para una primera versión) — quedan afuera a propósito,
--- no son un olvido.
+-- ÚNICOS, no un contador simple) — queda afuera a propósito, no es un olvido.
+--
+-- money_created: QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30) — ya no cuenta
+-- cualquier monto positivo. Un ajuste de staff (/economia-staff dar) no suma, y una
+-- ganancia de casino/caja misteriosa suma su ganancia NETA, no el payout bruto (ver
+-- src/utils/economyOrigins.js, consumido por guildDailyStatsStore.js). Antes de este
+-- cambio, ninguna de las dos distinciones existía.
+--
+-- money_destroyed: agregada en la misma fase. La primera versión de esta tabla la había
+-- dejado afuera a propósito ("los gastos de este bot son una mezcla de sinks reales y
+-- apuestas de casino que pueden volver — categorizarlos bien es más trabajo del que
+-- vale para una primera versión"). Fase A hizo justo ese trabajo de categorización: solo
+-- cuenta los dos sumideros reales ya documentados (multa de /crime, precio de una compra
+-- en /shop — ver isDestructiveType en economyOrigins.js). Deliberadamente NO incluye
+-- apuestas de casino perdidas — separarlas del payout bruto tocaría el flujo central de
+-- casinoHelpers.js, fuera del alcance de esa fase.
 -- =========================================================
 create table if not exists guild_daily_stats (
   guild_id text not null,
@@ -414,6 +437,7 @@ create table if not exists guild_daily_stats (
   commands_executed integer not null default 0,
   new_members integer not null default 0,
   money_created bigint not null default 0,
+  money_destroyed bigint not null default 0,
   xp_distributed bigint not null default 0,
   primary key (guild_id, date)
 );
@@ -603,27 +627,29 @@ begin
 end;
 $$;
 
--- Un solo upsert cubre las 5 métricas a la vez (los parámetros no usados quedan en 0,
--- que sumado no cambia nada) — evita 5 RPCs casi idénticas para cada columna suelta.
+-- Un solo upsert cubre las 6 métricas a la vez (los parámetros no usados quedan en 0,
+-- que sumado no cambia nada) — evita 6 RPCs casi idénticas para cada columna suelta.
 -- Cada handler del Event Engine (guildDailyStatsStore.js) llama esto con SOLO el
 -- parámetro que le corresponde distinto de 0.
+-- QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): se agregó p_money_destroyed.
 create or replace function increment_guild_daily_stat(
   p_guild_id text, p_date date,
   p_messages integer default 0, p_commands integer default 0, p_new_members integer default 0,
-  p_money bigint default 0, p_xp bigint default 0
+  p_money bigint default 0, p_xp bigint default 0, p_money_destroyed bigint default 0
 )
 returns void
 language plpgsql
 as $$
 begin
-  insert into guild_daily_stats (guild_id, date, messages_sent, commands_executed, new_members, money_created, xp_distributed)
-  values (p_guild_id, p_date, p_messages, p_commands, p_new_members, p_money, p_xp)
+  insert into guild_daily_stats (guild_id, date, messages_sent, commands_executed, new_members, money_created, xp_distributed, money_destroyed)
+  values (p_guild_id, p_date, p_messages, p_commands, p_new_members, p_money, p_xp, p_money_destroyed)
   on conflict (guild_id, date) do update set
     messages_sent = guild_daily_stats.messages_sent + p_messages,
     commands_executed = guild_daily_stats.commands_executed + p_commands,
     new_members = guild_daily_stats.new_members + p_new_members,
     money_created = guild_daily_stats.money_created + p_money,
-    xp_distributed = guild_daily_stats.xp_distributed + p_xp;
+    xp_distributed = guild_daily_stats.xp_distributed + p_xp,
+    money_destroyed = guild_daily_stats.money_destroyed + p_money_destroyed;
 end;
 $$;
 

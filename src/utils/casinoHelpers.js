@@ -41,7 +41,12 @@ export async function playCasinoGame(interaction, { apuesta, gameKey, gameLabel,
 
     let finalBalance = balanceAfterBet;
     if (result.payout > 0) {
-      finalBalance = await addBalance(guildId, userId, result.payout, { type: 'gamble_win', reason: gameLabel });
+      // QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): se agrega `netGain`. El
+      // payout es bruto (ej. coinflip devuelve 2x la apuesta) — sin esto, ganar una
+      // apuesta de 1.000 por 2.000 se contaba como "ganaste 2.000 monedas" en misiones y
+      // en guild_daily_stats.money_created, cuando la ganancia real es 1.000. El balance
+      // en sí no cambia: sigue acreditándose el payout completo.
+      finalBalance = await addBalance(guildId, userId, result.payout, { type: 'gamble_win', reason: gameLabel, netGain: result.payout - apuesta });
     }
 
     const embed = new EmbedBuilder()

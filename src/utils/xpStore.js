@@ -7,6 +7,7 @@
 // getLevelProgress, totalXpForLevel) sigue siendo pura/sync — no hace I/O, no cambia.
 import { supabase } from '../supabaseClient.js';
 import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7/Fase 3
+import { resolveXpOrigin } from './economyOrigins.js'; // Fase A, segunda auditoría (2026-08-30)
 
 const TABLE = 'xp';
 
@@ -137,11 +138,18 @@ export function totalXpForLevel(level) {
 // pierde XP real. No se duplicó la fórmula de niveles en SQL a propósito: xpStore.js
 // sigue siendo la única fuente de verdad de la curva de niveles.
 // QUÉ CAMBIÓ: emite XP_GAINED cuando amount > 0, con `source: extra.source` si el
-// caller lo pasó (grantMessageXp pasa 'message' — ver más abajo; el resto de los
-// callers, como /xp de staff, voz o trivia, no lo pasan, así que source queda undefined
-// y no matchea ningún handler que filtre por 'message').
+// caller lo pasó (grantMessageXp pasa 'message' — ver más abajo; trivia.js pasa 'trivia';
+// /xp de staff pasa 'admin' — ver xpStaff.js).
 // MOTIVO: auditoría 2026-08-29 (Fase 3, misiones) — mismo criterio que addBalance en
 // economyStore.js: un solo primitivo centralizado en vez de tocar cada fuente de XP.
+//
+// QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30):
+//  1. Ya no se hace `await` sobre el emit, por el mismo motivo que addBalance en
+//     economyStore.js — no bloquear la operación de dominio esperando a misiones/
+//     analítica.
+//  2. El payload suma `origin` (resolveXpOrigin, ver economyOrigins.js) — 'admin' para
+//     XP otorgada a mano por staff, para que guildDailyStatsStore.xp_distributed no la
+//     cuente como actividad del servidor.
 export async function addXp(guildId, userId, amount, extra = {}) {
   const { data: newTotal, error } = await supabase.rpc('increment_xp', {
     p_guild_id: guildId,
@@ -167,7 +175,10 @@ export async function addXp(guildId, userId, amount, extra = {}) {
     .single();
   if (updateError) throw updateError;
 
-  if (amount > 0) await eventBus.emit('XP_GAINED', { guildId, userId, amount, source: extra.source });
+  if (amount > 0) {
+    const origin = resolveXpOrigin(extra.source);
+    eventBus.emit('XP_GAINED', { guildId, userId, amount, source: extra.source, origin }).catch(() => {});
+  }
 
   return {
     record: rowToRecord(row),

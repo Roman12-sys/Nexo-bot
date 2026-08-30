@@ -3,6 +3,7 @@
 // Cualquier caller tiene que hacer `await`.
 import { supabase } from '../supabaseClient.js';
 import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7/Fase 3
+import { resolveEarningOrigin, isDestructiveType } from './economyOrigins.js'; // Fase A, segunda auditoría (2026-08-30)
 
 const TABLE = 'economy';
 const TRANSACTIONS_TABLE = 'economy_transactions';
@@ -87,7 +88,8 @@ export async function saveUserEconomy(guildId, userId, data) {
 // simultáneas (ej. /give y /daily disparados en el mismo segundo) nunca se pisan —
 // ninguna lee un valor "viejo" porque ninguna lee el valor por separado, el incremento
 // se hace directamente en la base. Esto reemplaza el read-modify-write que tenía antes.
-// QUÉ CAMBIÓ: emite COINS_EARNED cuando amount > 0.
+// QUÉ CAMBIÓ: emite COINS_EARNED cuando amount > 0, sin bloquear en el resultado (ver
+// nota de Fase A más abajo), y con `origin`/`netAmount` en el payload.
 // MOTIVO: auditoría 2026-08-29 (Fase 3, misiones) — en vez de agregar el emit a cada
 // comando que da monedas (daily/work/crime/casino/pet/trivia/guess...), se centraliza
 // acá, el único primitivo por el que pasan todas esas ganancias. amount<=0 (o meta de
@@ -96,6 +98,19 @@ export async function saveUserEconomy(guildId, userId, data) {
 // A propósito NO pasa por acá /give ni el robo exitoso de /rob (usan transfer_balance/
 // rob_wallet, RPCs separadas) — es deliberado: contar transferencias entre usuarios como
 // "ganancia" abriría la misma puerta de farmeo entre alts que ya vigila giveTracker.js.
+//
+// QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30):
+//  1. Ya no se hace `await` sobre el emit — antes, un /daily o un mensaje con XP quedaban
+//     esperando a que misiones Y analítica diaria (sistemas ajenos a la operación que
+//     disparó el evento) terminaran sus propios RPCs antes de poder responder. emit() ya
+//     aísla errores de handler con Promise.allSettled (ver eventBus.js); no hace falta
+//     además esperar a que termine.
+//  2. El payload suma `origin` (resolveEarningOrigin, ver economyOrigins.js) y
+//     `netAmount`: `meta.type === 'admin_add'` ya no cuenta como ganancia orgánica para
+//     ningún consumidor, y un payout bruto de casino/caja misteriosa (`gamble_win`/
+//     `mystery_box`) se reporta con su ganancia NETA (`meta.netGain`, la pasa el caller
+//     que conoce la apuesta original) en vez del monto bruto acreditado — el balance en
+//     sí (el `amount` que se le pasa al RPC de arriba) no cambia un solo número.
 export async function addBalance(guildId, userId, amount, meta) {
   const { data: newBalance, error } = await supabase.rpc('increment_balance', {
     p_guild_id: guildId,
@@ -105,7 +120,11 @@ export async function addBalance(guildId, userId, amount, meta) {
 
   if (error) throw error;
   if (meta) await recordTransaction(guildId, userId, { ...meta, amount, balanceAfter: newBalance });
-  if (amount > 0) await eventBus.emit('COINS_EARNED', { guildId, userId, amount });
+  if (amount > 0) {
+    const origin = resolveEarningOrigin(meta?.type);
+    const netAmount = typeof meta?.netGain === 'number' ? meta.netGain : amount;
+    eventBus.emit('COINS_EARNED', { guildId, userId, amount, netAmount, type: meta?.type, origin }).catch(() => {});
+  }
   return newBalance; // devolvemos el nuevo balance, para poder mostrarlo enseguida
 }
 
@@ -390,6 +409,13 @@ export async function getGuildEconomy(guildId, { limit } = {}) {
 //       | 'admin_add' | 'admin_remove' | 'admin_set'
 // actorId: quién causó el movimiento (por defecto, el mismo dueño del balance —
 //          para acciones de staff se pasa explícitamente el id del moderador).
+// QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): emite COINS_DESTROYED cuando el
+// movimiento es uno de los dos sumideros reales ya existentes (crime_fine, purchase —
+// ver isDestructiveType en economyOrigins.js). No es un sistema nuevo de sinks: son
+// exactamente los dos movimientos que ya documentaba CLAUDE.md como destrucción real de
+// dinero, solo que hasta ahora no dejaban rastro en ningún lado fuera de
+// economy_transactions. rob_fine queda afuera a propósito — es una transferencia a la
+// víctima (transfer_balance), no una destrucción.
 export async function recordTransaction(guildId, userId, { type, amount, balanceAfter, actorId, reason }) {
   const { error } = await supabase.from(TRANSACTIONS_TABLE).insert({
     guild_id: guildId,
@@ -402,6 +428,9 @@ export async function recordTransaction(guildId, userId, { type, amount, balance
   });
 
   if (error) throw error;
+  if (amount < 0 && isDestructiveType(type)) {
+    eventBus.emit('COINS_DESTROYED', { guildId, userId, amount: Math.abs(amount), type }).catch(() => {});
+  }
 }
 
 // Últimas compras del servidor de items puntuales por nombre (reason) — lo usa

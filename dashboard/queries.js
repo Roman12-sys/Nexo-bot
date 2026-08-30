@@ -119,9 +119,14 @@ export async function loadGuildDashboardData(guildId) {
     fetchLolChannelId(guildId),
     getLastAnnouncedPatchUrl(),
     getLolPatchMonitorState(),
-    getGuildDailyStats(guildId, 7),
+    // 14 días (antes 7) — Fase A, segunda auditoría 2026-08-30: hacen falta las dos
+    // semanas para el delta de abajo. No es una query nueva ni más pesada, es el mismo
+    // select con un `days` más grande.
+    getGuildDailyStats(guildId, 14),
     getGuildMissionCompletionSummary(guildId),
   ]);
+
+  const messagesDelta = computeMessagesWeeklyDelta(dailyStats);
 
   return {
     topCommands,
@@ -142,9 +147,46 @@ export async function loadGuildDashboardData(guildId) {
     lolChannelId: lolConfig,
     lolLastUrl,
     lolLastAnnouncedAt: lolMonitorState.patchEngineUpdatedAt,
-    dailyStats,
+    // La tarjeta sigue mostrando 7 días (mismo tamaño visual de siempre) — los 14 que se
+    // pidieron arriba son solo para poder calcular messagesDelta.
+    dailyStats: dailyStats.slice(-7),
+    messagesDelta,
     missionSummary,
   };
+}
+
+// Fase A, segunda auditoría 2026-08-30 (Parte 12: "convertir analítica en información
+// accionable", no agregar pantallas nuevas). Opera sobre los mismos 14 días que ya trae
+// getGuildDailyStats — no dispara ninguna query nueva. Solo devuelve un delta si hay
+// datos reales en las dos mitades de la ventana; si el servidor recién empezó a
+// acumular guild_daily_stats (o tiene menos de 2 semanas de historial), devuelve null y
+// el dashboard simplemente no muestra la comparación — nunca inventa un "-100%" contra
+// días que la tabla no llegó a cubrir.
+function computeMessagesWeeklyDelta(dailyStats) {
+  const today = new Date();
+  const todayUTC = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+  const byDate = new Map(dailyStats.map((d) => [d.date, d.messagesSent]));
+
+  let current = 0;
+  let previous = 0;
+  let hasCurrent = false;
+  let hasPrevious = false;
+
+  for (let i = 0; i < 14; i++) {
+    const key = new Date(todayUTC - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const value = byDate.get(key);
+    if (value === undefined) continue;
+    if (i < 7) {
+      current += value;
+      hasCurrent = true;
+    } else {
+      previous += value;
+      hasPrevious = true;
+    }
+  }
+
+  if (!hasCurrent || !hasPrevious || previous === 0) return null;
+  return { current, previous, deltaPct: Math.round(((current - previous) / previous) * 100) };
 }
 
 // La función para listar sancionados ya existe del lado del bot (src/utils/sanctions.js,

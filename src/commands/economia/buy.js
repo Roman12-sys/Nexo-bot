@@ -108,9 +108,12 @@ export async function execute(interaction) {
     // No se guarda en el inventario, se resuelve al instante con una recompensa al azar
     if (item.type === 'mystery_box') {
       const reward = Math.floor(Math.random() * (MAX_MYSTERY - MIN_MYSTERY + 1)) + MIN_MYSTERY;
-      const finalBalance = await addBalance(guildId, userId, reward, { type: 'mystery_box', reason: item.name });
-
       const netChange = reward - item.price;
+      // QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): se agrega `netGain` — mismo
+      // motivo que gamble_win en casinoHelpers.js. Pagar 250 y sacar 400 es una ganancia
+      // neta de 150, no de 400; sin esto, misiones/analítica contaban el bruto.
+      const finalBalance = await addBalance(guildId, userId, reward, { type: 'mystery_box', reason: item.name, netGain: netChange });
+
       const resultText =
         netChange >= 0
           ? `¡Ganaste **${reward.toLocaleString('es-ES')}** monedas! Ganancia neta: +${netChange.toLocaleString('es-ES')}.`

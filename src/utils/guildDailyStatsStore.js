@@ -15,22 +15,20 @@
 // la columna correspondiente.
 import { supabase } from '../supabaseClient.js';
 import { eventBus } from './eventBus.js';
+import { utcDateString } from './timePeriods.js';
 
 const TABLE = 'guild_daily_stats';
-
-function todayUTC() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 async function bump(guildId, patch) {
   const { error } = await supabase.rpc('increment_guild_daily_stat', {
     p_guild_id: guildId,
-    p_date: todayUTC(),
+    p_date: utcDateString(),
     p_messages: patch.messages || 0,
     p_commands: patch.commands || 0,
     p_new_members: patch.newMembers || 0,
     p_money: patch.money || 0,
     p_xp: patch.xp || 0,
+    p_money_destroyed: patch.moneyDestroyed || 0,
   });
   if (error) throw error;
 }
@@ -41,7 +39,7 @@ export async function getGuildDailyStats(guildId, days = 14) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const { data, error } = await supabase
     .from(TABLE)
-    .select('date, messages_sent, commands_executed, new_members, money_created, xp_distributed')
+    .select('date, messages_sent, commands_executed, new_members, money_created, money_destroyed, xp_distributed')
     .eq('guild_id', guildId)
     .gte('date', since)
     .order('date', { ascending: true });
@@ -53,31 +51,53 @@ export async function getGuildDailyStats(guildId, days = 14) {
     commandsExecuted: row.commands_executed,
     newMembers: row.new_members,
     moneyCreated: Number(row.money_created),
+    // money_destroyed no existía antes de Fase A (2026-08-30) — filas viejas no tienen
+    // la columna poblada todavía si la migración no corrió, 0 es "no se registró nada".
+    moneyDestroyed: Number(row.money_destroyed || 0),
     xpDistributed: Number(row.xp_distributed),
   }));
 }
 
-function logStatError(metric, error) {
-  console.error(`❌ Error actualizando guild_daily_stats (${metric}):`, error);
+function logStatError(metric, guildId, error) {
+  console.error(`❌ Error actualizando guild_daily_stats (${metric}, guild ${guildId}):`, error);
 }
 
 eventBus.on('MESSAGE_SENT', async ({ guildId }) => {
-  await bump(guildId, { messages: 1 }).catch((error) => logStatError('messages_sent', error));
+  await bump(guildId, { messages: 1 }).catch((error) => logStatError('messages_sent', guildId, error));
 });
 
 eventBus.on('COMMAND_EXECUTED', async ({ guildId }) => {
   if (!guildId) return; // comandos usados en DM (ej. autocomplete raro) no tienen guild
-  await bump(guildId, { commands: 1 }).catch((error) => logStatError('commands_executed', error));
+  await bump(guildId, { commands: 1 }).catch((error) => logStatError('commands_executed', guildId, error));
 });
 
 eventBus.on('MEMBER_JOINED', async ({ guildId }) => {
-  await bump(guildId, { newMembers: 1 }).catch((error) => logStatError('new_members', error));
+  await bump(guildId, { newMembers: 1 }).catch((error) => logStatError('new_members', guildId, error));
 });
 
-eventBus.on('COINS_EARNED', async ({ guildId, amount }) => {
-  await bump(guildId, { money: amount }).catch((error) => logStatError('money_created', error));
+// QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): filtra por `origin` — un ajuste de
+// staff (`admin`) ya no infla money_created, y una ganancia de casino/caja misteriosa
+// (`stake`) suma su ganancia NETA, nunca el payout bruto. Mismo criterio exacto que el
+// handler de misiones en missionsStore.js — 'reward' (recompensa de misión) SÍ cuenta
+// acá, a diferencia de misiones: pagar una misión es plata nueva real entrando a la
+// economía del servidor, y a diferencia del progreso de otra misión, contarla acá no
+// puede generar ningún ciclo (esta tabla no vuelve a emitir eventos).
+eventBus.on('COINS_EARNED', async ({ guildId, amount, netAmount, origin }) => {
+  if (origin === 'admin') return;
+  const countedAmount = origin === 'stake' ? netAmount : amount;
+  if (!(countedAmount > 0)) return;
+  await bump(guildId, { money: countedAmount }).catch((error) => logStatError('money_created', guildId, error));
 });
 
-eventBus.on('XP_GAINED', async ({ guildId, amount }) => {
-  await bump(guildId, { xp: amount }).catch((error) => logStatError('xp_distributed', error));
+// QUÉ CAMBIÓ (Fase A): nuevo — el único sumidero real instrumentado hoy (crime_fine,
+// purchase; ver economyOrigins.js e economyStore.recordTransaction).
+eventBus.on('COINS_DESTROYED', async ({ guildId, amount }) => {
+  await bump(guildId, { moneyDestroyed: amount }).catch((error) => logStatError('money_destroyed', guildId, error));
+});
+
+// QUÉ CAMBIÓ (Fase A): filtra `origin === 'admin'` — XP otorgada a mano por staff
+// (/xp agregar) ya no cuenta como actividad del servidor.
+eventBus.on('XP_GAINED', async ({ guildId, amount, origin }) => {
+  if (origin === 'admin') return;
+  await bump(guildId, { xp: amount }).catch((error) => logStatError('xp_distributed', guildId, error));
 });

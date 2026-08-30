@@ -31,13 +31,25 @@
 // enganchada al mismo XP_GAINED que daily_messages pero filtrando source:'voice' en vez
 // de 'message' — voiceXpEngine.js ya daba XP por tiempo en voz cada 5 minutos desde
 // antes de esta auditoría, esto solo lo conecta a misiones etiquetando ese origen.
+//
+// QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30):
+//  1. El handler de COINS_EARNED ahora filtra por `origin` (ver economyOrigins.js) en vez
+//     de sumar cualquier monto positivo — un ajuste de staff o el payout bruto de casino
+//     ya no hacen avanzar daily_earn/weekly_earn (ver el handler más abajo).
+//  2. ensureCurrentMissions() ya no re-upsertea las 6 filas del catálogo en cada evento
+//     de XP/coins — un caché en memoria por (guild,user) recuerda que ya se aseguró el
+//     período actual y se salta el upsert hasta que cambie el día (ver ensuredCache más
+//     abajo). Sigue siendo seguro sin esa memoria: si el proceso reinicia, la próxima
+//     llamada vuelve a upsertear (no-op idempotente si las filas ya existen) — la
+//     memoria es solo para no repetir trabajo, nunca la fuente de verdad de si el
+//     período ya está inicializado (eso lo sigue siendo la fila de Postgres).
 import { supabase } from '../supabaseClient.js';
 import { eventBus } from './eventBus.js';
 import { addBalance } from './economyStore.js';
 import { addXp } from './xpStore.js';
+import { utcMidnightMs, DAY_MS } from './timePeriods.js';
 
 const TABLE = 'user_missions';
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const MISSION_CATALOG = [
   { id: 'daily_messages', period: 'daily', description: 'Mandá 15 mensajes que den XP', target: 15, rewardCoins: 50, rewardXp: 15 },
@@ -53,9 +65,12 @@ export const MISSION_CATALOG = [
 const MISSION_BY_ID = new Map(MISSION_CATALOG.map((m) => [m.id, m]));
 
 // Día/semana UTC — mismo criterio que isWeekendUTC() en xpEngine.js: no hay forma de
-// saber la zona horaria de una comunidad, UTC es lo único no ambiguo.
+// saber la zona horaria de una comunidad, UTC es lo único no ambiguo. utcMidnightMs
+// (timePeriods.js) es la misma cuenta que usa guildDailyStatsStore.todayUTC() para su
+// propia frontera de "hoy" — un solo lugar decide dónde cae la medianoche UTC, cada
+// store solo la formatea a lo que su columna necesita (bigint acá, date real allá).
 function getDailyPeriodStart(now = Date.now()) {
-  return Math.floor(now / DAY_MS) * DAY_MS;
+  return utcMidnightMs(now);
 }
 function getWeeklyPeriodStart(now = Date.now()) {
   const dayStart = getDailyPeriodStart(now);
@@ -81,15 +96,38 @@ function rowToMission(row) {
   };
 }
 
+// Caché en memoria, solo para no repetir el upsert de las 6 filas del catálogo en cada
+// evento de XP/coins dentro del mismo período — NO es la fuente de verdad de si el
+// período ya está inicializado (eso es Postgres, vía el upsert idempotente de abajo).
+// Clave `guild:user` -> "dailyStart:weeklyStart" ya asegurado. Se vacía sola una vez por
+// día (cuando cambia dailyStart) en vez de crecer para siempre — mismo criterio que el
+// resto de los Map en memoria del proyecto (rateLimiter, spamDetector, etc.).
+const ensuredCache = new Map();
+let ensuredCacheDailyStart = 0;
+
+function ensuredStampFor(dailyStart, weeklyStart) {
+  if (dailyStart !== ensuredCacheDailyStart) {
+    ensuredCache.clear();
+    ensuredCacheDailyStart = dailyStart;
+  }
+  return `${dailyStart}:${weeklyStart}`;
+}
+
 // Idempotente: upsert con ignoreDuplicates, así se puede llamar tanto desde /mision ver
 // como desde cada handler de evento sin duplicar filas ni pisar progreso ya existente.
 async function ensureCurrentMissions(guildId, userId) {
+  const dailyStart = getDailyPeriodStart();
+  const weeklyStart = getWeeklyPeriodStart();
+  const cacheKey = `${guildId}:${userId}`;
+  const stamp = ensuredStampFor(dailyStart, weeklyStart);
+  if (ensuredCache.get(cacheKey) === stamp) return; // ya se aseguró este período — no repetir el upsert
+
   const rows = MISSION_CATALOG.map((m) => ({
     guild_id: guildId,
     user_id: userId,
     mission_id: m.id,
     period: m.period,
-    period_start: periodStartFor(m.period),
+    period_start: m.period === 'daily' ? dailyStart : weeklyStart,
     progress: 0,
     target: m.target,
     reward_coins: m.rewardCoins,
@@ -98,6 +136,7 @@ async function ensureCurrentMissions(guildId, userId) {
 
   const { error } = await supabase.from(TABLE).upsert(rows, { onConflict: 'guild_id,user_id,mission_id,period_start', ignoreDuplicates: true });
   if (error) throw error;
+  ensuredCache.set(cacheKey, stamp);
 }
 
 // Usado por /mision ver — trae las 5 instancias del ciclo ACTUAL (no el historial).
@@ -141,6 +180,16 @@ async function incrementMissionProgress(guildId, userId, missionId, amount) {
   // addBalance/addXp ya son atómicos por su cuenta — no hace falta reimplementar el
   // pago dentro de la RPC de arriba, solo dispararlo una vez que ella confirma que
   // corresponde.
+  //
+  // GARANTÍA DE "UNA SOLA VEZ", explícita: addBalance de acá abajo vuelve a emitir
+  // COINS_EARNED (type: 'mission') — eso es una cascada real, no hipotética
+  // (COINS_EARNED → incrementMissionProgress → addBalance → COINS_EARNED). No se corta
+  // sola por "las misiones solo completan una vez" (eso protege contra pagar la MISMA
+  // recompensa dos veces, no contra que la recompensa haga avanzar OTRA misión). Lo que
+  // realmente corta la cadena es que economyOrigins.js clasifica `type: 'mission'` como
+  // origin 'reward', y el handler de COINS_EARNED de más abajo ignora explícitamente
+  // 'reward' — si algún día se agrega una misión nueva que dependa de COINS_EARNED, esa
+  // exclusión es la que hay que mirar antes de tocar nada más.
   if (result.reward_coins > 0) await addBalance(guildId, userId, result.reward_coins, { type: 'mission', reason: def.description });
   if (result.reward_xp > 0) await addXp(guildId, userId, result.reward_xp);
 }
@@ -163,8 +212,11 @@ export async function getGuildMissionCompletionSummary(guildId) {
   };
 }
 
-function logMissionError(missionId, error) {
-  console.error(`❌ Error actualizando progreso de misión '${missionId}':`, error);
+// Observabilidad mínima (Fase A, Parte 13): nombre de la misión + guild/user (nunca
+// contenido de mensajes ni otro dato sensible) — suficiente para diagnosticar en los
+// logs de Railway sin necesitar una plataforma de observabilidad nueva.
+function logMissionError(missionId, guildId, userId, error) {
+  console.error(`❌ Error actualizando progreso de misión '${missionId}' (guild ${guildId}, user ${userId}):`, error);
 }
 
 // --- Handlers del Event Engine — cada uno mapea un evento de dominio a la(s) misión(es)
@@ -173,25 +225,38 @@ function logMissionError(missionId, error) {
 
 eventBus.on('XP_GAINED', async ({ guildId, userId, source }) => {
   if (source === 'message') {
-    await incrementMissionProgress(guildId, userId, 'daily_messages', 1).catch((error) => logMissionError('daily_messages', error));
+    await incrementMissionProgress(guildId, userId, 'daily_messages', 1).catch((error) => logMissionError('daily_messages', guildId, userId, error));
   } else if (source === 'voice') {
-    await incrementMissionProgress(guildId, userId, 'daily_voice', 1).catch((error) => logMissionError('daily_voice', error));
+    await incrementMissionProgress(guildId, userId, 'daily_voice', 1).catch((error) => logMissionError('daily_voice', guildId, userId, error));
   }
   // trivia o /xp de staff no tienen source 'message'/'voice' — no cuentan para ninguna
   // de las dos misiones de arriba, a propósito.
 });
 
-eventBus.on('COINS_EARNED', async ({ guildId, userId, amount }) => {
+// QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): filtra por `origin` en vez de sumar
+// cualquier monto positivo.
+//  - 'admin'  → ajuste de staff, se ignora entero (no es actividad del usuario).
+//  - 'reward' → recompensa de OTRA misión ya pagada, se ignora entero (evita la cadena
+//    COINS_EARNED → misión → recompensa → COINS_EARNED, ver el comentario en
+//    incrementMissionProgress).
+//  - 'stake'  → casino/caja misteriosa: se cuenta `netAmount` (la ganancia real), nunca
+//    el payout bruto que ya se acreditó al balance.
+//  - 'activity' (default) → se cuenta `amount` completo, igual que siempre.
+eventBus.on('COINS_EARNED', async ({ guildId, userId, amount, netAmount, origin }) => {
+  if (origin === 'admin' || origin === 'reward') return;
+  const countedAmount = origin === 'stake' ? netAmount : amount;
+  if (!(countedAmount > 0)) return; // una apuesta con ganancia neta <= 0 no suma progreso
+
   await Promise.all([
-    incrementMissionProgress(guildId, userId, 'daily_earn', amount).catch((error) => logMissionError('daily_earn', error)),
-    incrementMissionProgress(guildId, userId, 'weekly_earn', amount).catch((error) => logMissionError('weekly_earn', error)),
+    incrementMissionProgress(guildId, userId, 'daily_earn', countedAmount).catch((error) => logMissionError('daily_earn', guildId, userId, error)),
+    incrementMissionProgress(guildId, userId, 'weekly_earn', countedAmount).catch((error) => logMissionError('weekly_earn', guildId, userId, error)),
   ]);
 });
 
 eventBus.on('LEVEL_UP', async ({ guildId, userId }) => {
-  await incrementMissionProgress(guildId, userId, 'weekly_level', 1).catch((error) => logMissionError('weekly_level', error));
+  await incrementMissionProgress(guildId, userId, 'weekly_level', 1).catch((error) => logMissionError('weekly_level', guildId, userId, error));
 });
 
 eventBus.on('TRIVIA_CORRECT', async ({ guildId, userId }) => {
-  await incrementMissionProgress(guildId, userId, 'daily_trivia', 1).catch((error) => logMissionError('daily_trivia', error));
+  await incrementMissionProgress(guildId, userId, 'daily_trivia', 1).catch((error) => logMissionError('daily_trivia', guildId, userId, error));
 });

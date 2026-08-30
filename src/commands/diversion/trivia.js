@@ -235,7 +235,11 @@ registerButtonPrefix('trivia_', async (interaction) => {
     const cfg = await getGuildConfig(interaction.guild.id);
     const [, xpResult] = await Promise.all([
       addBalance(interaction.guild.id, interaction.user.id, coinsGained, { type: 'trivia', reason: 'Respuesta correcta en /trivia' }),
-      cfg.features?.xp ? addXp(interaction.guild.id, interaction.user.id, xpGained) : Promise.resolve(null),
+      // source: 'trivia' — Fase A (2026-08-30): sin esto, esta XP quedaba con origen
+      // indefinido en el evento XP_GAINED (funcionalmente igual, ya que
+      // resolveXpOrigin(undefined) también cae en 'activity', pero documentado explícito
+      // en vez de implícito).
+      cfg.features?.xp ? addXp(interaction.guild.id, interaction.user.id, xpGained, { source: 'trivia' }) : Promise.resolve(null),
     ]);
 
     const xpLine = xpResult ? ` y **${xpGained}** XP` : '';

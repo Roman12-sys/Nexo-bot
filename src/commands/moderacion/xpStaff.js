@@ -58,7 +58,9 @@ async function handleAdjust(interaction, direction) {
     signedAmount = -Math.min(cantidad, current.xp);
   }
 
-  const result = await addXp(interaction.guild.id, targetUser.id, signedAmount);
+  // source: 'admin' — Fase A (2026-08-30): sin esto, un ajuste de staff quedaba
+  // indistinguible de XP orgánica en guild_daily_stats.xp_distributed.
+  const result = await addXp(interaction.guild.id, targetUser.id, signedAmount, { source: 'admin' });
 
   const verbo = direction === 1 ? 'agregaron' : 'quitaron';
   const embed = new EmbedBuilder()

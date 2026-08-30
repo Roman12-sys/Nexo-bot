@@ -97,9 +97,18 @@ export function renderGuildDashboard(guild, data, usersById) {
     data.dailyStats
       .map(
         (d) =>
-          `<tr><td>${d.date}</td><td>${d.messagesSent}</td><td>${d.commandsExecuted}</td><td>${d.moneyCreated.toLocaleString('es-ES')}</td><td>${d.xpDistributed.toLocaleString('es-ES')}</td></tr>`,
+          `<tr><td>${d.date}</td><td>${d.messagesSent}</td><td>${d.commandsExecuted}</td><td>${d.moneyCreated.toLocaleString('es-ES')}</td><td>${d.moneyDestroyed.toLocaleString('es-ES')}</td><td>${d.xpDistributed.toLocaleString('es-ES')}</td></tr>`,
       )
-      .join('') || '<tr><td colspan="5" class="muted">Sin datos todavía (se llena en vivo desde hoy)</td></tr>';
+      .join('') || '<tr><td colspan="6" class="muted">Sin datos todavía (se llena en vivo desde hoy)</td></tr>';
+
+  // Fase A, segunda auditoría 2026-08-30 (Parte 12) — única línea "accionable" nueva de
+  // esta tarjeta: delta de mensajes vs. la semana anterior, calculado en queries.js sobre
+  // los mismos 14 días de guild_daily_stats (sin queries nuevas). Si todavía no hay dos
+  // semanas de historial real, messagesDelta es null y no se muestra nada — no se inventa
+  // una comparación contra datos que no existen.
+  const messagesDeltaLine = data.messagesDelta
+    ? `<p class="muted">📨 Mensajes esta semana: <strong>${data.messagesDelta.current.toLocaleString('es-ES')}</strong> (${data.messagesDelta.deltaPct >= 0 ? '+' : ''}${data.messagesDelta.deltaPct}% vs. semana anterior)</p>`
+    : '';
 
   const lolCard = data.lolChannelId
     ? `<div class="card">
@@ -200,6 +209,7 @@ export function renderGuildDashboard(guild, data, usersById) {
 
     <div class="card">
       <h2>📈 Actividad diaria (últimos 7 días)</h2>
-      <table><thead><tr><th>Fecha</th><th>Mensajes</th><th>Comandos</th><th>Monedas generadas</th><th>XP repartida</th></tr></thead><tbody>${dailyStatsRows}</tbody></table>
+      ${messagesDeltaLine}
+      <table><thead><tr><th>Fecha</th><th>Mensajes</th><th>Comandos</th><th>Monedas generadas</th><th>Monedas destruidas</th><th>XP repartida</th></tr></thead><tbody>${dailyStatsRows}</tbody></table>
     </div>`;
 }
