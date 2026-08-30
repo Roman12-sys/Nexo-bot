@@ -24,6 +24,7 @@ function jsonResponse(status, body, headers = {}) {
     status,
     headers: { get: (name) => lower[name.toLowerCase()] ?? null },
     json: async () => body,
+    text: async () => JSON.stringify(body),
   };
 }
 

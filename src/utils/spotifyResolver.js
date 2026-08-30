@@ -59,11 +59,16 @@ async function fetchNewToken() {
       headers: { Authorization: `Basic ${basic}`, 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'grant_type=client_credentials',
     });
-  } catch {
+  } catch (error) {
+    console.error('❌ [música/spotify] Error de red pidiendo el token:', error);
     throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
   }
 
-  if (!response.ok) throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => '');
+    console.error(`❌ [música/spotify] Spotify rechazó la autenticación (status ${response.status}):`, bodyText.slice(0, 500));
+    throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
+  }
 
   const data = await response.json();
   return { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 - TOKEN_REFRESH_BUFFER_MS };
@@ -93,7 +98,8 @@ async function spotifyFetch(pathOrUrl, { notFoundMessage, privateMessage, retrie
   let response;
   try {
     response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-  } catch {
+  } catch (error) {
+    console.error(`❌ [música/spotify] Error de red consultando ${url}:`, error);
     throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
   }
 
@@ -103,7 +109,10 @@ async function spotifyFetch(pathOrUrl, { notFoundMessage, privateMessage, retrie
     tokenCache = null;
     return spotifyFetch(pathOrUrl, { notFoundMessage, privateMessage, retriedAuth: true, retried429 });
   }
-  if (response.status === 401) throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
+  if (response.status === 401) {
+    console.error(`❌ [música/spotify] Sigue dando 401 después de renovar el token para ${url} — revisá SPOTIFY_CLIENT_ID/SECRET en Railway.`);
+    throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
+  }
 
   if (response.status === 429 && !retried429) {
     const retryAfterSec = Number(response.headers.get('retry-after')) || 1;
@@ -117,7 +126,11 @@ async function spotifyFetch(pathOrUrl, { notFoundMessage, privateMessage, retrie
 
   if (response.status === 403) throw new SpotifyPrivateError(privateMessage || 'No puedo acceder a eso en Spotify.');
   if (response.status === 404) throw new SpotifyNotFoundError(notFoundMessage || 'No encontré eso en Spotify.');
-  if (!response.ok) throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => '');
+    console.error(`❌ [música/spotify] Spotify devolvió status ${response.status} para ${url}:`, bodyText.slice(0, 500));
+    throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
+  }
 
   return response.json();
 }
