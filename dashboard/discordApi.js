@@ -62,7 +62,10 @@ export async function fetchApplicationOwnerId() {
   if (!res.ok) throw new Error(`No se pudo consultar el dueño de la aplicación: ${res.status}`);
 
   const data = await res.json();
-  cachedOwnerId = data.owner?.id || null;
+  // Si la app está bajo un Team, "owner" es un pseudo-usuario que representa al team,
+  // NO a la persona dueña — el usuario real está en team.owner_user_id. Sin este chequeo,
+  // el dueño real de una app en team quedaba bloqueado por su propio gate.
+  cachedOwnerId = data.team?.owner_user_id || data.owner?.id || null;
   return cachedOwnerId;
 }
 
