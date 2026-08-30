@@ -252,6 +252,19 @@ async function resolvePlaylist(id, requestedBy, maxTracks) {
     privateMessage: 'No puedo acceder a esa playlist de Spotify.',
   });
 
+  // meta.public === false es la señal más clara posible de "no vas a poder leer el
+  // contenido" — cortar ACÁ da un mensaje específico en vez de dejar que la paginación
+  // de abajo choque con un 403 genérico. Ojo: un link "para compartir" de la app de
+  // Spotify NO es lo mismo que "pública" para la Web API — se puede compartir y
+  // reproducir una playlist privada dentro de la app sin que deje de ser privada para
+  // la API. meta.public === null/undefined (Spotify a veces no lo informa) no bloquea,
+  // se sigue intentando igual.
+  if (meta.public === false) {
+    throw new SpotifyPrivateError(
+      'Esa playlist es privada — un link para compartir no la hace pública para la API de Spotify. Necesita ser del usuario que autorizó el bot, o estar marcada como pública.',
+    );
+  }
+
   const tracks = [];
   let skipped = 0;
   let total = 0;

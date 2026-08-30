@@ -151,6 +151,25 @@ describe('Playlist', () => {
     expect(result.skippedCount).toBe(0);
   });
 
+  it('playlist con public:false corta antes de pedir el contenido, con mensaje específico (no el 403 genérico)', async () => {
+    fetch.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(jsonResponse(200, { name: 'Playlist privada', public: false }));
+
+    await expect(resolveSpotifyInput('https://open.spotify.com/playlist/privada', { requestedBy: {}, maxTracks: 200 })).rejects.toThrow(
+      /es privada/i,
+    );
+    expect(fetch).toHaveBeenCalledTimes(2); // token + meta -- nunca llegó a pedir /items
+  });
+
+  it('playlist con public:null (Spotify no lo informa) sigue intentando en vez de bloquear', async () => {
+    fetch
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(jsonResponse(200, { name: 'Sin dato', public: null }))
+      .mockResolvedValueOnce(jsonResponse(200, { total: 1, items: [{ item: fullTrack() }], next: null }));
+
+    const result = await resolveSpotifyInput('https://open.spotify.com/playlist/sindato', { requestedBy: {}, maxTracks: 200 });
+    expect(result.tracks).toHaveLength(1);
+  });
+
   it('playlist vacía: cero tracks, cero omitidas, sin tirar error', async () => {
     fetch
       .mockResolvedValueOnce(tokenResponse())
