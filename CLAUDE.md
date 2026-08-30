@@ -172,11 +172,23 @@ sesión (una vez arreglado en `rankCardImage.js`, después repetido sin querer e
 `petCardImage.js`). Y no alcanza con que la función no tire error: hay que generar la
 imagen de verdad, guardarla y mirarla antes de darla por buena.
 
+**Nunca levantar el bot local.** `DISCORD_TOKEN` es el MISMO en local y en Railway — no
+existe un bot de desarrollo separado (`GUILD_ID_DEV` solo acota dónde se registran
+comandos, no la identidad del bot). Correr `node src/index.js` en la máquina local abre
+una SEGUNDA conexión de gateway al mismo bot de producción, con riesgo real de procesar
+el mismo evento dos veces — se descubrió en vivo (una sesión de boot local pareció estar
+procesando la interacción real de un usuario). Verificación se hace con `node --check` +
+`npm test` (la suite mockea Supabase, es 100% segura); si hace falta un chequeo de boot
+real (ej. sospecha de un `SlashCommandBuilder` que revienta al cargar, ver el límite de
+100 caracteres más abajo), pedírselo al usuario explícitamente en vez de hacerlo uno mismo.
+
 **Límites de longitud de Discord, ninguno de los cuales atrapa `node --check`:**
 - Descripción de un comando, subcomando u opción: **100 caracteres**. Se revienta recién
   al bootear el bot (`❌ No se pudo cargar el comando...`), no al editar el archivo — le
-  pasó a `/crime`. Conviene bootear el bot local (`node src/index.js`, 10-15s) después de
-  cualquier cambio a un `SlashCommandBuilder`, no solo correr `node --check`.
+  pasó a `/crime`. `node --check` no lo detecta (es un error de validación de discord.js,
+  no de sintaxis) — pero **no bootear el bot local para probarlo** (ver el gotcha de más
+  abajo, "nunca levantar el bot local"): para un `SlashCommandBuilder` nuevo o editado,
+  contar caracteres a mano o pedirle al usuario que confirme con un boot suyo.
 - Valor de un campo de embed (`addFields`): **1024 caracteres**. Sin un chequeo explícito,
   una lista armada con `.join()` que crece (categorías de `/shop`, inventario en
   `/economia-staff perfil`) se corta en silencio sin avisar que faltó contenido. Patrón
@@ -246,11 +258,15 @@ Decisiones puntuales:
 
 ## Flujo de trabajo de esta sesión (seguir así)
 
-- Cada bloque de features: migrar → `node --check` en los archivos tocados → levantar
-  el bot local un momento (`node src/index.js`, matar el proceso viejo primero) para
-  pescar errores de import/circularidad que `--check` no detecta → `node
-  src/deploy-commands.js dev` (registra en `GUILD_ID_DEV`, instantáneo) → probar en el
-  server de test.
+- Cada bloque de features: migrar → `node --check` en los archivos tocados → `npm test`
+  → probar en el server de test (o pedirle al usuario que corra `node
+  src/deploy-commands.js dev` y pruebe él). **Nunca levantar el bot local
+  (`node src/index.js`) para verificar** — ver el gotcha "nunca levantar el bot local"
+  más abajo: no hay bot de desarrollo separado, es el mismo `DISCORD_TOKEN` que
+  producción. Esto reemplaza el paso que había antes ("levantar el bot local un
+  momento... para pescar errores de import/circularidad") — ese riesgo real (imports
+  circulares, errores de validación de discord.js que `--check` no ve) sigue existiendo,
+  pero se acepta cubrirlo con `node --check` + la suite de tests en vez de un boot real.
 - **Nunca `git push` sin que el usuario lo pida explícitamente** — se comitea local y
   se avisa que hay un push pendiente. El push dispara un redeploy automático en
   Railway, y el usuario quiere controlar cuándo pasa eso.
@@ -356,6 +372,117 @@ seguro barato para el día que algo use el `anon key`. Migración (`enable row l
 security` en las 18 tablas, sin políticas) preparada pero sin ejecutar — decisión
 pendiente del usuario.
 
+## Event Engine (`src/utils/eventBus.js`)
+
+Antes de esto, "se desbloqueó un logro" era una llamada directa a mano
+(`unlockAchievement()` + `announceUnlockedAchievements()`) copiada en 13+ archivos —
+cada integración nueva entre sistemas significaba ir a tocar el archivo de la feature de
+origen. `EventBus` es un pub/sub en memoria (`Map<evento, handler[]>`, sin cola externa:
+el bot corre en un solo proceso, no hace falta más) que desacopla "algo pasó" de "quién
+reacciona". `emit()` corre todos los handlers de un evento con `Promise.allSettled`,
+cada uno envuelto en su propio `try/catch` — un handler roto nunca tumba a los demás ni
+al emisor, y queda logueado (`❌ Error en handler de <evento>`).
+
+8 eventos existen hoy: `ACHIEVEMENT_CHECK`, `MESSAGE_SENT`, `COMMAND_EXECUTED`,
+`MEMBER_JOINED`, `COINS_EARNED`, `COINS_DESTROYED`, `XP_GAINED`, `LEVEL_UP`,
+`TRIVIA_CORRECT`. Los productores (`economyStore.addBalance`, `xpStore.addXp`,
+`commandUsageStore.trackCommandUsage`) NO hacen `await` sobre `emit()` — el bus es
+best-effort (sin persistencia, sin reintentos) y no debe bloquear la operación de
+dominio que lo disparó esperando a consumidores secundarios (misiones, analítica) que no
+tienen nada que ver con esa operación. `ACHIEVEMENT_CHECK` es la excepción: en la
+práctica es una llamada de función indirecta (un solo consumidor posible, payload con
+objetos de UI como `interaction`/`channel`), no un evento de dominio real — no usarlo
+como plantilla para el próximo evento nuevo.
+
+### Semántica de origen (`src/utils/economyOrigins.js`)
+
+`COINS_EARNED`/`XP_GAINED` NO significan "el usuario ganó esto de forma orgánica" —
+significan "se acreditó un monto positivo". Este archivo es el único lugar que traduce
+`meta.type` (economía) / `extra.source` (XP) a un concepto común, `origin`, que
+`missionsStore.js`/`guildDailyStatsStore.js` consumen para decidir qué cuenta:
+
+- **`activity`** — el usuario hizo algo (`daily`/`work`/`crime_win`/`trivia`/`guess`/
+  `pet_battle_win`/`sell`, mensaje o voz). Cuenta para todo.
+- **`reward`** — recompensa de una misión ya pagada (`type: 'mission'`). Cuenta para
+  `money_created` (es plata nueva real) pero NUNCA para el progreso de OTRA misión — si
+  contara, pagar una misión completaría otra en cadena (`COINS_EARNED → misión →
+  recompensa → addBalance → COINS_EARNED`). Ver el comentario de guarda explícita en
+  `missionsStore.incrementMissionProgress`.
+- **`stake`** — casino/caja misteriosa (`gamble_win`/`mystery_box`). El monto que le
+  llega a `addBalance` es el PAYOUT BRUTO (necesario para el balance real); quien apostó
+  (`casinoHelpers.js`, `buy.js`) pasa además `meta.netGain` con la ganancia real (payout
+  − apuesta/precio), que es lo que cuenta para misiones/analítica — nunca el bruto.
+- **`admin`** — ajuste de staff (`/economia-staff`, `/xp agregar`/`quitar`). Nunca cuenta
+  como actividad orgánica del servidor.
+
+Un `type`/`source` no listado en el mapa cae en `activity` por defecto — mismo
+comportamiento que existía antes de que este archivo existiera, para que una fuente de
+coins/XP nueva que alguien agregue sin actualizar el mapa no quede excluida en silencio.
+
+## Misiones (`/mision`, `src/utils/missionsStore.js`)
+
+Catálogo fijo en código (`MISSION_CATALOG`), mismo criterio que `ACHIEVEMENTS` — sin
+tabla `mission_definitions` ni UI de admin (evaluado y descartado por falta de necesidad
+real, no por pereza). Sin botón de "reclamar": la recompensa se paga en el mismo
+instante en que `increment_mission_progress` (RPC con `for update`) confirma que la
+misión se completó — mismo criterio que un logro o una subida de nivel, ninguno pide una
+acción extra. Sin misiones "seasonal" ni ranking histórico, a propósito.
+
+`ensureCurrentMissions()` (upsert idempotente de las 6 filas del catálogo al primer
+evento del período) tiene un caché en memoria por `guild:user` para no reupsertear las 6
+filas en CADA evento de XP/coins — se invalida solo cuando cambia el día (mismo criterio
+que el resto de los `Map` en memoria del proyecto, ver "Timers en memoria" más abajo). La
+caché es puramente de rendimiento: si el proceso reinicia, el próximo evento vuelve a
+upsertear (no-op idempotente contra Postgres), nunca es la fuente de verdad de si el
+período está inicializado.
+
+## Logros — consolidados en un solo handler
+
+11 call-sites que antes llamaban `unlockAchievement()`+`announceUnlockedAchievements()`
+a mano quedaron en un solo handler de `ACHIEVEMENT_CHECK` (`src/utils/achievements.js`).
+La unicidad la garantiza una constraint compuesta en Postgres (`achievements_unlocked`,
+código `23505` = "ya lo tenía"), no un chequeo de aplicación. `confession.js` es la única
+excepción deliberada: sigue llamando `unlockAchievement` directo porque necesita el
+valor de retorno en el mismo reply efímero sin desanonimizar a nadie — algo que un bus
+fire-and-forget no puede devolverle al caller.
+
+## Analítica diaria (`guild_daily_stats`, dashboard)
+
+Se llena EN VIVO por el Event Engine (`increment_guild_daily_stat`), nunca por un cron
+nocturno — no existe ningún otro lugar del esquema donde ya viva "mensajes de hoy" para
+que un job los agregue después. `money_created` filtra `origin === 'admin'` y usa la
+ganancia neta (no el payout bruto) en `origin === 'stake'` — ver la semántica de origen
+arriba; sin ese filtro, un ajuste de staff o una racha de casino inflaban la métrica sin
+que fuera plata nueva real. `money_destroyed` cubre solo los dos sumideros reales ya
+documentados arriba (multa de `/crime`, precio de una compra en `/shop`) — deliberadamente
+NO cubre apuestas de casino perdidas (separarlas del payout bruto tocaría el flujo
+central de `casinoHelpers.js`). `xp_distributed` excluye XP otorgada a mano por staff
+(`/xp agregar`, `source: 'admin'`).
+
+## Restricciones con expiración (`src/utils/punishEngine.js`)
+
+`/punish` con duración (`1h`/`6h`/`1d`/`7d`) crea una fila en `active_punishments` y
+programa un `setTimeout` que quita el rol solo — mismo split store/engine que
+`reminderEngine.js`/`giveawayEngine.js` (el store no toca Discord, el engine sí). Se
+reprograma al arrancar (`rescheduleActivePunishments` en `ready.js`) igual que
+recordatorios y sorteos, por el mismo motivo (sobrevivir un redeploy sin perder timers).
+
+## Permisos compartidos entre bot y dashboard
+
+`isStaffFromRoleIds(cfg, roleIds)` (`src/utils/permissions.js`) es el núcleo booleano
+puro — acepta cualquier array plano de IDs — que usan `isStaff()` acá,
+`messageCreate.js` (chequeo de staff del anti-spam) y `dashboard/permissions.js`. Antes
+cada uno tenía su propia copia de la misma lógica adaptada a su propio shape de datos
+(`member.roles.cache` de discord.js vs. el array crudo de la REST API), con riesgo real
+de que una cambiara y la otra no.
+
+## Reputación — eliminada por completo
+
+El sistema de reputación (`/reputation`, tabla `reputation`, RPC `increment_reputation`)
+se eliminó enteramente: cero consumidores reales (solo alimentaba un logro cosmético que
+también se sacó). No reintroducir sin un pedido explícito nuevo — no es un hueco a
+rellenar ni una feature "que faltó migrar".
+
 ## Testing (Vitest)
 
 `npm test` corre los tests de `tests/`. Todo lo que toca Supabase se mockea con
@@ -368,6 +495,15 @@ cache de 30s + aislamiento entre guilds de `guildConfigStore`, y la matriz de ro
 `isStaff`/`isStaffConfigured`. No hay tests por comando individual (74 comandos) — la
 lógica compartida que todos ellos llaman sí está cubierta, que es donde un bug se
 replicaría a muchos comandos a la vez.
+
+El Event Engine y todo lo que corre sobre él tiene su propia batería, agregada recién en
+la consolidación de Fase A (2026-08-30) — antes de eso tenía cobertura cero pese a ser
+la infraestructura más nueva y más riesgosa del proyecto: `eventBus.test.js` (aislamiento
+de errores entre handlers), extensiones a `economyStore.test.js`/`xpStore.test.js` (que
+`addBalance`/`addXp` emiten con el `origin`/`netAmount` correcto y sin bloquear),
+`missionsStore.test.js` (filtro de origen, no-doble-pago, caché de
+`ensureCurrentMissions`), `guildDailyStatsStore.test.js` (mismo filtro de origen del
+lado de la analítica) y `achievements.test.js`/`punishEngine.test.js`.
 
 ## Stack
 
