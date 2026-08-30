@@ -165,8 +165,16 @@ async function spotifyFetch(pathOrUrl, { notFoundMessage, privateMessage, retrie
   }
   if (response.status === 429) throw new SpotifyUnavailableError('Spotify está limitando las consultas — probá de nuevo en un rato.');
 
-  if (response.status === 403) throw new SpotifyPrivateError(privateMessage || 'No puedo acceder a eso en Spotify.');
-  if (response.status === 404) throw new SpotifyNotFoundError(notFoundMessage || 'No encontré eso en Spotify.');
+  if (response.status === 403) {
+    const bodyText = await response.text().catch(() => '');
+    console.error(`❌ [música/spotify] Spotify devolvió 403 para ${url} (privado/restringido para el usuario autorizado):`, bodyText.slice(0, 500));
+    throw new SpotifyPrivateError(privateMessage || 'No puedo acceder a eso en Spotify.');
+  }
+  if (response.status === 404) {
+    const bodyText = await response.text().catch(() => '');
+    console.error(`❌ [música/spotify] Spotify devolvió 404 para ${url}:`, bodyText.slice(0, 500));
+    throw new SpotifyNotFoundError(notFoundMessage || 'No encontré eso en Spotify.');
+  }
   if (!response.ok) {
     const bodyText = await response.text().catch(() => '');
     console.error(`❌ [música/spotify] Spotify devolvió status ${response.status} para ${url}:`, bodyText.slice(0, 500));
