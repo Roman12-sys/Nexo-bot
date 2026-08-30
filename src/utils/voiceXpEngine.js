@@ -48,7 +48,10 @@ async function grantVoiceXpTick(client) {
           const boostActive = xpRecord.xpBoostUntil > Date.now();
           const amount = Math.floor(base * (boostActive ? XP_BOOST_MULTIPLIER : 1) * externalMultiplier);
 
-          const result = await addXp(guild.id, member.id, amount);
+          // QUÉ CAMBIÓ: se agregó { source: 'voice' } — mismo criterio que grantMessageXp
+          // etiqueta 'message' en xpStore.js. Deja que missionsStore.js distinga XP de
+          // voz de XP de mensaje sin que este archivo sepa nada de misiones.
+          const result = await addXp(guild.id, member.id, amount, { source: 'voice' });
           if (result.leveledUp) {
             await processLevelUp(
               member,

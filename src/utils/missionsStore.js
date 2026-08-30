@@ -21,11 +21,16 @@
 //    separado del progreso por período — se puede sumar después sin romper nada de lo
 //    que hay acá, no vale la pena adelantarlo sin uso real todavía.
 //
-// VERIFICACIÓN: /mision ver muestra 3 misiones diarias + 2 semanales con progreso 0 la
-// primera vez que se corre. Mandar mensajes/ganar monedas/subir de nivel/acertar
-// trivia hace avanzar la barra correspondiente sin que el usuario haga nada más; al
-// llegar al objetivo, el balance y la XP suben solos (mismo followUp que ya usan
-// daily/work, no un mensaje nuevo).
+// VERIFICACIÓN: /mision ver muestra 4 misiones diarias + 2 semanales con progreso 0 la
+// primera vez que se corre. Mandar mensajes/pasar tiempo en voz/ganar monedas/subir de
+// nivel/acertar trivia hace avanzar la barra correspondiente sin que el usuario haga
+// nada más; al llegar al objetivo, el balance y la XP suben solos (mismo followUp que
+// ya usan daily/work, no un mensaje nuevo).
+//
+// QUÉ CAMBIÓ (después de la versión original de este archivo): se sumó daily_voice,
+// enganchada al mismo XP_GAINED que daily_messages pero filtrando source:'voice' en vez
+// de 'message' — voiceXpEngine.js ya daba XP por tiempo en voz cada 5 minutos desde
+// antes de esta auditoría, esto solo lo conecta a misiones etiquetando ese origen.
 import { supabase } from '../supabaseClient.js';
 import { eventBus } from './eventBus.js';
 import { addBalance } from './economyStore.js';
@@ -38,6 +43,10 @@ export const MISSION_CATALOG = [
   { id: 'daily_messages', period: 'daily', description: 'Mandá 15 mensajes que den XP', target: 15, rewardCoins: 50, rewardXp: 15 },
   { id: 'daily_trivia', period: 'daily', description: 'Respondé 1 pregunta de /trivia correctamente', target: 1, rewardCoins: 40, rewardXp: 0 },
   { id: 'daily_earn', period: 'daily', description: 'Ganá 150 monedas (cualquier fuente)', target: 150, rewardCoins: 60, rewardXp: 10 },
+  // target: 6 = 6 barridos de 5 min de voiceXpEngine.js ≈ 30 minutos reales. Solo
+  // avanza en los mismos ticks que ya dan XP de voz (2+ humanos, no ensordecido) — no
+  // hay tracking de tiempo nuevo, hereda gratis esas protecciones anti-AFK.
+  { id: 'daily_voice', period: 'daily', description: 'Pasá al menos 30 minutos en un canal de voz activo (con más gente)', target: 6, rewardCoins: 50, rewardXp: 15 },
   { id: 'weekly_level', period: 'weekly', description: 'Subí al menos 1 nivel', target: 1, rewardCoins: 300, rewardXp: 0 },
   { id: 'weekly_earn', period: 'weekly', description: 'Ganá 1.000 monedas', target: 1000, rewardCoins: 500, rewardXp: 0 },
 ];
@@ -163,8 +172,13 @@ function logMissionError(missionId, error) {
 // infraestructura de misiones, no la de mensajes/economía/XP/trivia.
 
 eventBus.on('XP_GAINED', async ({ guildId, userId, source }) => {
-  if (source !== 'message') return; // voz, trivia o /xp de staff no cuentan para "mandá N mensajes"
-  await incrementMissionProgress(guildId, userId, 'daily_messages', 1).catch((error) => logMissionError('daily_messages', error));
+  if (source === 'message') {
+    await incrementMissionProgress(guildId, userId, 'daily_messages', 1).catch((error) => logMissionError('daily_messages', error));
+  } else if (source === 'voice') {
+    await incrementMissionProgress(guildId, userId, 'daily_voice', 1).catch((error) => logMissionError('daily_voice', error));
+  }
+  // trivia o /xp de staff no tienen source 'message'/'voice' — no cuentan para ninguna
+  // de las dos misiones de arriba, a propósito.
 });
 
 eventBus.on('COINS_EARNED', async ({ guildId, userId, amount }) => {
