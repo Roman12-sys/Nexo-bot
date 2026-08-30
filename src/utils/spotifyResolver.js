@@ -19,6 +19,7 @@
 // las veces en la práctica.
 import { config } from '../config.js';
 import { withLock } from './asyncLock.js';
+import { getSpotifyRefreshToken, saveSpotifyRefreshToken } from './spotifyAuthStore.js';
 
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const API_BASE = 'https://api.spotify.com/v1';
@@ -42,36 +43,76 @@ function parseSpotifyUrl(input) {
   return { type: match[1], id: match[2] };
 }
 
-// --- Auth (Client Credentials Flow) ---
+// --- Auth ---
+// Prefiere el refresh token guardado (Authorization Code Flow — autorización real y
+// única del dueño del bot, ver dashboard/spotifyAuth.js) porque es el único camino que
+// puede listar el contenido de una playlist; Client Credentials Flow (server-to-server,
+// sin login de nadie) alcanza para tracks sueltos pero NO para eso, confirmado en
+// producción 2026-08-30 (401 en /playlists/{id}/items incluso con el token recién
+// renovado). Sin refresh token guardado, cae directo a Client Credentials.
 
 let tokenCache = null; // { accessToken, expiresAt }
 
-async function fetchNewToken() {
-  if (!config.spotifyClientId || !config.spotifyClientSecret) {
-    throw new SpotifyUnavailableError('Spotify no está configurado en este bot.');
-  }
-
+// POST genérico al endpoint de token, devuelve el JSON parseado o null en cualquier
+// falla (ya logueada acá) — nunca tira, así el caller decide si hay un siguiente
+// intento (ej. caer de refresh_token a client_credentials) o si ahí sí hay que fallar.
+async function requestToken(body) {
   const basic = Buffer.from(`${config.spotifyClientId}:${config.spotifyClientSecret}`).toString('base64');
   let response;
   try {
     response = await fetch(TOKEN_URL, {
       method: 'POST',
       headers: { Authorization: `Basic ${basic}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'grant_type=client_credentials',
+      body,
     });
   } catch (error) {
     console.error('❌ [música/spotify] Error de red pidiendo el token:', error);
-    throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
+    return null;
   }
 
   if (!response.ok) {
     const bodyText = await response.text().catch(() => '');
     console.error(`❌ [música/spotify] Spotify rechazó la autenticación (status ${response.status}):`, bodyText.slice(0, 500));
-    throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
+    return null;
   }
 
-  const data = await response.json();
+  return response.json();
+}
+
+function toCacheEntry(data) {
   return { accessToken: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 - TOKEN_REFRESH_BUFFER_MS };
+}
+
+async function fetchNewToken() {
+  if (!config.spotifyClientId || !config.spotifyClientSecret) {
+    throw new SpotifyUnavailableError('Spotify no está configurado en este bot.');
+  }
+
+  const saved = await getSpotifyRefreshToken().catch((error) => {
+    console.error('❌ [música/spotify] Error leyendo el refresh token guardado:', error);
+    return null;
+  });
+
+  if (saved) {
+    const data = await requestToken(new URLSearchParams({ grant_type: 'refresh_token', refresh_token: saved.refreshToken }));
+    if (data) {
+      // Spotify a veces rota el refresh token en la respuesta -- si no se persiste el
+      // nuevo, el guardado deja de servir la próxima vez que decida rotarlo.
+      if (data.refresh_token && data.refresh_token !== saved.refreshToken) {
+        await saveSpotifyRefreshToken(data.refresh_token, saved.authorizedBy).catch((error) =>
+          console.error('❌ [música/spotify] Error persistiendo el refresh token rotado:', error),
+        );
+      }
+      return toCacheEntry(data);
+    }
+    console.error(
+      '❌ [música/spotify] El refresh token guardado ya no sirve (revocado o expirado) — re-autorizá en /spotify/authorize. Usando Client Credentials mientras tanto.',
+    );
+  }
+
+  const data = await requestToken('grant_type=client_credentials');
+  if (!data) throw new SpotifyUnavailableError('No pude consultar Spotify en este momento.');
+  return toCacheEntry(data);
 }
 
 // Cacheado en memoria — nunca se autentica contra Spotify en cada /play. withLock evita

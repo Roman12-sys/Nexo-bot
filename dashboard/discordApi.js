@@ -46,6 +46,26 @@ export async function fetchDiscordUser(accessToken) {
   return res.json();
 }
 
+// Usada para gatear /spotify/authorize: solo el dueño real de la aplicación (no
+// cualquier admin de un server) puede disparar la autorización de Spotify — es un
+// secreto a nivel bot completo, no algo que un staff cualquiera deba poder tocar.
+// Cacheado en memoria: la propiedad de la app no cambia en la vida del proceso, no hace
+// falta consultarlo en cada pedido.
+let cachedOwnerId = null;
+
+export async function fetchApplicationOwnerId() {
+  if (cachedOwnerId) return cachedOwnerId;
+
+  const res = await fetch(`${API_BASE}/oauth2/applications/@me`, {
+    headers: { Authorization: `Bot ${config.discordToken}` },
+  });
+  if (!res.ok) throw new Error(`No se pudo consultar el dueño de la aplicación: ${res.status}`);
+
+  const data = await res.json();
+  cachedOwnerId = data.owner?.id || null;
+  return cachedOwnerId;
+}
+
 // Usa el token del BOT (no el del usuario logueado) — todo lo de acá para abajo son
 // datos que el bot ya puede ver por estar en el server, no requieren nada del usuario.
 // Un 429 se reintenta UNA vez respetando retry_after — es el mismo token que usa el bot

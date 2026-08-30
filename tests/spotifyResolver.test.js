@@ -8,6 +8,13 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 const configMock = { spotifyClientId: 'client-id', spotifyClientSecret: 'client-secret' };
 vi.mock('../src/config.js', () => ({ config: configMock }));
 
+// Por defecto, sin refresh token guardado -- todos los tests existentes de este archivo
+// ejercitan el camino de Client Credentials sin darse cuenta. Los tests de la sección
+// "Authorization Code Flow" de más abajo lo pisan explícitamente.
+const getSpotifyRefreshToken = vi.fn().mockResolvedValue(null);
+const saveSpotifyRefreshToken = vi.fn().mockResolvedValue(undefined);
+vi.mock('../src/utils/spotifyAuthStore.js', () => ({ getSpotifyRefreshToken, saveSpotifyRefreshToken }));
+
 const {
   isSpotifyUrl,
   resolveSpotifyInput,
@@ -28,8 +35,8 @@ function jsonResponse(status, body, headers = {}) {
   };
 }
 
-function tokenResponse(token = 'token-1', expiresIn = 3600) {
-  return jsonResponse(200, { access_token: token, expires_in: expiresIn });
+function tokenResponse(token = 'token-1', expiresIn = 3600, extra = {}) {
+  return jsonResponse(200, { access_token: token, expires_in: expiresIn, ...extra });
 }
 
 function fullTrack(overrides = {}) {
@@ -51,6 +58,8 @@ beforeEach(() => {
   _resetTokenCacheForTests();
   vi.stubGlobal('fetch', vi.fn());
   vi.useFakeTimers();
+  getSpotifyRefreshToken.mockReset().mockResolvedValue(null);
+  saveSpotifyRefreshToken.mockReset().mockResolvedValue(undefined);
 });
 
 describe('isSpotifyUrl — detección', () => {
@@ -316,5 +325,70 @@ describe('Authentication', () => {
     await expect(resolveSpotifyInput('https://open.spotify.com/track/a', { requestedBy: {}, maxTracks: 200 })).rejects.toThrow(
       /limitando las consultas/i,
     );
+  });
+});
+
+describe('Authorization Code Flow — refresh token guardado (autorización real del dueño)', () => {
+  it('con un refresh token guardado, lo usa en vez de Client Credentials', async () => {
+    getSpotifyRefreshToken.mockResolvedValue({ refreshToken: 'rt-1', authorizedBy: 'owner-1' });
+    fetch.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(jsonResponse(200, fullTrack()));
+
+    await resolveSpotifyInput('https://open.spotify.com/track/a', { requestedBy: {}, maxTracks: 200 });
+
+    const tokenCallBody = String(fetch.mock.calls[0][1].body);
+    expect(tokenCallBody).toContain('grant_type=refresh_token');
+    expect(tokenCallBody).toContain('refresh_token=rt-1');
+  });
+
+  it('esto es justo lo que permite listar una playlist -- una vez autorizado, resolvePlaylist funciona igual que con un track', async () => {
+    getSpotifyRefreshToken.mockResolvedValue({ refreshToken: 'rt-1', authorizedBy: 'owner-1' });
+    fetch
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(jsonResponse(200, { name: 'Mi playlist', public: true }))
+      .mockResolvedValueOnce(jsonResponse(200, { total: 1, items: [{ item: fullTrack() }], next: null }));
+
+    const result = await resolveSpotifyInput('https://open.spotify.com/playlist/xyz', { requestedBy: {}, maxTracks: 200 });
+    expect(result.tracks).toHaveLength(1);
+  });
+
+  it('si Spotify rota el refresh token en la respuesta, persiste el nuevo', async () => {
+    getSpotifyRefreshToken.mockResolvedValue({ refreshToken: 'rt-1', authorizedBy: 'owner-1' });
+    fetch.mockResolvedValueOnce(tokenResponse('tok', 3600, { refresh_token: 'rt-2' })).mockResolvedValueOnce(jsonResponse(200, fullTrack()));
+
+    await resolveSpotifyInput('https://open.spotify.com/track/a', { requestedBy: {}, maxTracks: 200 });
+
+    expect(saveSpotifyRefreshToken).toHaveBeenCalledWith('rt-2', 'owner-1');
+  });
+
+  it('si NO rota (misma respuesta de siempre), no llama a saveSpotifyRefreshToken de nuevo', async () => {
+    getSpotifyRefreshToken.mockResolvedValue({ refreshToken: 'rt-1', authorizedBy: 'owner-1' });
+    fetch.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(jsonResponse(200, fullTrack()));
+
+    await resolveSpotifyInput('https://open.spotify.com/track/a', { requestedBy: {}, maxTracks: 200 });
+
+    expect(saveSpotifyRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it('refresh token revocado/expirado: cae a Client Credentials en vez de crashear', async () => {
+    getSpotifyRefreshToken.mockResolvedValue({ refreshToken: 'rt-vencido', authorizedBy: 'owner-1' });
+    fetch
+      .mockResolvedValueOnce(jsonResponse(400, { error: 'invalid_grant' })) // intento con refresh_token falla
+      .mockResolvedValueOnce(tokenResponse()) // fallback a client_credentials
+      .mockResolvedValueOnce(jsonResponse(200, fullTrack()));
+
+    const result = await resolveSpotifyInput('https://open.spotify.com/track/a', { requestedBy: {}, maxTracks: 200 });
+
+    expect(result.tracks[0].title).toBe('Nightcall'); // no crasheó, terminó resolviendo igual
+    const secondCallBody = String(fetch.mock.calls[1][1].body);
+    expect(secondCallBody).toBe('grant_type=client_credentials');
+  });
+
+  it('sin refresh token guardado, usa Client Credentials directo (comportamiento de siempre)', async () => {
+    getSpotifyRefreshToken.mockResolvedValue(null);
+    fetch.mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(jsonResponse(200, fullTrack()));
+
+    await resolveSpotifyInput('https://open.spotify.com/track/a', { requestedBy: {}, maxTracks: 200 });
+
+    expect(String(fetch.mock.calls[0][1].body)).toBe('grant_type=client_credentials');
   });
 });
