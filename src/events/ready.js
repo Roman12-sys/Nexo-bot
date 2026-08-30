@@ -7,6 +7,7 @@ import { startVoiceXpLoop } from '../utils/voiceXpEngine.js';
 import { startLogPurgeLoop } from '../utils/logPurgeEngine.js';
 import { startLolPatchLoop } from '../utils/lolPatchEngine.js';
 import { startLolDdragonMonitorLoop } from '../utils/lolPatchMonitor.js';
+import { checkBinaryAvailable } from '../utils/musicSource.js';
 // Import de efecto (no se usa ningún export de acá): registra los handlers del Event
 // Engine que llenan guild_daily_stats en vivo — Fase 5. Sin este import nada garantiza
 // que el archivo se cargue, a diferencia de achievements.js/missionsStore.js, que ya
@@ -56,4 +57,17 @@ export async function execute(client) {
   // se rompió — nunca publica nada, solo deja un warning en consola. No necesita el
   // client porque no manda mensajes a Discord.
   startLolDdragonMonitorLoop();
+
+  // Chequeo de una sola vez: si yt-dlp no está disponible (binario ausente, o el
+  // problema de python3 documentado en .env.example), queda en los logs de Railway
+  // apenas arranca el proceso, en vez de que el primer indicio sea un usuario
+  // reportando que /play no funciona. No reprograma nada (a diferencia de sorteos/
+  // recordatorios/castigos) porque no hay ningún timer persistente que reconstruir acá.
+  checkBinaryAvailable().then(({ ok, version }) => {
+    if (!ok) {
+      console.error('❌ [música] yt-dlp no está disponible — /play va a fallar hasta que se resuelva (ver .env.example: YOUTUBE_DL_FILENAME).');
+    } else {
+      console.log(`✅ [música] yt-dlp disponible (${version}).`);
+    }
+  });
 }

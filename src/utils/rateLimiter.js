@@ -10,6 +10,9 @@
 const LIMITS = {
   light: { max: 20, windowMs: 10 * 1000 }, // comandos de diversión/acción sin costo real
   default: { max: 10, windowMs: 10 * 1000 },
+  // /play y /skip spawnean un proceso yt-dlp nuevo cada vez — un cupo más chico que
+  // 'default' para que nadie pueda hacer spam de procesos y comerse CPU/RAM.
+  music: { max: 6, windowMs: 10 * 1000 },
 };
 
 const hits = new Map(); // `${userId}:${category}` -> timestamps[] dentro de la ventana actual
