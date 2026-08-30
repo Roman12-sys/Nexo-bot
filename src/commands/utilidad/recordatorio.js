@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
-import { createReminder, getUserReminders, deleteReminder } from '../../utils/remindersStore.js';
+import { createReminder, getUserReminders, deleteReminder, getUserActiveReminderCount } from '../../utils/remindersStore.js';
 import { scheduleReminder, cancelReminder } from '../../utils/reminderEngine.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
@@ -43,6 +43,12 @@ function buildReminderRow(userId, clampedPage, totalPages) {
   );
 }
 
+// QUÉ CAMBIÓ: constante nueva REMINDER_LIMIT_PER_USER + chequeo en handleCrear.
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 22) — sin límite, un usuario
+// podía acumular recordatorios pendientes sin ningún tope.
+// VERIFICACIÓN: /recordatorio crear x10 anda bien, el 11º responde "❌ Ya tenés 10...".
+const REMINDER_LIMIT_PER_USER = 10;
+
 const MAX_DAYS = 30;
 const DURATION_REGEX = /^(\d+)\s*(m|min|minutos?|h|horas?|d|d[ií]as?)$/i;
 
@@ -82,6 +88,15 @@ async function handleCrear(interaction) {
   }
   if (delayMs > MAX_DAYS * 24 * 60 * 60 * 1000) {
     await interaction.reply({ content: `❌ El máximo es ${MAX_DAYS} días.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  const activeCount = await getUserActiveReminderCount(interaction.guildId, interaction.user.id);
+  if (activeCount >= REMINDER_LIMIT_PER_USER) {
+    await interaction.reply({
+      content: `❌ Ya tenés ${REMINDER_LIMIT_PER_USER} recordatorios activos. Cancelá alguno con \`/recordatorio cancelar\` antes de crear otro.`,
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 

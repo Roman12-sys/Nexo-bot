@@ -6,6 +6,7 @@ import { getGuildConfig } from '../utils/guildConfigStore.js';
 import { buildWelcomeImageAttachment } from '../utils/welcomeImage.js';
 import { BRAND_COLOR } from '../utils/embeds.js';
 import { checkMemberCountAchievements } from '../utils/guildAchievements.js';
+import { eventBus } from '../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Fase 5 (analytics)
 
 export const name = Events.GuildMemberAdd;
 export const once = false;
@@ -59,6 +60,8 @@ export async function execute(member, client) {
   }
 
   const cfg = await getGuildConfig(member.guild.id);
+
+  eventBus.emit('MEMBER_JOINED', { guildId: member.guild.id }).catch(() => {});
 
   await assignAutoRole(member, cfg.auto_role_id);
 

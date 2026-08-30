@@ -13,7 +13,7 @@ import { getUserEconomy, deductBalanceIfSufficient, incrementInventoryItem, addB
 import { extendXpBoost } from '../../utils/xpStore.js';
 import { createShopPurchaseLogEmbed } from '../../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
-import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
+import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 import { withLock } from '../../utils/asyncLock.js';
 
 const MIN_MYSTERY = 50;
@@ -96,7 +96,13 @@ export async function execute(interaction) {
       throw error;
     }
     await recordTransaction(guildId, userId, { type: 'purchase', amount: -item.price, balanceAfter: balanceAfterCharge, reason: item.name });
-    const firstPurchaseAchievement = unlockAchievement(guildId, userId, 'primera_compra');
+    // QUÉ CAMBIÓ: antes esta línea llamaba unlockAchievement() una sola vez acá arriba
+    // (la promesa se guardaba y se anunciaba recién en el branch que terminara
+    // ejecutándose). Migrado al Event Engine: como los 4 branches de abajo son
+    // mutuamente excluyentes (siempre se ejecuta exactamente uno), mover el chequeo al
+    // punto de salida en vez de al punto de entrada no cambia nada observable — sigue
+    // siendo exactamente un chequeo de logro por compra.
+    const checkFirstPurchaseAchievement = () => eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId, achievementId: 'primera_compra', interaction });
 
     // --- Caso especial: caja misteriosa (solo existe en el catálogo por defecto) ---
     // No se guarda en el inventario, se resuelve al instante con una recompensa al azar
@@ -113,7 +119,7 @@ export async function execute(interaction) {
       await interaction.editReply({
         content: `🎁 Abriste la caja misteriosa...\n${resultText}\nBalance actual: **${finalBalance.toLocaleString('es-ES')}**.`,
       });
-      await announceUnlockedAchievements(interaction, userId, [firstPurchaseAchievement]);
+      await checkFirstPurchaseAchievement();
       return;
     }
 
@@ -123,7 +129,7 @@ export async function execute(interaction) {
       await interaction.editReply({
         content: `⚡ ¡Impulso de XP activado! Ganás el doble de XP hasta <t:${Math.floor(until / 1000)}:f>.\nBalance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`,
       });
-      await announceUnlockedAchievements(interaction, userId, [firstPurchaseAchievement]);
+      await checkFirstPurchaseAchievement();
       return;
     }
 
@@ -133,7 +139,7 @@ export async function execute(interaction) {
       await interaction.editReply({
         content: `🛡️ ¡Escudo activado! Nadie puede robarte hasta <t:${Math.floor(until / 1000)}:f>.\nBalance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`,
       });
-      await announceUnlockedAchievements(interaction, userId, [firstPurchaseAchievement]);
+      await checkFirstPurchaseAchievement();
       return;
     }
 
@@ -166,6 +172,6 @@ export async function execute(interaction) {
     }
 
     await interaction.editReply({ content: confirmText });
-    await announceUnlockedAchievements(interaction, userId, [firstPurchaseAchievement]);
+    await checkFirstPurchaseAchievement();
   });
 }

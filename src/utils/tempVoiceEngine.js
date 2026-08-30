@@ -22,7 +22,7 @@ import {
 } from './tempVoicePanel.js';
 import { isStaff } from './permissions.js';
 import { withLock } from './asyncLock.js';
-import { unlockAchievement, buildAchievementUnlockedEmbed } from './achievements.js';
+import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 import { registerButtonPrefix } from '../components/buttons.js';
 import { registerSelectPrefix } from '../components/selects.js';
 import { registerModalPrefix } from '../components/modals.js';
@@ -278,10 +278,7 @@ async function createTempChannelForMember(newState, guildConfig) {
     });
     await newChannel.send({ embeds, components }).catch(() => {});
 
-    const achievement = await unlockAchievement(guild.id, member.id, 'anfitrion').catch(() => null);
-    if (achievement) {
-      await newChannel.send({ embeds: [buildAchievementUnlockedEmbed(member.user, achievement)] }).catch(() => {});
-    }
+    await eventBus.emit('ACHIEVEMENT_CHECK', { guildId: guild.id, userId: member.id, achievementId: 'anfitrion', channel: newChannel, user: member.user });
   } finally {
     creatingUsers.delete(lockKey);
   }

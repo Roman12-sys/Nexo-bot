@@ -5,6 +5,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { supabase } from '../supabaseClient.js';
 import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
+import { eventBus } from './eventBus.js';
 
 const TABLE = 'achievements_unlocked';
 
@@ -17,7 +18,10 @@ export const ACHIEVEMENTS = [
   { id: 'nivel_25', emoji: '💫', name: 'Leyenda', description: 'Llegaste al nivel 25.' },
   { id: 'sabelotodo', emoji: '🧠', name: 'Sabelotodo', description: 'Acumulaste 10 respuestas correctas en /trivia.' },
   { id: 'racha_perfecta', emoji: '🎯', name: 'Racha perfecta', description: 'Adivinaste el número de /guess al primer intento.' },
-  { id: 'querido', emoji: '❤️', name: 'Querido por la comunidad', description: 'Llegaste a 10 puntos de reputación.' },
+  // QUÉ CAMBIÓ: se sacó el logro 'querido' (disparado por reputación >= 10).
+  // MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 11) — reputación se eliminó
+  // por completo (cero consumidores reales, infraestructura sin ningún efecto de
+  // negocio). Su único disparador era este logro, así que se va junto con el sistema.
   { id: 'con_suerte', emoji: '🎉', name: 'Con suerte', description: 'Ganaste un /sorteo.' },
   { id: 'anfitrion', emoji: '🔊', name: 'Anfitrión', description: 'Creaste tu primera sala de voz temporal.' },
   { id: 'primera_compra', emoji: '🛍️', name: 'De compras', description: 'Compraste tu primer ítem en /shop.' },
@@ -78,6 +82,36 @@ export function buildAchievementUnlockedEmbed(user, achievement) {
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
+
+// QUÉ CAMBIÓ: handler centralizado nuevo, registrado en el Event Engine (eventBus.js).
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 7) — reemplaza los 11 call
+// sites que antes llamaban unlockAchievement()+announceUnlockedAchievements() a mano
+// (quedan migrados a `eventBus.emit('ACHIEVEMENT_CHECK', {...})`). unlockAchievement y
+// announceUnlockedAchievements siguen exportadas tal cual — este handler las reusa
+// internamente, no las reemplaza — y confession.js las sigue llamando directo (ver el
+// comentario en ese archivo: necesita el valor de retorno del logro para embeberlo en
+// el mismo reply ephemeral sin deanonimizar a nadie, algo que un bus fire-and-forget no
+// puede devolverle al caller).
+// Tres modos, según qué venga en el payload:
+//  - `interaction`: anuncia con un followUp de texto (mismo comportamiento que tenían
+//    /daily, /work, /trivia, /guess, /buy, /encuesta, /pet antes de migrar).
+//  - `channel` + `user` (sin interaction): manda el embed rico a ese canal — mismo
+//    patrón que ya usaban giveawayEngine.js (sorteos) y tempVoiceEngine.js (salas).
+//  - ninguno de los dos: desbloqueo silencioso, sin anunciar nada (mismo comportamiento
+//    que ya tenía giveawayEngine.js para el logro 'con_suerte' — no es un olvido, el
+//    código de antes tampoco lo anunciaba).
+// VERIFICACIÓN: ver la nota de verificación en eventBus.js.
+eventBus.on('ACHIEVEMENT_CHECK', async ({ guildId, userId, achievementId, interaction, channel, user }) => {
+  if (interaction) {
+    await announceUnlockedAchievements(interaction, userId, [unlockAchievement(guildId, userId, achievementId)]);
+    return;
+  }
+
+  const achievement = await unlockAchievement(guildId, userId, achievementId);
+  if (achievement && channel && user) {
+    await channel.send({ embeds: [buildAchievementUnlockedEmbed(user, achievement)] }).catch(() => {});
+  }
+});
 
 export function buildLogrosEmbed(targetUser, unlockedIds) {
   const embed = new EmbedBuilder()

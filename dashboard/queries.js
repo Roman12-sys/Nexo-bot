@@ -7,7 +7,11 @@ import { getTopCommands, getTotalUsage } from '../src/utils/commandUsageStore.js
 import { getUnlockedGuildAchievementIds } from '../src/utils/guildAchievements.js';
 import { getGuildGiveawaysForAutocomplete } from '../src/utils/giveawaysStore.js';
 import { getGuildTrivia } from '../src/utils/triviaStore.js';
-import { getGuildReputation } from '../src/utils/reputationStore.js';
+import { getGuildXp } from '../src/utils/xpStore.js';
+import { getGuildVoiceStatsSummary } from '../src/utils/tempVoiceStore.js';
+import { getGuildMissionCompletionSummary } from '../src/utils/missionsStore.js';
+import { getGuildDailyStats } from '../src/utils/guildDailyStatsStore.js';
+import { getLastAnnouncedPatchUrl, getLolPatchMonitorState } from '../src/utils/lolPatchStore.js';
 import { fetchGuild, fetchGuildMember, fetchGuildMembersWithRole, mapWithConcurrency } from './discordApi.js';
 import { isStaffFromRoles } from './permissions.js';
 
@@ -64,24 +68,60 @@ export async function checkGuildAccess(guildId, userId) {
 }
 
 export async function loadGuildDashboardData(guildId) {
-  // activeGiveaways/topTrivia/topReputation reusan los mismos stores que ya usan los
-  // comandos del bot (giveawaysStore/triviaStore/reputationStore) en vez de reimplementar
-  // la consulta acá — antes el dashboard no mostraba nada de sorteos, trivia ni
-  // reputación, a pesar de que la data ya existía.
-  const [topCommands, totalCommands, unlockedAchievementIds, topBalances, allBalances, recentWarns, totalWarns, activeGiveaways, topTrivia, topReputation, punishedInfo] =
-    await Promise.all([
-      getTopCommands(guildId, 5),
-      getTotalUsage(guildId),
-      getUnlockedGuildAchievementIds(guildId),
-      fetchTopBalances(guildId),
-      fetchAllBalances(guildId),
-      fetchRecentWarns(guildId),
-      fetchWarnCount(guildId),
-      getGuildGiveawaysForAutocomplete(guildId, false),
-      getGuildTrivia(guildId, { limit: 5 }),
-      getGuildReputation(guildId, { limit: 5 }),
-      fetchPunishedMembers(guildId),
-    ]);
+  // activeGiveaways/topTrivia reusan los mismos stores que ya usan los comandos del bot
+  // (giveawaysStore/triviaStore) en vez de reimplementar la consulta acá — antes el
+  // dashboard no mostraba nada de sorteos ni trivia, a pesar de que la data ya existía.
+  //
+  // QUÉ CAMBIÓ: se sacó topReputation (getGuildReputation) del Promise.all.
+  // MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 11) — reputación eliminada
+  // por completo, la tabla ya no existe.
+  //
+  // QUÉ CAMBIÓ (Fase 5): 6 fuentes nuevas — topXp/xpUserCount, voiceStats,
+  // topAchievers, lolConfig+lolState, dailyStats, missionSummary. Todas reusan stores
+  // que el bot ya tiene (xpStore, tempVoiceStore, missionsStore, guildDailyStatsStore,
+  // lolPatchStore) — mismo criterio que el resto de este archivo, nunca reimplementar
+  // una consulta que ya existe del lado del bot.
+  const [
+    topCommands,
+    totalCommands,
+    unlockedAchievementIds,
+    topBalances,
+    allBalances,
+    recentWarns,
+    totalWarns,
+    activeGiveaways,
+    topTrivia,
+    punishedInfo,
+    topXpRaw,
+    xpUserCount,
+    voiceStats,
+    topAchievers,
+    lolConfig,
+    lolLastUrl,
+    lolMonitorState,
+    dailyStats,
+    missionSummary,
+  ] = await Promise.all([
+    getTopCommands(guildId, 5),
+    getTotalUsage(guildId),
+    getUnlockedGuildAchievementIds(guildId),
+    fetchTopBalances(guildId),
+    fetchAllBalances(guildId),
+    fetchRecentWarns(guildId),
+    fetchWarnCount(guildId),
+    getGuildGiveawaysForAutocomplete(guildId, false),
+    getGuildTrivia(guildId, { limit: 5 }),
+    fetchPunishedMembers(guildId),
+    getGuildXp(guildId, { limit: 10 }),
+    fetchXpUserCount(guildId),
+    getGuildVoiceStatsSummary(guildId),
+    fetchTopAchievers(guildId),
+    fetchLolChannelId(guildId),
+    getLastAnnouncedPatchUrl(),
+    getLolPatchMonitorState(),
+    getGuildDailyStats(guildId, 7),
+    getGuildMissionCompletionSummary(guildId),
+  ]);
 
   return {
     topCommands,
@@ -93,9 +133,17 @@ export async function loadGuildDashboardData(guildId) {
     totalWarns,
     activeGiveaways,
     topTrivia: topTrivia.filter((row) => row.points > 0),
-    topReputation: topReputation.filter((row) => row.total > 0),
     punishedMembers: punishedInfo.members,
     punishedPossiblyIncomplete: punishedInfo.possiblyIncomplete,
+    topXp: topXpRaw.filter((row) => row.xp > 0),
+    xpUserCount,
+    voiceStats,
+    topAchievers,
+    lolChannelId: lolConfig,
+    lolLastUrl,
+    lolLastAnnouncedAt: lolMonitorState.patchEngineUpdatedAt,
+    dailyStats,
+    missionSummary,
   };
 }
 
@@ -144,4 +192,32 @@ async function fetchWarnCount(guildId) {
   const { count, error } = await supabase.from('warnings').select('id', { count: 'exact', head: true }).eq('guild_id', guildId);
   if (error) throw error;
   return count ?? 0;
+}
+
+async function fetchXpUserCount(guildId) {
+  const { count, error } = await supabase.from('xp').select('user_id', { count: 'exact', head: true }).eq('guild_id', guildId).gt('xp', 0);
+  if (error) throw error;
+  return count ?? 0;
+}
+
+// Top-5 usuarios por cantidad de logros desbloqueados — achievements_unlocked es una
+// fila por logro (no pre-agregada), así que se cuenta en JS sobre las filas del guild,
+// mismo patrón que getGuildFrequentReasons en moderationActionsStore.js.
+async function fetchTopAchievers(guildId) {
+  const { data, error } = await supabase.from('achievements_unlocked').select('user_id').eq('guild_id', guildId);
+  if (error) throw error;
+
+  const counts = new Map();
+  for (const row of data || []) counts.set(row.user_id, (counts.get(row.user_id) || 0) + 1);
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([userId, count]) => ({ userId, count }));
+}
+
+async function fetchLolChannelId(guildId) {
+  const { data, error } = await supabase.from('guild_config').select('lol_announce_channel_id').eq('guild_id', guildId).maybeSingle();
+  if (error) throw error;
+  return data?.lol_announce_channel_id ?? null;
 }

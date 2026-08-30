@@ -1,7 +1,7 @@
 import { getActiveGiveaways, getGiveaway, updateGiveaway } from './giveawaysStore.js';
 import { createGiveawayEmbed } from './embeds.js';
 import { withLock } from './asyncLock.js';
-import { unlockAchievement } from './achievements.js';
+import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 
 // Elige "count" ganadores al azar de la lista de participantes, sin repetir a nadie
 export function pickWinners(participants, count) {
@@ -44,7 +44,7 @@ export async function endGiveaway(client, guildId, messageId) {
         .send({ content: `🎉 ¡Felicidades ${winners.map((id) => `<@${id}>`).join(', ')}! Ganaste **${giveaway.prize}**` })
         .catch(() => {});
       for (const winnerId of winners) {
-        await unlockAchievement(guildId, winnerId, 'con_suerte').catch(() => {});
+        await eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId: winnerId, achievementId: 'con_suerte' });
       }
     } else {
       await channel.send({ content: `😢 Nadie participó en el sorteo de **${giveaway.prize}**, no hubo ganadores.` }).catch(() => {});

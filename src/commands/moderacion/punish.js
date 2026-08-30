@@ -5,12 +5,31 @@ import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { describeError } from '../../utils/errorMessages.js';
 import { recordModerationAction, getGuildFrequentReasons } from '../../utils/moderationActionsStore.js';
+import { createActivePunishment } from '../../utils/punishStore.js';
+import { schedulePunishExpiry } from '../../utils/punishEngine.js';
+
+// QUÉ CAMBIÓ: opción `duracion` nueva (opcional) + DURATION_MS + lógica de scheduling
+// más abajo en execute().
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 22) — /punish no tenía
+// expiración automática, a diferencia de /timeout. Sin la opción (comportamiento
+// exactamente igual que antes): la restricción queda indefinida/manual, sin ninguna
+// fila nueva en Supabase.
+// VERIFICACIÓN: /punish sin `duracion` se comporta idéntico a antes. /punish con
+// duracion:1h crea la fila en active_punishments y el rol se cae solo pasada 1 hora.
+const DURATION_MS = { '1h': 60 * 60 * 1000, '6h': 6 * 60 * 60 * 1000, '1d': 24 * 60 * 60 * 1000, '7d': 7 * 24 * 60 * 60 * 1000 };
 
 export const data = new SlashCommandBuilder()
   .setName('punish')
   .setDescription('Restringe a un usuario para que no pueda enviar imágenes ni enlaces.')
   .addUserOption((o) => o.setName('usuario').setDescription('Usuario').setRequired(true))
   .addStringOption((o) => o.setName('motivo').setDescription('Motivo').setRequired(false).setMaxLength(512).setAutocomplete(true))
+  .addStringOption((o) =>
+    o
+      .setName('duracion')
+      .setDescription('Se quita sola después de este tiempo (sin elegir, queda indefinida hasta /unpunish)')
+      .setRequired(false)
+      .addChoices({ name: '1 hora', value: '1h' }, { name: '6 horas', value: '6h' }, { name: '1 día', value: '1d' }, { name: '7 días', value: '7d' }),
+  )
   .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
 
@@ -35,6 +54,8 @@ export async function execute(interaction) {
 
   const targetUser = interaction.options.getUser('usuario');
   const motivo = interaction.options.getString('motivo') || 'Sin motivo especificado';
+  const duracion = interaction.options.getString('duracion');
+  const durationMs = duracion ? DURATION_MS[duracion] : null;
 
   try {
     const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
@@ -65,7 +86,16 @@ export async function execute(interaction) {
     }
 
     await member.roles.add(cfg.punish_role_id, motivo);
-    await interaction.reply({ content: `🚫 ${targetUser.tag} ya no puede enviar imágenes ni enlaces.` });
+
+    let expiresAt = null;
+    if (durationMs) {
+      expiresAt = Date.now() + durationMs;
+      await createActivePunishment(interaction.guildId, targetUser.id, cfg.punish_role_id, expiresAt);
+      schedulePunishExpiry(interaction.client, { guildId: interaction.guildId, userId: targetUser.id, roleId: cfg.punish_role_id, expiresAt });
+    }
+
+    const expiryText = expiresAt ? ` Se le quita sola <t:${Math.floor(expiresAt / 1000)}:R>.` : '';
+    await interaction.reply({ content: `🚫 ${targetUser.tag} ya no puede enviar imágenes ni enlaces.${expiryText}` });
 
     // Try/catch propio: la restricción ya se aplicó y ya se confirmó — un log fallido
     // no debe mostrarle un error al staff (lo llevaría a reintentar una ya aplicada).

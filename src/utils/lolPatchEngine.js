@@ -1,6 +1,12 @@
-// Anuncia patch notes nuevos de League of Legends en un canal fijo de un servidor
-// puntual — no es una feature multi-tenant de guild_config, el usuario pidió un canal
-// específico (mismo criterio que la presencia fija de ready.js, ver CLAUDE.md).
+// QUÉ CAMBIÓ: ANNOUNCE_CHANNEL_ID hardcodeado → barrido sobre guild_config.
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 15) — "si la intención es que
+// LoL sea un diferencial DENTRO de un bot general, tiene que poder prenderse por guild,
+// igual que cualquier otro módulo". El estado de "qué patch fue el último anunciado"
+// (lol_patch_state, ver lolPatchStore.js) sigue siendo UNA sola fila global a
+// propósito — es el mismo patch para todo el mundo, lo único que cambia por servidor
+// es A QUIÉN se le manda el aviso.
+// VERIFICACIÓN: en un guild con /config canal-lol configurado, el próximo patch nuevo
+// llega a ese canal. En un guild sin configurar, no llega nada (ni error en consola).
 //
 // Riot no tiene una API pública de patch notes. Esto lee el JSON __NEXT_DATA__
 // embebido en la página de tags/patch-notes de leagueoflegends.com (el mismo dato que
@@ -9,8 +15,8 @@
 // devolver null y el barrido queda en no-op silencioso (logueado), nunca tira el bot.
 import { EmbedBuilder } from 'discord.js';
 import { getLastAnnouncedPatchUrl, setLastAnnouncedPatchUrl } from './lolPatchStore.js';
+import { getGuildsWithLolAnnounceChannel } from './guildConfigStore.js';
 
-const ANNOUNCE_CHANNEL_ID = '1542041482918109235';
 const PATCH_NOTES_TAG_URL = 'https://www.leagueoflegends.com/en-us/news/tags/patch-notes/';
 const SITE_ORIGIN = 'https://www.leagueoflegends.com';
 const TICK_MS = 20 * 60 * 1000; // los patches no salen más seguido que esto, no hace falta más agresivo
@@ -83,15 +89,24 @@ async function checkForNewPatch(client) {
     return;
   }
 
-  const channel = await client.channels.fetch(ANNOUNCE_CHANNEL_ID).catch(() => null);
-  if (!channel) {
-    console.error(`❌ [patch notes LoL] No se pudo resolver el canal ${ANNOUNCE_CHANNEL_ID}`);
-    return;
+  const targets = await getGuildsWithLolAnnounceChannel();
+  const embed = buildPatchEmbed(article);
+
+  // Un servidor con el canal mal configurado (borrado, sin permisos) no debe impedir
+  // que el resto reciba el aviso — mismo criterio que guildDelete.js con Promise.allSettled,
+  // pero acá alcanza un for-of con catch por iteración porque el volumen es bajo
+  // (un aviso cada 20 min como mucho, no un hot path).
+  for (const { guildId, channelId } of targets) {
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel) {
+      console.error(`❌ [patch notes LoL] No se pudo resolver el canal ${channelId} del guild ${guildId}`);
+      continue;
+    }
+    await channel.send({ embeds: [embed] }).catch((error) => console.error(`❌ [patch notes LoL] Error enviando al guild ${guildId}:`, error));
   }
 
-  await channel.send({ embeds: [buildPatchEmbed(article)] });
   await setLastAnnouncedPatchUrl(article.url);
-  console.log(`🎮 [patch notes LoL] Anunciado: ${article.title}`);
+  console.log(`🎮 [patch notes LoL] Anunciado a ${targets.length} servidor(es): ${article.title}`);
 }
 
 export function startLolPatchLoop(client) {

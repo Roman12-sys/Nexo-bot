@@ -81,6 +81,10 @@ export function buildModeracionEmbed() {
       { name: '/timeout <usuario> <duración>', value: 'Silencia temporalmente a un usuario.' },
       { name: '/say <mensaje>', value: 'El bot manda un mensaje por vos en el canal actual.' },
       { name: '/voice setup/config/disable/admin', value: 'Configura el sistema de salas de voz temporales (Join to Create) y administra las salas activas.' },
+      {
+        name: '🔐 Detección de secretos (automática, sin comando)',
+        value: 'El bot borra solo cualquier mensaje que parezca un token de Discord, API key, JWT o línea de `.env` pegada por error, y avisa por DM a quien lo mandó para que lo rote.',
+      },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -164,6 +168,14 @@ export function buildBotEmbed() {
     .addFields(
       { name: '/estado', value: 'Salud técnica: latencia del gateway, conexión a Supabase, sorteos y salas de voz temporales activas en este servidor.' },
       { name: '/metricas', value: 'Los comandos más usados de este servidor y cuántas veces se usaron en total.' },
+      {
+        name: '🔍 Auditoría de configuración (automática, sin comando)',
+        value: 'Cada cambio hecho con `/setup` o `/config` queda registrado en el canal de logs de actividad — quién lo cambió y qué. No solo se audita a los usuarios, también al propio bot.',
+      },
+      {
+        name: '🎮 Patch notes de League of Legends (opcional)',
+        value: 'Activalo con `/config canal-lol` — el bot avisa solo en ese canal cada vez que sale un patch nuevo, con un monitor aparte que detecta si el scraper se rompió. Apagado por defecto, no afecta a servidores que no lo usen.',
+      },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();

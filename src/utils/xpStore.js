@@ -6,6 +6,7 @@
 // Cualquier caller tiene que hacer `await`. La curva de niveles (xpRequiredForLevel,
 // getLevelProgress, totalXpForLevel) sigue siendo pura/sync — no hace I/O, no cambia.
 import { supabase } from '../supabaseClient.js';
+import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7/Fase 3
 
 const TABLE = 'xp';
 
@@ -135,6 +136,12 @@ export function totalXpForLevel(level) {
 // peor caso queda un instante desactualizado hasta el próximo cambio de XP, nunca se
 // pierde XP real. No se duplicó la fórmula de niveles en SQL a propósito: xpStore.js
 // sigue siendo la única fuente de verdad de la curva de niveles.
+// QUÉ CAMBIÓ: emite XP_GAINED cuando amount > 0, con `source: extra.source` si el
+// caller lo pasó (grantMessageXp pasa 'message' — ver más abajo; el resto de los
+// callers, como /xp de staff, voz o trivia, no lo pasan, así que source queda undefined
+// y no matchea ningún handler que filtre por 'message').
+// MOTIVO: auditoría 2026-08-29 (Fase 3, misiones) — mismo criterio que addBalance en
+// economyStore.js: un solo primitivo centralizado en vez de tocar cada fuente de XP.
 export async function addXp(guildId, userId, amount, extra = {}) {
   const { data: newTotal, error } = await supabase.rpc('increment_xp', {
     p_guild_id: guildId,
@@ -159,6 +166,8 @@ export async function addXp(guildId, userId, amount, extra = {}) {
     .select('xp, level, last_xp_ts, last_content')
     .single();
   if (updateError) throw updateError;
+
+  if (amount > 0) await eventBus.emit('XP_GAINED', { guildId, userId, amount, source: extra.source });
 
   return {
     record: rowToRecord(row),
@@ -214,7 +223,7 @@ export async function grantMessageXp(guildId, userId, content, externalMultiplie
   const multiplier = (boostActive ? XP_BOOST_MULTIPLIER : 1) * externalMultiplier;
   const base = Math.floor(Math.random() * (XP_MAX_PER_MESSAGE - XP_MIN_PER_MESSAGE + 1)) + XP_MIN_PER_MESSAGE;
   const gained = Math.floor(base * multiplier);
-  return addXp(guildId, userId, gained, { lastXpTs: now, lastContent: trimmed });
+  return addXp(guildId, userId, gained, { lastXpTs: now, lastContent: trimmed, source: 'message' });
 }
 
 // Ítem de tienda type:'xp_boost' (ver buy.js) — extiende (no reemplaza) el impulso: si ya

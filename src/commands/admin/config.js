@@ -109,6 +109,12 @@ export const data = new SlashCommandBuilder()
       .setDescription('Ese canal vuelve a dar XP por mensajes normalmente.')
       .addChannelOption((o) => o.setName('canal').setDescription('Canal a permitir de nuevo').setRequired(true)),
   )
+  .addSubcommand((sub) =>
+    sub
+      .setName('canal-lol')
+      .setDescription('Canal donde se avisan los patch notes de League of Legends (opcional, apagado por defecto).')
+      .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para desactivar)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
+  )
   .addSubcommand((sub) => sub.setName('ver').setDescription('Muestra la configuración actual de estos campos.'))
   .addSubcommand((sub) => sub.setName('exportar').setDescription('Descarga la configuración actual como JSON (respaldo, o para clonarla a otro servidor).'))
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
@@ -256,6 +262,14 @@ export async function execute(interaction) {
     return;
   }
 
+  if (sub === 'canal-lol') {
+    const canal = interaction.options.getChannel('canal');
+    await setGuildConfig(guildId, { lol_announce_channel_id: canal?.id ?? null });
+    await interaction.reply({ content: canal ? `✅ Patch notes de LoL configurados en ${canal}.` : '✅ Avisos de patch notes de LoL desactivados.', flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, canal ? `🎮 Canal de patch notes de LoL → ${canal}` : '🎮 Canal de patch notes de LoL desactivado');
+    return;
+  }
+
   if (sub === 'ver') {
     await interaction.reply({ embeds: [await buildConfigSummaryEmbed(guildId)], flags: MessageFlags.Ephemeral });
     return;
@@ -296,7 +310,6 @@ export async function buildConfigSummaryEmbed(guildId) {
       { name: '📋 Log de actividad', value: channel(cfg.log_channel_activity_id), inline: true },
       { name: '📋 Log de economía', value: channel(cfg.log_channel_economy_id), inline: true },
       { name: '🧩 Moderación', value: toggle(features.moderacion), inline: true },
-      { name: '🧩 Economía', value: toggle(features.economia), inline: true },
       { name: '🧩 XP', value: toggle(features.xp), inline: true },
       { name: '✨ Roles de nivel', value: levelRolesCount > 0 ? `${levelRolesCount} configurado(s) (modo: ${cfg.level_roles_mode})` : '— sin configurar', inline: true },
       { name: '📣 Anuncio de nivel', value: channel(cfg.xp_announce_channel_id), inline: true },
@@ -308,6 +321,7 @@ export async function buildConfigSummaryEmbed(guildId) {
       { name: '🤫 Canal de confesiones', value: channel(cfg.confession_channel_id), inline: true },
       { name: '🕵️ Revisión previa de confesiones', value: toggle(cfg.confession_require_approval), inline: true },
       { name: '🚷 Usuarios bloqueados de /confession', value: `${(cfg.confession_blocked_ids || []).length}`, inline: true },
+      { name: '🎮 Canal de patch notes de LoL', value: channel(cfg.lol_announce_channel_id), inline: true },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();

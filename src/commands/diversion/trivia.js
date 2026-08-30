@@ -13,10 +13,30 @@ import {
   POINTS_PER_CORRECT,
 } from '../../utils/triviaStore.js';
 import { withLock } from '../../utils/asyncLock.js';
-import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
+import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 import { registerButtonPrefix } from '../../components/buttons.js';
+import { addBalance } from '../../utils/economyStore.js';
+import { addXp } from '../../utils/xpStore.js';
+import { processLevelUp } from '../../utils/xpEngine.js';
+import { getGuildConfig } from '../../utils/guildConfigStore.js';
 
 const LETTERS = ['🇦', '🇧', '🇨', '🇩'];
+
+// QUÉ CAMBIÓ: trivia ahora da monedas y XP por respuesta correcta, no solo puntos
+// propios de trivia (que se mantienen igual que siempre, ver POINTS_PER_CORRECT).
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 5) — trivia era una isla:
+// tenía su propio sistema de puntos sin ningún cruce con economía o XP. Montos bajos
+// a propósito (comparar contra /work: 50-150, o XP por mensaje: 15-25) para no
+// convertir trivia en la forma más eficiente de progresar — sigue siendo un extra, no
+// un reemplazo de /work ni de chatear.
+// VERIFICACIÓN: responder correcto en /trivia sube el balance (/balance) y la XP
+// (/nivel) del usuario, salvo que el servidor tenga el módulo de XP apagado
+// (guild_config.features.xp) — ahí solo suben monedas y puntos de trivia, igual que
+// messageCreate.js respeta ese mismo toggle para XP por mensaje.
+const MIN_TRIVIA_XP = 5;
+const MAX_TRIVIA_XP = 10;
+const MIN_TRIVIA_COINS = 10;
+const MAX_TRIVIA_COINS = 25;
 
 async function handleJugar(interaction) {
   const guildId = interaction.guild.id;
@@ -204,15 +224,36 @@ registerButtonPrefix('trivia_', async (interaction) => {
   const record = await withLock(sessionKey, () => recordAnswer(interaction.guild.id, interaction.user.id, questionId, isCorrect));
 
   if (isCorrect) {
+    // Evento propio (no XP_GAINED con source:'trivia'): si el server tiene el módulo de
+    // XP apagado, addXp ni se llama más abajo — la misión "respondé trivia" no debería
+    // depender de un toggle que no tiene nada que ver con ella.
+    await eventBus.emit('TRIVIA_CORRECT', { guildId: interaction.guild.id, userId: interaction.user.id });
+
+    const coinsGained = Math.floor(Math.random() * (MAX_TRIVIA_COINS - MIN_TRIVIA_COINS + 1)) + MIN_TRIVIA_COINS;
+    const xpGained = Math.floor(Math.random() * (MAX_TRIVIA_XP - MIN_TRIVIA_XP + 1)) + MIN_TRIVIA_XP;
+
+    const cfg = await getGuildConfig(interaction.guild.id);
+    const [, xpResult] = await Promise.all([
+      addBalance(interaction.guild.id, interaction.user.id, coinsGained, { type: 'trivia', reason: 'Respuesta correcta en /trivia' }),
+      cfg.features?.xp ? addXp(interaction.guild.id, interaction.user.id, xpGained) : Promise.resolve(null),
+    ]);
+
+    const xpLine = xpResult ? ` y **${xpGained}** XP` : '';
     await interaction.followUp({
-      content: `✅ ¡Correcto! Ganaste **${POINTS_PER_CORRECT}** puntos de trivia. Total: **${record.points}** (${record.correct}/${record.answered} correctas).`,
+      content: `✅ ¡Correcto! Ganaste **${POINTS_PER_CORRECT}** puntos de trivia, **${coinsGained}** monedas${xpLine}. Total: **${record.points}** puntos de trivia (${record.correct}/${record.answered} correctas).`,
       flags: MessageFlags.Ephemeral,
     });
 
+    if (xpResult?.leveledUp) {
+      await processLevelUp(
+        interaction.member,
+        { previousLevel: xpResult.previousLevel, newLevel: xpResult.newLevel, totalXp: xpResult.record.xp },
+        interaction.client,
+      ).catch((error) => console.error('❌ Error procesando subida de nivel (trivia):', error));
+    }
+
     if (record.correct >= 10) {
-      await announceUnlockedAchievements(interaction, interaction.user.id, [
-        unlockAchievement(interaction.guild.id, interaction.user.id, 'sabelotodo'),
-      ]);
+      await eventBus.emit('ACHIEVEMENT_CHECK', { guildId: interaction.guild.id, userId: interaction.user.id, achievementId: 'sabelotodo', interaction });
     }
   } else {
     await interaction.followUp({

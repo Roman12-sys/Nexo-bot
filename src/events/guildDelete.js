@@ -3,6 +3,9 @@
 // pets, etc.) quedaban huérfanas para siempre: nada las borraba nunca. Auditoría
 // 2026-08-27 encontró que el bot solo tenía guildCreate.js, nunca su contraparte.
 //
+// QUÉ CAMBIÓ: se sacó 'reputation' de GUILD_SCOPED_TABLES (la tabla ya no existe).
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 11) — reputación eliminada.
+//
 // reminders y lol_patch_state quedan afuera a propósito:
 // - reminders: se entregan por DM, guild_id es solo referencia de dónde se creó (ver
 //   comentario en schema.sql) — no tiene sentido cancelar un recordatorio pendiente de
@@ -24,7 +27,6 @@ const GUILD_SCOPED_TABLES = [
   'giveaways',
   'giveaway_entries',
   'trivia_user_stats',
-  'reputation',
   'achievements_unlocked',
   'guild_achievements_unlocked',
   'confession_counters',

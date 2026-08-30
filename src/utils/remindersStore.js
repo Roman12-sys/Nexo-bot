@@ -55,6 +55,23 @@ export async function getAllReminders() {
   return (data || []).map(rowToReminder);
 }
 
+// QUÉ CAMBIÓ: función nueva, usada por recordatorio.js para poner un tope a cuántos
+// recordatorios pendientes puede acumular un mismo usuario.
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 22) — createReminder no
+// chequeaba cantidad, un usuario podía acumular recordatorios sin ningún límite (cada
+// uno hasta 30 días, generando su propio setTimeout en memoria sin techo).
+// VERIFICACIÓN: crear 10 recordatorios y confirmar que el 11º se rechaza.
+export async function getUserActiveReminderCount(guildId, userId) {
+  const { count, error } = await supabase
+    .from(TABLE)
+    .select('id', { count: 'exact', head: true })
+    .eq('guild_id', guildId)
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  return count ?? 0;
+}
+
 export async function deleteReminder(id) {
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;

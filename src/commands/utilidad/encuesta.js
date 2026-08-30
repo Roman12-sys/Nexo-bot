@@ -2,7 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, But
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
-import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
+import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 
 const NUMBER_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 const ALL_POLL_EMOJIS = [...NUMBER_EMOJIS, '👍', '👎'];
@@ -48,9 +48,7 @@ export async function execute(interaction) {
     await message.react(emoji).catch(() => {});
   }
 
-  await announceUnlockedAchievements(interaction, interaction.user.id, [
-    unlockAchievement(interaction.guildId, interaction.user.id, 'primera_encuesta'),
-  ]);
+  await eventBus.emit('ACHIEVEMENT_CHECK', { guildId: interaction.guildId, userId: interaction.user.id, achievementId: 'primera_encuesta', interaction });
 }
 
 // Antes no había forma de cerrar una encuesta y ver el resultado final — quedaba para

@@ -2,7 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, setDailyClaim } from '../../utils/economyStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
-import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
+import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 
 export const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const MIN_REWARD = 100;
@@ -86,8 +86,6 @@ export async function execute(interaction) {
 
   await interaction.editReply({ embeds: [embed] });
 
-  await announceUnlockedAchievements(interaction, userId, [
-    isFirstDaily ? unlockAchievement(guildId, userId, 'primera_moneda') : null,
-    newBalance >= 10000 ? unlockAchievement(guildId, userId, 'millonario') : null,
-  ]);
+  if (isFirstDaily) await eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId, achievementId: 'primera_moneda', interaction });
+  if (newBalance >= 10000) await eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId, achievementId: 'millonario', interaction });
 }

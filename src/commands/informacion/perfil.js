@@ -2,7 +2,6 @@ import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, But
 import { getUserXp, getLevelProgress, getRank } from '../../utils/xpStore.js';
 import { getUserEconomy } from '../../utils/economyStore.js';
 import { getUserTrivia, getPlayStatus } from '../../utils/triviaStore.js';
-import { getUserReputation } from '../../utils/reputationStore.js';
 import { getUserWarns } from '../../utils/warnsStore.js';
 import { getUserWinCount } from '../../utils/giveawaysStore.js';
 import { getUserReminders } from '../../utils/remindersStore.js';
@@ -25,15 +24,14 @@ function cooldownLine(label, lastTimestamp, cooldownMs) {
 // etc.) queda atrás del botón "📊 Estadísticas" para no convertir esto en una pared de texto.
 async function buildPerfilEmbed(guild, targetUser, member) {
   const guildId = guild.id;
-  // Las 8 lecturas son independientes entre sí — en paralelo en vez de una por una
-  // ahorra la suma de las 8 latencias de red y deja solo la del más lento.
-  const [xp, rank, economy, trivia, triviaStatus, reputation, warns, wins, achievements] = await Promise.all([
+  // QUÉ CAMBIÓ: se sacó getUserReputation del Promise.all (7 lecturas en vez de 8).
+  // MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 11) — reputación eliminada.
+  const [xp, rank, economy, trivia, triviaStatus, warns, wins, achievements] = await Promise.all([
     getUserXp(guildId, targetUser.id),
     getRank(guildId, targetUser.id),
     getUserEconomy(guildId, targetUser.id),
     getUserTrivia(guildId, targetUser.id),
     getPlayStatus(guildId, targetUser.id),
-    getUserReputation(guildId, targetUser.id),
     getUserWarns(guildId, targetUser.id),
     getUserWinCount(guildId, targetUser.id),
     getUnlockedAchievementIds(guildId, targetUser.id),
@@ -67,7 +65,6 @@ async function buildPerfilEmbed(guild, targetUser, member) {
       { name: '💰 Balance', value: `${economy.balance.toLocaleString('es-ES')} monedas`, inline: true },
       { name: '📈 Progreso de nivel', value: `${buildProgressBar(progress.currentLevelXp, progress.xpForNextLevel)} ${pct}%` },
       { name: '🧠 Trivia', value: `${trivia.points} puntos`, inline: true },
-      { name: '❤️ Reputación', value: `${reputation.total}`, inline: true },
       { name: '🏅 Logros', value: `${achievements.size}/${ACHIEVEMENTS.length}`, inline: true },
       {
         name: '⏳ Al día',
@@ -100,10 +97,9 @@ function buildPerfilRow(targetUserId) {
 }
 
 async function buildStatsEmbed(guildId, targetUser) {
-  const [xp, trivia, reputation, warns, wins] = await Promise.all([
+  const [xp, trivia, warns, wins] = await Promise.all([
     getUserXp(guildId, targetUser.id),
     getUserTrivia(guildId, targetUser.id),
-    getUserReputation(guildId, targetUser.id),
     getUserWarns(guildId, targetUser.id),
     getUserWinCount(guildId, targetUser.id),
   ]);
@@ -118,7 +114,6 @@ async function buildStatsEmbed(guildId, targetUser) {
       { name: '⭐ Nivel', value: `${progress.level}`, inline: true },
       { name: '✨ XP total', value: `${progress.totalXp.toLocaleString('es-ES')}`, inline: true },
       { name: '🧠 Trivia', value: `${trivia.correct}/${trivia.answered} correctas (${ratio}%)`, inline: true },
-      { name: '❤️ Reputación', value: `${reputation.total}`, inline: true },
       { name: '⚠️ Warns activos', value: `${warns.length}`, inline: true },
       { name: '🎉 Sorteos ganados', value: `${wins}`, inline: true },
       { name: '📅 Cuenta creada', value: `<t:${accountCreated}:D>`, inline: true },

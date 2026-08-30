@@ -7,6 +7,8 @@ import { detectSecret } from '../utils/secretDetector.js';
 import { createSecretLeakLogEmbed, createPunishFilterLogEmbed, createAntiSpamLogEmbed } from '../utils/logEmbeds.js';
 import { getAfk, clearAfk } from '../utils/afkStore.js';
 import { detectSpam, SPAM_REASON_LABELS } from '../utils/spamDetector.js';
+import { isStaffFromRoleIds } from '../utils/permissions.js';
+import { eventBus } from '../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Fase 5 (analytics)
 
 const URL_REGEX = /https?:\/\/\S+|www\.\S+/i;
 const SPAM_TIMEOUT_MS = 5 * 60 * 1000;
@@ -18,6 +20,11 @@ export async function execute(message, client) {
   try {
     if (message.author.bot) return;
     if (!message.guild) return;
+
+    // Analítica del dashboard (Fase 5) — cuenta TODO mensaje real, independiente de si
+    // termina dando XP o siendo borrado por spam/secreto: es una métrica de actividad,
+    // no de elegibilidad de XP (esa la sigue filtrando grantMessageXp más abajo).
+    eventBus.emit('MESSAGE_SENT', { guildId: message.guild.id }).catch(() => {});
 
     // --- PARTE 0: secretos/tokens expuestos (máxima prioridad, corta el resto) ---
 
@@ -76,10 +83,10 @@ export async function execute(message, client) {
     // --- PARTE 2: auto-moderación de spam (flood, contenido repetido, menciones masivas) ---
 
     if (cfg.features?.moderacion && member) {
-      const isStaffMember = Boolean(
-        (cfg.admin_role_id && member.roles.cache.has(cfg.admin_role_id)) ||
-          (cfg.moderator_role_id && member.roles.cache.has(cfg.moderator_role_id)),
-      );
+      // QUÉ CAMBIÓ: reusa isStaffFromRoleIds (src/utils/permissions.js) en vez de
+      // reimplementar la misma regla acá — era la tercera copia de esta lógica en el
+      // repo (bot, dashboard, y esta). Ver Fase 5, Cambio 5.1.
+      const isStaffMember = isStaffFromRoleIds(cfg, [...member.roles.cache.keys()]);
 
       const spamReason = isStaffMember ? null : detectSpam(message);
       if (spamReason) {

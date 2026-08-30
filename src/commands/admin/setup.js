@@ -19,32 +19,35 @@ import { registerSelectPrefix } from '../../components/selects.js';
 const CATEGORY_NAME = 'Nexo Bot';
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutos
 
+// QUÉ CAMBIÓ: se sacó el toggle "Economía" (y la clave `economia` de todos los
+// estados). La plantilla "Gaming / Clan" quedó fusionada con "Comunidad" — sin ese
+// toggle, ambas producían exactamente el mismo estado (moderación+XP activados), tener
+// dos botones que hacían lo mismo con distinto texto era peor que tener uno solo.
+// MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 22) — features.economia nunca
+// gateaba ningún comando de economía (/daily, /work, etc. siempre estuvieron activos
+// sin importar este toggle); su único efecto real era decidir si /setup creaba el
+// canal de logs de economía, ahora eso lo decide `moderacion` (ver runSetup más abajo),
+// igual que ya decidía el canal de logs de actividad.
 // Plantillas: solo definen el punto de partida de los toggles del panel — el
 // usuario los puede seguir tocando después, no queda atado a la plantilla elegida.
 const TEMPLATES = {
   comunidad: {
     label: 'Comunidad',
     emoji: '👥',
-    description: 'Moderación, economía y niveles activados. Ideal para comunidades grandes y activas.',
-    state: { moderacion: true, economia: true, xp: true },
-  },
-  gaming: {
-    label: 'Gaming / Clan',
-    emoji: '🎮',
-    description: 'Moderación y niveles por XP, sin economía. Pensado para clanes y comunidades de juego.',
-    state: { moderacion: true, economia: false, xp: true },
+    description: 'Moderación y niveles activados. Ideal para comunidades grandes y activas.',
+    state: { moderacion: true, xp: true },
   },
   estudio: {
     label: 'Estudio / Soporte',
     emoji: '📚',
     description: 'Solo moderación y logs. Ideal para servidores de estudio, trabajo o soporte.',
-    state: { moderacion: true, economia: false, xp: false },
+    state: { moderacion: true, xp: false },
   },
   personalizado: {
     label: 'Personalizado',
     emoji: '🛠️',
     description: 'Arrancá en blanco y activá lo que necesites vos mismo.',
-    state: { moderacion: false, economia: false, xp: false },
+    state: { moderacion: false, xp: false },
   },
 };
 
@@ -167,10 +170,6 @@ function buildSetupPanel(state) {
       .setCustomId('setup_toggle_moderacion')
       .setLabel(toggleLabel(state.moderacion, 'Moderación'))
       .setStyle(state.moderacion ? ButtonStyle.Success : ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId('setup_toggle_economia')
-      .setLabel(toggleLabel(state.economia, 'Economía'))
-      .setStyle(state.economia ? ButtonStyle.Success : ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId('setup_toggle_xp')
       .setLabel(toggleLabel(state.xp, 'XP'))
@@ -295,7 +294,7 @@ async function runSetup(interaction, state) {
   });
   summary.push(`${staffCreated ? '🆕 Creado' : '♻️ Reusado'} rol de staff: ${staffRole}`);
 
-  const needsCategory = state.moderacion || state.economia || state.bienvenida || state.confesiones;
+  const needsCategory = state.moderacion || state.bienvenida || state.confesiones;
   let category = null;
   if (needsCategory) {
     const result = await resolveCategory(interaction, cfg);
@@ -311,14 +310,15 @@ async function runSetup(interaction, state) {
   await setGuildConfig(interaction.guildId, {
     admin_role_id: cfg.admin_role_id ?? staffRole.id,
     moderator_role_id: staffRole.id,
-    features: { moderacion: state.moderacion, economia: state.economia, xp: state.xp },
+    features: { moderacion: state.moderacion, xp: state.xp },
     setup_category_id: category?.id ?? cfg.setup_category_id ?? null,
   });
 
+  // Los 3 logs (moderación/actividad/economía) se crean juntos con `moderacion` — los
+  // comandos de economía están siempre activos sin importar ningún toggle, así que no
+  // tiene sentido gatear su canal de log por separado (ver comentario de TEMPLATES).
   for (const logChannel of LOG_CHANNELS) {
-    const isEconomyColumn = logChannel.column === 'log_channel_economy_id';
-    const featureEnabled = isEconomyColumn ? state.economia : state.moderacion;
-    if (!featureEnabled) continue;
+    if (!state.moderacion) continue;
 
     const { channel, created } = await resolveChannel(interaction, cfg, category, {
       ...logChannel,
@@ -444,7 +444,6 @@ function registerToggle(customId, stateKey) {
 }
 
 registerToggle('setup_toggle_moderacion', 'moderacion');
-registerToggle('setup_toggle_economia', 'economia');
 registerToggle('setup_toggle_xp', 'xp');
 for (const extra of Object.values(EXTRAS)) {
   registerToggle(`setup_toggle_${extra.stateKey}`, extra.stateKey);

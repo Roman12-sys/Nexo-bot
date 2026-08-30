@@ -6,7 +6,7 @@ import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
 import { getGuildConfig } from './guildConfigStore.js';
 import { getGuildLogChannel } from './guildLogChannels.js';
 import { createLevelUpLogEmbed, createLevelRoleAssignedLogEmbed, createLevelRoleErrorLogEmbed } from './logEmbeds.js';
-import { unlockAchievement, buildAchievementUnlockedEmbed } from './achievements.js';
+import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 
 // Multiplicador de XP a nivel de servidor (guild_config.xp_weekend_boost) — vive acá y no
 // en xpStore.js porque xpStore.js se mantiene deliberadamente sin depender de
@@ -88,6 +88,12 @@ export async function processLevelUp(member, { previousLevel, newLevel, totalXp 
   const guildId = member.guild.id;
   const cfg = await getGuildConfig(guildId);
 
+  // QUÉ CAMBIÓ: emite LEVEL_UP acá (el único chokepoint real de subida de nivel,
+  // llamado tanto por actividad orgánica como por /xp de staff).
+  // MOTIVO: Fase 3 (misiones) — la misión semanal "subí de nivel" se engancha acá en
+  // vez de en cada uno de los callers de processLevelUp.
+  await eventBus.emit('LEVEL_UP', { guildId, userId: member.id, newLevel });
+
   const logChannel = await getGuildLogChannel(client, guildId, 'activity');
   if (logChannel) {
     await logChannel.send({ embeds: [createLevelUpLogEmbed({ member, previousLevel, newLevel, totalXp })] });
@@ -133,10 +139,7 @@ export async function processLevelUp(member, { previousLevel, newLevel, totalXp 
   const celebrationChannel = announceChannel?.isTextBased() ? announceChannel : logChannel;
   for (const { level, id } of LEVEL_ACHIEVEMENTS) {
     if (previousLevel < level && newLevel >= level) {
-      const achievement = await unlockAchievement(guildId, member.id, id);
-      if (achievement && celebrationChannel) {
-        await celebrationChannel.send({ embeds: [buildAchievementUnlockedEmbed(member.user, achievement)] }).catch(() => {});
-      }
+      await eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId: member.id, achievementId: id, channel: celebrationChannel, user: member.user });
     }
   }
 }

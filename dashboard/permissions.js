@@ -1,10 +1,7 @@
-// Mismo criterio que isStaff() en src/utils/permissions.js, pero a partir de datos REST
-// crudos (roles: string[]) en vez de un GuildMember de discord.js — el dashboard no tiene
-// caché de gateway, así que no hay un objeto member.roles.cache disponible acá.
-export function isStaffFromRoles(cfg, roleIds) {
-  if (!cfg || !roleIds) return false;
-  return Boolean(
-    (cfg.admin_role_id && roleIds.includes(cfg.admin_role_id)) ||
-      (cfg.moderator_role_id && roleIds.includes(cfg.moderator_role_id)),
-  );
-}
+// QUÉ CAMBIÓ: ya no reimplementa la lógica acá — reexporta la versión compartida.
+// MOTIVO: auditoría 2026-08-29 (Parte 13/22, Fase 5) — esta función y isStaff() del bot
+// eran dos copias idénticas de la misma regla (admin_role_id OR moderator_role_id) que
+// podían divergir con el tiempo. Ahora hay un solo lugar (src/utils/permissions.js) que
+// la define; el nombre "isStaffFromRoles" se mantiene igual para no tener que tocar
+// queries.js, que ya la importa con ese nombre.
+export { isStaffFromRoleIds as isStaffFromRoles } from '../src/utils/permissions.js';

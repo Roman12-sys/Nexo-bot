@@ -95,8 +95,11 @@ app.get('/guild/:guildId', async (req, res) => {
       ...data.topBalances.map((b) => b.user_id),
       ...data.recentWarns.flatMap((w) => [w.user_id, w.moderator_id]),
       ...data.topTrivia.map((t) => t.userId),
-      ...data.topReputation.map((r) => r.userId),
       ...data.punishedMembers,
+      // Fase 5: topXp/topAchievers/voiceStats.topOwners son fuentes nuevas del dashboard.
+      ...data.topXp.map((x) => x.userId),
+      ...data.topAchievers.map((a) => a.userId),
+      ...data.voiceStats.topOwners.map((o) => o.ownerId),
     ];
     const usersById = await resolveUsers(userIds);
 

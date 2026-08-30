@@ -72,13 +72,46 @@ export function renderGuildDashboard(guild, data, usersById) {
     data.topTrivia.map((t) => `<tr><td>${userLabel(usersById, t.userId)}</td><td>${t.points}</td></tr>`).join('') ||
     '<tr><td colspan="2" class="muted">Todavía nadie sumó puntos</td></tr>';
 
-  const reputationRows =
-    data.topReputation.map((r) => `<tr><td>${userLabel(usersById, r.userId)}</td><td>${r.total}</td></tr>`).join('') ||
-    '<tr><td colspan="2" class="muted">Todavía nadie tiene reputación</td></tr>';
-
   const punishedRows =
     data.punishedMembers.map((userId) => `<tr><td>${userLabel(usersById, userId)}</td></tr>`).join('') ||
     '<tr><td class="muted">Nadie sancionado ahora mismo</td></tr>';
+
+  // --- Fase 5: secciones nuevas, todas sobre datos que ya existían en Supabase pero
+  // el dashboard nunca mostraba (XP, salas de voz, logros individuales, LoL, misiones,
+  // actividad diaria) ---
+
+  const xpRows =
+    data.topXp.map((x) => `<tr><td>${userLabel(usersById, x.userId)}</td><td>${x.level}</td><td>${x.xp.toLocaleString('es-ES')}</td></tr>`).join('') ||
+    '<tr><td colspan="3" class="muted">Todavía nadie ganó XP</td></tr>';
+
+  const voiceOwnerRows =
+    data.voiceStats.topOwners
+      .map((o) => `<tr><td>${userLabel(usersById, o.ownerId)}</td><td>${o.sessions}</td><td>${Math.round(o.durationSeconds / 60)} min</td></tr>`)
+      .join('') || '<tr><td colspan="3" class="muted">Todavía no hubo salas</td></tr>';
+
+  const achieverRows =
+    data.topAchievers.map((a) => `<tr><td>${userLabel(usersById, a.userId)}</td><td>${a.count}</td></tr>`).join('') ||
+    '<tr><td colspan="2" class="muted">Todavía nadie desbloqueó un logro</td></tr>';
+
+  const dailyStatsRows =
+    data.dailyStats
+      .map(
+        (d) =>
+          `<tr><td>${d.date}</td><td>${d.messagesSent}</td><td>${d.commandsExecuted}</td><td>${d.moneyCreated.toLocaleString('es-ES')}</td><td>${d.xpDistributed.toLocaleString('es-ES')}</td></tr>`,
+      )
+      .join('') || '<tr><td colspan="5" class="muted">Sin datos todavía (se llena en vivo desde hoy)</td></tr>';
+
+  const lolCard = data.lolChannelId
+    ? `<div class="card">
+        <h2>🎮 League of Legends</h2>
+        <p>Avisos de patch notes activos en <code>#${escapeHtml(data.lolChannelId)}</code>.</p>
+        ${
+          data.lolLastUrl
+            ? `<p>Último patch anunciado: <a href="${escapeHtml(data.lolLastUrl)}" target="_blank" rel="noopener">ver nota completa</a>${data.lolLastAnnouncedAt ? ` — ${new Date(data.lolLastAnnouncedAt).toLocaleDateString('es-ES')}` : ''}</p>`
+            : '<p class="muted">Todavía no se anunció ningún patch desde que se activó.</p>'
+        }
+      </div>`
+    : '';
 
   return `
     <a class="muted" href="/">&larr; Tus servidores</a>
@@ -119,15 +152,54 @@ export function renderGuildDashboard(guild, data, usersById) {
         <div class="stat"><div class="value">${data.activeGiveaways.length}</div><div class="label">Sorteos activos</div></div>
       </div>
       <table><thead><tr><th>Premio</th><th>ID del mensaje</th></tr></thead><tbody>${giveawaysRows}</tbody></table>
+      <!-- QUÉ CAMBIÓ: se sacó la columna "Top reputación" (era la mitad derecha de este
+           stat-row) — auditoría 2026-08-29, reputación eliminada por completo. Top trivia
+           pasa a ocupar todo el ancho en vez de compartirlo con una columna vacía. -->
       <div class="stat-row" style="margin-top:1rem;">
         <div style="flex:1;">
           <h3 style="margin:0 0 0.5rem;">🧠 Top trivia</h3>
           <table><thead><tr><th>Usuario</th><th>Puntos</th></tr></thead><tbody>${triviaRows}</tbody></table>
         </div>
-        <div style="flex:1;">
-          <h3 style="margin:0 0 0.5rem;">❤️ Top reputación</h3>
-          <table><thead><tr><th>Usuario</th><th>Puntos</th></tr></thead><tbody>${reputationRows}</tbody></table>
-        </div>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>⭐ XP y niveles</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="value">${data.xpUserCount}</div><div class="label">Usuarios con XP</div></div>
+      </div>
+      <table><thead><tr><th>Usuario</th><th>Nivel</th><th>XP total</th></tr></thead><tbody>${xpRows}</tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>🔊 Salas de voz temporales</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="value">${data.voiceStats.totalSessions}</div><div class="label">Salas creadas (histórico, últimas 500)</div></div>
+        <div class="stat"><div class="value">${Math.round(data.voiceStats.totalDurationSeconds / 3600)}</div><div class="label">Horas totales</div></div>
+        <div class="stat"><div class="value">${data.voiceStats.peakConcurrent}</div><div class="label">Pico de gente en una sala</div></div>
+      </div>
+      <table><thead><tr><th>Usuario</th><th>Salas creadas</th><th>Tiempo total</th></tr></thead><tbody>${voiceOwnerRows}</tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>🏅 Logros más desbloqueados</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="value">${data.unlockedAchievementIds.size}/${GUILD_ACHIEVEMENTS.length}</div><div class="label">Logros de servidor (colectivos)</div></div>
+      </div>
+      <table><thead><tr><th>Usuario</th><th>Logros individuales</th></tr></thead><tbody>${achieverRows}</tbody></table>
+    </div>
+
+    <div class="card">
+      <h2>🗓️ Misiones</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="value">${data.missionSummary.dailyCompletedUsers}</div><div class="label">Completaron alguna misión diaria hoy</div></div>
+        <div class="stat"><div class="value">${data.missionSummary.weeklyCompletedUsers}</div><div class="label">Completaron alguna misión semanal esta semana</div></div>
+      </div>
+    </div>
+    ${lolCard}
+
+    <div class="card">
+      <h2>📈 Actividad diaria (últimos 7 días)</h2>
+      <table><thead><tr><th>Fecha</th><th>Mensajes</th><th>Comandos</th><th>Monedas generadas</th><th>XP repartida</th></tr></thead><tbody>${dailyStatsRows}</tbody></table>
     </div>`;
 }

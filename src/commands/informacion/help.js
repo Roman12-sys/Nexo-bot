@@ -44,10 +44,11 @@ export function buildInfoEmbed() {
     .setTitle('ℹ️ Información')
     .addFields(
       { name: '/info [usuario]', value: 'Muestra información de tu perfil o el de otro usuario.' },
-      { name: '/perfil [usuario]', value: 'Perfil completo: nivel, XP, monedas, trivia, reputación, warns, sorteos ganados y logros desbloqueados.' },
+      { name: '/perfil [usuario]', value: 'Perfil completo: nivel, XP, monedas, trivia, warns, sorteos ganados y logros desbloqueados.' },
       { name: '/nivel [usuario]', value: 'Muestra tu tarjeta de nivel, XP y progreso hacia el siguiente nivel.' },
       { name: '/ranking', value: 'Top de niveles/XP del servidor.' },
       { name: '/prestigio', value: 'Desde nivel 50: reseteá tu nivel a cambio de una insignia permanente.' },
+      { name: '/mision', value: 'Misiones diarias y semanales — se completan y pagan solas (monedas y XP) al cumplir el objetivo, sin nada que reclamar.' },
       { name: '/servidor', value: 'Muestra información general sobre el servidor.' },
       { name: '/avatar [usuario]', value: 'Muestra el avatar de un usuario en tamaño completo.' },
       { name: '/ping', value: 'Latencia del bot — para confirmar que está funcionando.' },
@@ -100,7 +101,7 @@ export function buildDiversionEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🎲 Diversión')
-    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/reputation dar` `/reputation ranking` `/confession` `/encuesta` `/afk` `/recordatorio`')
+    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/confession` `/encuesta` `/afk` `/recordatorio`')
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }

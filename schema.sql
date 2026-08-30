@@ -2,6 +2,45 @@
 -- Basado en el esquema de gNoX (guild_id ya es parte de la PK en todas las tablas de stores),
 -- generalizando el patrón de voice_channel_config a una tabla guild_config única.
 -- Pegar completo en el SQL Editor del proyecto Supabase nuevo.
+--
+-- =========================================================
+-- MIGRACIÓN MANUAL PENDIENTE (auditoría 2026-08-29, Fase 0 Tanda 2) — correr a mano
+-- contra la base de PRODUCCIÓN real (gmcqbvrqqpmcqjrbtauk, no el proyecto viejo de
+-- gNoX), y verificar por API después, no confiar solo en el "Success" del SQL Editor:
+--
+--   create table if not exists active_punishments (
+--     guild_id text not null,
+--     user_id text not null,
+--     role_id text not null,
+--     expires_at bigint not null,
+--     created_at bigint not null,
+--     primary key (guild_id, user_id)
+--   );
+--   create index if not exists active_punishments_expires_idx on active_punishments (expires_at);
+--
+--   drop function if exists increment_reputation(text, text, bigint);
+--   drop table if exists reputation;
+--
+--   alter table guild_config add column if not exists lol_announce_channel_id text;
+--
+--   create table if not exists user_missions (
+--     guild_id text not null, user_id text not null, mission_id text not null,
+--     period text not null, period_start bigint not null,
+--     progress integer not null default 0, target integer not null,
+--     reward_coins integer not null default 0, reward_xp integer not null default 0,
+--     completed_at bigint,
+--     primary key (guild_id, user_id, mission_id, period_start)
+--   );
+--   create index if not exists user_missions_guild_user_idx on user_missions (guild_id, user_id);
+--   -- + la función increment_mission_progress definida más abajo, sección RPCs.
+--
+-- La tabla/RPC de reputación ya no están definidas más abajo (Diagnóstico Nexo, Parte 11
+-- — cero consumidores reales), active_punishments sí lo está (Parte 22, expiración
+-- automática de /punish), lol_announce_channel_id es una columna nueva en guild_config
+-- (Parte 15/22, Fase 2 — LoL pasa de canal fijo a opt-in por servidor), y user_missions
+-- es la tabla nueva de Fase 3 (misiones diarias/semanales) — este bloque es solo para
+-- que una base YA EXISTENTE alcance al schema.sql nuevo sin recrear todo desde cero.
+-- =========================================================
 
 -- =========================================================
 -- guild_config: configuración por servidor (reemplaza .env)
@@ -22,6 +61,7 @@ create table if not exists guild_config (
   log_channel_economy_id text,
   confession_channel_id text,
   xp_announce_channel_id text,
+  lol_announce_channel_id text, -- opt-in: patch notes de LoL para ESTE servidor (ver lolPatchEngine.js)
 
   -- niveles
   level_roles jsonb not null default '{}',
@@ -175,6 +215,20 @@ create table if not exists moderation_actions (
 );
 create index if not exists moderation_actions_guild_user_idx on moderation_actions (guild_id, user_id);
 
+-- Restricciones de /punish con expiración automática (opcional — si el staff no eligió
+-- duración, /punish no crea fila acá y la restricción sigue siendo 100% manual como
+-- siempre). PK (guild_id, user_id): una sola restricción con timer activo por usuario,
+-- igual que ya garantiza el propio /punish (rechaza si el usuario ya tiene el rol).
+create table if not exists active_punishments (
+  guild_id text not null,
+  user_id text not null,
+  role_id text not null,
+  expires_at bigint not null, -- epoch ms, mismo criterio que last_daily/last_work: Date.now() crudo, no timestamptz
+  created_at bigint not null,
+  primary key (guild_id, user_id)
+);
+create index if not exists active_punishments_expires_idx on active_punishments (expires_at);
+
 -- =========================================================
 -- Sorteos
 -- =========================================================
@@ -218,15 +272,28 @@ create table if not exists trivia_user_stats (
 );
 
 -- =========================================================
--- Reputación
+-- Misiones diarias/semanales (/mision) — el catálogo (qué misiones existen, objetivo,
+-- recompensa) vive fijo en código (src/utils/missionsStore.js), mismo criterio que
+-- ACHIEVEMENTS en achievements.js: no configurable por servidor, no vale la pena la
+-- superficie de admin para esto. Esta tabla solo guarda el PROGRESO de cada instancia
+-- (una fila por usuario+misión+período) — period_start en la PK hace que cada ciclo
+-- (cada día, cada semana) sea una fila nueva; las viejas quedan como historial liviano,
+-- no se borran.
 -- =========================================================
-create table if not exists reputation (
+create table if not exists user_missions (
   guild_id text not null,
   user_id text not null,
-  total bigint not null default 0,
-  last_given bigint not null default 0, -- epoch ms, no timestamptz: Date.now() - last_given
-  primary key (guild_id, user_id)
+  mission_id text not null, -- id del catálogo fijo, ej. 'daily_messages'
+  period text not null, -- 'daily' | 'weekly'
+  period_start bigint not null, -- epoch ms del inicio del ciclo (mismo criterio de siempre: aritmética con Date.now(), no timestamptz)
+  progress integer not null default 0,
+  target integer not null, -- copiado del catálogo al generar la fila — un cambio de catálogo después no altera una misión ya en curso
+  reward_coins integer not null default 0,
+  reward_xp integer not null default 0,
+  completed_at bigint, -- epoch ms; null = todavía no se completó. Se paga en el mismo momento que se completa, no hay paso de "reclamar"
+  primary key (guild_id, user_id, mission_id, period_start)
 );
+create index if not exists user_missions_guild_user_idx on user_missions (guild_id, user_id);
 
 -- =========================================================
 -- Logros (set fijo, definido en src/utils/achievements.js — esta tabla solo
@@ -323,6 +390,32 @@ create table if not exists command_usage (
   uses bigint not null default 0,
   last_used_at timestamptz not null default now(),
   primary key (guild_id, command_name)
+);
+
+-- =========================================================
+-- Analítica diaria por servidor (dashboard, Fase 5) — a diferencia del resto de tablas
+-- de este archivo, acá "date" es un date real de Postgres (no epoch ms): esta tabla es
+-- para reportes/series de tiempo, no para aritmética con Date.now() como los cooldowns.
+--
+-- Se llena EN VIVO por el Event Engine (increment_guild_daily_stat, sección RPCs), no
+-- por un cron nocturno: no existe ningún otro lugar del esquema donde ya viva "mensajes
+-- de hoy" o "comandos de hoy" para que un job los sume después — la única forma
+-- correcta de tener esta granularidad es incrementar en el momento en que cada evento
+-- pasa. Deliberadamente NO incluye active_members (necesitaría un conteo de usuarios
+-- ÚNICOS, no un contador simple) ni money_destroyed (los "gastos" de este bot son una
+-- mezcla de sinks reales y apuestas de casino que pueden volver — categorizarlos bien
+-- es más trabajo del que vale para una primera versión) — quedan afuera a propósito,
+-- no son un olvido.
+-- =========================================================
+create table if not exists guild_daily_stats (
+  guild_id text not null,
+  date date not null,
+  messages_sent integer not null default 0,
+  commands_executed integer not null default 0,
+  new_members integer not null default 0,
+  money_created bigint not null default 0,
+  xp_distributed bigint not null default 0,
+  primary key (guild_id, date)
 );
 
 -- =========================================================
@@ -462,20 +555,75 @@ begin
 end;
 $$;
 
-create or replace function increment_reputation(p_guild_id text, p_user_id text, p_amount bigint)
-returns bigint
+-- Incrementa el progreso de UNA instancia de misión, clampeado al target, y marca
+-- completed_at exactamente una vez (la primera llamada que cruza el target la completa;
+-- llamadas posteriores a una misión ya completa no vuelven a pagar ni a sumar de más).
+-- "for update" cubre el caso de dos eventos casi simultáneos incrementando la misma
+-- misión (ej. dos mensajes elegibles procesados a la vez) — mismo motivo que
+-- deduct_balance_if_sufficient. Devuelve just_completed=true SOLO en la llamada que
+-- causó la finalización, así el caller (missionsStore.js) paga la recompensa una sola
+-- vez sin necesitar su propio lock en memoria.
+create or replace function increment_mission_progress(
+  p_guild_id text, p_user_id text, p_mission_id text, p_period_start bigint, p_amount integer, p_now bigint
+)
+returns table (progress integer, target integer, just_completed boolean, reward_coins integer, reward_xp integer)
 language plpgsql
 as $$
 declare
-  v_new_total bigint;
+  v_progress integer;
+  v_target integer;
+  v_completed_at bigint;
+  v_reward_coins integer;
+  v_reward_xp integer;
+  v_just_completed boolean;
 begin
-  insert into reputation (guild_id, user_id, total)
-  values (p_guild_id, p_user_id, p_amount)
-  on conflict (guild_id, user_id)
-  do update set total = reputation.total + p_amount
-  returning total into v_new_total;
+  select um.progress, um.target, um.completed_at, um.reward_coins, um.reward_xp
+  into v_progress, v_target, v_completed_at, v_reward_coins, v_reward_xp
+  from user_missions um
+  where um.guild_id = p_guild_id and um.user_id = p_user_id and um.mission_id = p_mission_id and um.period_start = p_period_start
+  for update;
 
-  return v_new_total;
+  if v_progress is null then
+    return; -- la fila todavía no existe — el caller siempre debe asegurarla antes (ensureCurrentMissions)
+  end if;
+
+  if v_completed_at is not null then
+    return query select v_progress, v_target, false, v_reward_coins, v_reward_xp;
+    return;
+  end if;
+
+  v_progress := least(v_target, v_progress + p_amount);
+  v_just_completed := v_progress >= v_target;
+
+  update user_missions um
+  set progress = v_progress, completed_at = case when v_just_completed then p_now else null end
+  where um.guild_id = p_guild_id and um.user_id = p_user_id and um.mission_id = p_mission_id and um.period_start = p_period_start;
+
+  return query select v_progress, v_target, v_just_completed, v_reward_coins, v_reward_xp;
+end;
+$$;
+
+-- Un solo upsert cubre las 5 métricas a la vez (los parámetros no usados quedan en 0,
+-- que sumado no cambia nada) — evita 5 RPCs casi idénticas para cada columna suelta.
+-- Cada handler del Event Engine (guildDailyStatsStore.js) llama esto con SOLO el
+-- parámetro que le corresponde distinto de 0.
+create or replace function increment_guild_daily_stat(
+  p_guild_id text, p_date date,
+  p_messages integer default 0, p_commands integer default 0, p_new_members integer default 0,
+  p_money bigint default 0, p_xp bigint default 0
+)
+returns void
+language plpgsql
+as $$
+begin
+  insert into guild_daily_stats (guild_id, date, messages_sent, commands_executed, new_members, money_created, xp_distributed)
+  values (p_guild_id, p_date, p_messages, p_commands, p_new_members, p_money, p_xp)
+  on conflict (guild_id, date) do update set
+    messages_sent = guild_daily_stats.messages_sent + p_messages,
+    commands_executed = guild_daily_stats.commands_executed + p_commands,
+    new_members = guild_daily_stats.new_members + p_new_members,
+    money_created = guild_daily_stats.money_created + p_money,
+    xp_distributed = guild_daily_stats.xp_distributed + p_xp;
 end;
 $$;
 

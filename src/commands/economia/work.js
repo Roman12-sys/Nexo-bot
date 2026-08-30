@@ -3,7 +3,7 @@ import { getUserEconomy, addBalance, setCooldown } from '../../utils/economyStor
 import { getPet, getPetBonusMultiplier } from '../../utils/petsStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
-import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
+import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 
 export const COOLDOWN_MS = 60 * 60 * 1000; // 1 hora
 const MIN_REWARD = 50;
@@ -85,8 +85,6 @@ export async function execute(interaction) {
 
   await interaction.editReply({ embeds: [embed] });
 
-  await announceUnlockedAchievements(interaction, userId, [
-    isFirstWork ? unlockAchievement(guildId, userId, 'a_laburar') : null,
-    newBalance >= 10000 ? unlockAchievement(guildId, userId, 'millonario') : null,
-  ]);
+  if (isFirstWork) await eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId, achievementId: 'a_laburar', interaction });
+  if (newBalance >= 10000) await eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId, achievementId: 'millonario', interaction });
 }

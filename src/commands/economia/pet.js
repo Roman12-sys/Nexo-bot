@@ -22,7 +22,7 @@ import { getGuildShopItems } from '../../utils/shopStore.js';
 import { buildPetCardAttachment } from '../../utils/petCardImage.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
-import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
+import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 
 // Tarjeta de imagen (mismo lenguaje visual que /nivel, ver petCardImage.js) en vez del
 // embed de texto que tenía antes — se usa en todos lados donde se muestra UNA mascota.
@@ -91,7 +91,7 @@ async function handleAdoptar(interaction) {
 
     const pet = await getPet(guildId, userId);
     await interaction.editReply({ content: `🎉 ¡Adoptaste a **${nombre}**!`, ...(await buildPetPayload(interaction.user, pet)) });
-    await announceUnlockedAchievements(interaction, userId, [unlockAchievement(guildId, userId, 'primera_mascota')]);
+    await eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId, achievementId: 'primera_mascota', interaction });
   });
 }
 
@@ -243,7 +243,7 @@ async function handlePelear(interaction) {
       .setTimestamp();
 
     await interaction.editReply({ embeds: [embed] });
-    await announceUnlockedAchievements(interaction, winnerId, [unlockAchievement(guildId, winnerId, 'primera_pelea')]);
+    await eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId: winnerId, achievementId: 'primera_pelea', interaction });
   });
 }
 

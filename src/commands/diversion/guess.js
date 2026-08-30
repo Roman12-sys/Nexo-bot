@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { getSession, startSession, clearSession } from '../../utils/guessSessions.js';
 import { addBalance } from '../../utils/economyStore.js';
-import { unlockAchievement, announceUnlockedAchievements } from '../../utils/achievements.js';
+import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 import { withLock } from '../../utils/asyncLock.js';
 
 const MIN_NUMBER = 1;
@@ -92,9 +92,7 @@ export async function execute(interaction) {
       });
 
       if (attemptsUsed === 1) {
-        await announceUnlockedAchievements(interaction, interaction.user.id, [
-          unlockAchievement(interaction.guild.id, interaction.user.id, 'racha_perfecta'),
-        ]);
+        await eventBus.emit('ACHIEVEMENT_CHECK', { guildId: interaction.guild.id, userId: interaction.user.id, achievementId: 'racha_perfecta', interaction });
       }
       return;
     }

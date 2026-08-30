@@ -1,7 +1,7 @@
 // Serializa llamadas async para la misma key: si ya hay una ejecución en curso
 // para esa key, la siguiente espera a que termine antes de arrancar. Cierra el
 // race de "leer cooldown, decidir, recién después escribir" en comandos como
-// /daily, /work, /reputation, /trivia (invocaciones casi simultáneas del mismo
+// /daily, /work, /trivia (invocaciones casi simultáneas del mismo
 // usuario ya no pueden leer el mismo estado viejo antes de que la primera lo actualice).
 const locks = new Map();
 

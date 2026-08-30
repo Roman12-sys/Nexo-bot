@@ -1,8 +1,12 @@
 import { supabase } from '../supabaseClient.js';
+import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Fase 5 (analytics)
 
 // Fire-and-forget desde interactionCreate.js — nunca debe tirar ni frenar la
 // respuesta de un comando por un problema de métricas. Se llama solo tras una
 // ejecución exitosa, así que "usos" refleja comandos que realmente corrieron.
+//
+// QUÉ CAMBIÓ: emite COMMAND_EXECUTED — único chokepoint real de "un comando corrió
+// bien", igual criterio que addBalance/addXp para COINS_EARNED/XP_GAINED (Fase 3/5).
 export async function trackCommandUsage(guildId, commandName) {
   if (!guildId) return;
 
@@ -12,6 +16,7 @@ export async function trackCommandUsage(guildId, commandName) {
   });
 
   if (error) console.error('❌ Error registrando métrica de uso de comando:', error);
+  await eventBus.emit('COMMAND_EXECUTED', { guildId, commandName });
 }
 
 export async function getTopCommands(guildId, limit = 10) {

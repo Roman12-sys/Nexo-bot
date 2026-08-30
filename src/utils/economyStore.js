@@ -2,6 +2,7 @@
 // que antes era síncrona ahora es async — implica una llamada de red a Postgres.
 // Cualquier caller tiene que hacer `await`.
 import { supabase } from '../supabaseClient.js';
+import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7/Fase 3
 
 const TABLE = 'economy';
 const TRANSACTIONS_TABLE = 'economy_transactions';
@@ -86,6 +87,15 @@ export async function saveUserEconomy(guildId, userId, data) {
 // simultáneas (ej. /give y /daily disparados en el mismo segundo) nunca se pisan —
 // ninguna lee un valor "viejo" porque ninguna lee el valor por separado, el incremento
 // se hace directamente en la base. Esto reemplaza el read-modify-write que tenía antes.
+// QUÉ CAMBIÓ: emite COINS_EARNED cuando amount > 0.
+// MOTIVO: auditoría 2026-08-29 (Fase 3, misiones) — en vez de agregar el emit a cada
+// comando que da monedas (daily/work/crime/casino/pet/trivia/guess...), se centraliza
+// acá, el único primitivo por el que pasan todas esas ganancias. amount<=0 (o meta de
+// tipo admin_remove) nunca emite — evita que un ajuste de staff hacia abajo, o clampear
+// a 0, cuenten como "ganaste monedas" para una misión.
+// A propósito NO pasa por acá /give ni el robo exitoso de /rob (usan transfer_balance/
+// rob_wallet, RPCs separadas) — es deliberado: contar transferencias entre usuarios como
+// "ganancia" abriría la misma puerta de farmeo entre alts que ya vigila giveTracker.js.
 export async function addBalance(guildId, userId, amount, meta) {
   const { data: newBalance, error } = await supabase.rpc('increment_balance', {
     p_guild_id: guildId,
@@ -95,6 +105,7 @@ export async function addBalance(guildId, userId, amount, meta) {
 
   if (error) throw error;
   if (meta) await recordTransaction(guildId, userId, { ...meta, amount, balanceAfter: newBalance });
+  if (amount > 0) await eventBus.emit('COINS_EARNED', { guildId, userId, amount });
   return newBalance; // devolvemos el nuevo balance, para poder mostrarlo enseguida
 }
 

@@ -4,6 +4,8 @@ import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { describeError } from '../../utils/errorMessages.js';
+import { deleteActivePunishment } from '../../utils/punishStore.js';
+import { cancelPunishExpiry } from '../../utils/punishEngine.js';
 
 export const data = new SlashCommandBuilder()
   .setName('unpunish')
@@ -45,6 +47,18 @@ export async function execute(interaction) {
     }
 
     await member.roles.remove(cfg.punish_role_id);
+
+    // QUÉ CAMBIÓ: cancela el timer en memoria + borra la fila de active_punishments si
+    // existía (no-op si esta restricción nunca tuvo duración — ambas funciones toleran
+    // "no hay nada que cancelar/borrar").
+    // MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 22) — sin esto, una
+    // restricción quitada a mano ANTES de vencer igual dispararía el timer más tarde e
+    // intentaría loguear una "expiración automática" de algo que el staff ya resolvió.
+    cancelPunishExpiry(interaction.guildId, targetUser.id);
+    await deleteActivePunishment(interaction.guildId, targetUser.id).catch((error) =>
+      console.error('⚠️ No se pudo borrar el registro de restricción con duración:', error),
+    );
+
     await interaction.reply({ content: `✅ Se le quitó la restricción a ${targetUser.tag}.` });
 
     // Try/catch propio: ya se quitó la restricción y ya se confirmó — un log fallido
