@@ -7,12 +7,26 @@ const WINDOW_MS = 60 * 1000;
 
 const hits = new Map(); // ip -> timestamps[] dentro de la ventana actual
 
+// Railway pone exactamente UN proxy de borde propio entre internet y este proceso — no
+// hay CDN ni load balancer intermedio propio nuestro delante de eso. Cualquier proxy
+// estándar (el de Railway incluido) AGREGA (nunca reemplaza) al FINAL de
+// X-Forwarded-For la IP de quien se conectó directo a él — nunca la reescribe. Como ese
+// único hop es el único salto entre el cliente real e nuestro proceso, la ÚLTIMA entrada
+// de la cadena es siempre la que agregó Railway a partir de la conexión TCP real, y es
+// la única que un cliente NO puede falsificar (puede mandar su propio X-Forwarded-For
+// con cualquier valor, pero eso termina a la IZQUIERDA de lo que Railway agregue al
+// final). Tomar la PRIMERA entrada (como hacía antes) confiaba literalmente en un header
+// que cualquiera puede setear con el valor que quiera — alcanzaba con mandar un
+// X-Forwarded-For nuevo en cada request para resetear el límite a voluntad. Esto es el
+// mismo criterio que "trust proxy: 1" en Express, implementado a mano para no depender
+// de req.ip (que necesitaría los mocks de test replicando el cálculo interno de
+// proxy-addr en vez de objetos req simples).
 function clientIp(req) {
-  // Railway (y cualquier proxy) entrega la IP real en X-Forwarded-For, no en
-  // req.socket.remoteAddress (que sería la IP del proxy). Toma la primera de la
-  // cadena, que es la del cliente original.
   const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) return forwarded.split(',')[0].trim();
+  if (forwarded) {
+    const parts = forwarded.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length > 0) return parts[parts.length - 1];
+  }
   return req.socket.remoteAddress || 'unknown';
 }
 

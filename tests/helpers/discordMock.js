@@ -55,7 +55,11 @@ export function makeInteraction({
     member: {
       roles: {
         highest: { position: userPosition },
-        cache: { has: (id) => staffRoleIds.includes(id) },
+        // Map real (no un objeto ad-hoc con solo .has()): la Collection real de
+        // discord.js extiende Map, y permissions.js/isStaff() hace
+        // [...roles.cache.keys()] — un objeto con solo .has() rompe con
+        // "roles.cache.keys is not a function" apenas algo pasa por isStaff().
+        cache: new Map(staffRoleIds.map((id) => [id, { id }])),
       },
     },
     client: { user: { id: botId } },

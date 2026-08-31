@@ -64,6 +64,17 @@
 --     updated_at timestamptz not null default now()
 --   );
 -- =========================================================
+--
+-- MIGRACIÓN MANUAL PENDIENTE (Fase 1, auditoría de seguridad/economía, 2026-08-30) —
+-- economy_transactions.delivered: el código (getGuildPurchasesByReason/
+-- markPurchaseDelivered en economyStore.js, /economia-staff pendientes) ya usaba esta
+-- columna, pero nunca se declaró acá — drift real entre schema.sql y lo que corre en
+-- producción, no confirmado si la base real ya la tiene o no (ver migration_2026_08_30_
+-- fase1.sql, que además incluye el guard atómico de increment_inventory_item de la misma
+-- fase):
+--
+--   alter table economy_transactions add column if not exists delivered boolean not null default false;
+-- =========================================================
 
 -- =========================================================
 -- guild_config: configuración por servidor (reemplaza .env)
@@ -173,6 +184,7 @@ create table if not exists economy_transactions (
   balance_after bigint not null,
   actor_id text,
   reason text,
+  delivered boolean not null default false, -- solo aplica a type='purchase' de entrega MANUAL (ver getGuildPurchasesByReason/markPurchaseDelivered en economyStore.js, /economia-staff pendientes)
   created_at timestamptz not null default now()
 );
 create index if not exists economy_transactions_guild_user_idx on economy_transactions (guild_id, user_id);
@@ -533,21 +545,38 @@ begin
 end;
 $$;
 
+-- QUÉ CAMBIÓ (Fase 1, auditoría de seguridad/economía, 2026-08-30): agrega un piso
+-- atómico en Postgres, igual criterio que greatest(0, ...) en increment_balance/
+-- increment_xp — antes, dos consumos concurrentes del MISMO ítem (ej. /vender y /pet
+-- alimentar sobre el mismo item_id, que usan locks de JS con keys distintas — "vender:"
+-- vs "pet:" — y por lo tanto NUNCA se excluyen entre sí) podían leer la misma cantidad
+-- vieja y dejar el inventario en negativo. "select ... for update" bloquea la fila hasta
+-- que la primera transacción termina; la segunda, al reanudar, relee la cantidad YA
+-- actualizada y recién ahí calcula si su propio delta la manda por debajo de 0.
+-- MOTIVO: el guard vivía solo en JS (el lock de asyncLock.js), que no cubre dos features
+-- distintas tocando el mismo ítem a la vez.
 create or replace function increment_inventory_item(p_guild_id text, p_user_id text, p_item_id text, p_qty integer)
 returns jsonb
 language plpgsql
 as $$
 declare
   v_inventory jsonb;
+  v_new_qty integer;
 begin
+  select inventory into v_inventory
+  from economy
+  where guild_id = p_guild_id and user_id = p_user_id
+  for update;
+
+  v_new_qty := coalesce((v_inventory->>p_item_id)::integer, 0) + p_qty;
+  if v_new_qty < 0 then
+    raise exception 'insufficient_inventory';
+  end if;
+
   insert into economy (guild_id, user_id, inventory)
-  values (p_guild_id, p_user_id, jsonb_build_object(p_item_id, p_qty))
+  values (p_guild_id, p_user_id, jsonb_build_object(p_item_id, v_new_qty))
   on conflict (guild_id, user_id)
-  do update set inventory = jsonb_set(
-    economy.inventory,
-    array[p_item_id],
-    to_jsonb(coalesce((economy.inventory->>p_item_id)::integer, 0) + p_qty)
-  )
+  do update set inventory = jsonb_set(economy.inventory, array[p_item_id], to_jsonb(v_new_qty))
   returning inventory into v_inventory;
 
   return v_inventory;

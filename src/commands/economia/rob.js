@@ -37,19 +37,25 @@ export async function execute(interaction) {
     return;
   }
 
+  // Chequeo previo ANTES de deferir (mismo criterio que /daily/crime): permite responder
+  // ephemeral si está todo en cooldown, sin arriesgar la ventana de 3s de Discord con el
+  // round-trip a Supabase. NO es el chequeo autoritativo — dos /rob casi simultáneos
+  // (mismo atacante, o dos atacantes contra la misma víctima) pueden leer acá el mismo
+  // estado "viejo" antes de que ninguno haya escrito nada todavía. El chequeo real pasa
+  // DENTRO del lock, más abajo, sobre datos releídos en fresco.
   const [robber, victim] = await Promise.all([getUserEconomy(guildId, userId), getUserEconomy(guildId, targetUser.id)]);
-  const now = Date.now();
+  const preCheckNow = Date.now();
 
-  if (now - robber.lastRob < ROB_COOLDOWN_MS) {
+  if (preCheckNow - robber.lastRob < ROB_COOLDOWN_MS) {
     const readyTimestamp = Math.floor((robber.lastRob + ROB_COOLDOWN_MS) / 1000);
     await interaction.reply({ content: `⏳ Todavía estás escondiéndote de tu último robo. Podés volver a intentar <t:${readyTimestamp}:R>.`, flags: MessageFlags.Ephemeral });
     return;
   }
-  if (now - victim.lastRobbed < VICTIM_PROTECTION_MS) {
+  if (preCheckNow - victim.lastRobbed < VICTIM_PROTECTION_MS) {
     await interaction.reply({ content: `🛡️ ${targetUser.tag} está protegido — alguien ya intentó robarle hace poco.`, flags: MessageFlags.Ephemeral });
     return;
   }
-  if (victim.robShieldUntil > now) {
+  if (victim.robShieldUntil > preCheckNow) {
     await interaction.reply({ content: `🛡️ ${targetUser.tag} tiene un escudo anti-robo activo hasta <t:${Math.floor(victim.robShieldUntil / 1000)}:R>.`, flags: MessageFlags.Ephemeral });
     return;
   }
@@ -61,6 +67,30 @@ export async function execute(interaction) {
   await interaction.deferReply();
 
   await withLock(`rob:${guildId}:${userId}`, async () => {
+    // Chequeo AUTORITATIVO: el lock solo serializa las ejecuciones de ESTE atacante entre
+    // sí — no impide que dos /rob concurrentes (mismo atacante y víctima, o dos atacantes
+    // distintos contra la misma víctima) hayan pasado el pre-check de arriba con el mismo
+    // estado viejo antes de que cualquiera hubiera escrito nada. Sin releer y revalidar
+    // acá, la segunda ejecución (que solo espera su turno en el lock, nunca fue
+    // rechazada) terminaría robando de nuevo ignorando el cooldown/protección que la
+    // primera ejecución ya dejó escrito. Mismo patrón que /daily y /crime.
+    const [freshRobber, freshVictim] = await Promise.all([getUserEconomy(guildId, userId), getUserEconomy(guildId, targetUser.id)]);
+    const now = Date.now();
+
+    if (now - freshRobber.lastRob < ROB_COOLDOWN_MS) {
+      const readyTimestamp = Math.floor((freshRobber.lastRob + ROB_COOLDOWN_MS) / 1000);
+      await interaction.editReply({ content: `⏳ Todavía estás escondiéndote de tu último robo. Podés volver a intentar <t:${readyTimestamp}:R>.` });
+      return;
+    }
+    if (now - freshVictim.lastRobbed < VICTIM_PROTECTION_MS) {
+      await interaction.editReply({ content: `🛡️ ${targetUser.tag} está protegido — alguien ya intentó robarle hace poco.` });
+      return;
+    }
+    if (freshVictim.robShieldUntil > now) {
+      await interaction.editReply({ content: `🛡️ ${targetUser.tag} tiene un escudo anti-robo activo hasta <t:${Math.floor(freshVictim.robShieldUntil / 1000)}:R>.` });
+      return;
+    }
+
     // Cooldowns se fijan SIEMPRE que hay un intento real (gane o pierda) — el
     // acecho en sí ya "gasta" el turno, no solo un robo exitoso.
     await setRobCooldowns(guildId, { robberId: userId, robberTimestamp: now, victimId: targetUser.id, victimTimestamp: now });
@@ -96,7 +126,7 @@ export async function execute(interaction) {
     // completa, transferBalance rechaza y simplemente no se cobra nada — ya perdiste
     // el intento, no hace falta además dejarte en deuda.
     const finePercent = FINE_PERCENT_MIN + Math.random() * (FINE_PERCENT_MAX - FINE_PERCENT_MIN);
-    const fine = Math.min(FINE_MAX_AMOUNT, Math.floor(robber.balance * finePercent));
+    const fine = Math.min(FINE_MAX_AMOUNT, Math.floor(freshRobber.balance * finePercent));
 
     let fineCharged = 0;
     if (fine > 0) {

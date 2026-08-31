@@ -14,7 +14,11 @@ const { isStaff, isStaffConfigured } = await import('../src/utils/permissions.js
 function makeInteraction(guildId, roleIds) {
   return {
     guildId,
-    member: { roles: { cache: { has: (id) => roleIds.includes(id) } } },
+    // Map real, no un objeto ad-hoc con solo .has(): isStaff() hace
+    // [...interaction.member.roles.cache.keys()], igual que la Collection real de
+    // discord.js (que extiende Map) — un mock sin .keys() revienta con
+    // "roles.cache.keys is not a function" apenas se llama isStaff().
+    member: { roles: { cache: new Map(roleIds.map((id) => [id, { id }])) } },
   };
 }
 

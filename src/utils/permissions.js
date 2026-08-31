@@ -1,3 +1,4 @@
+import { PermissionFlagsBits } from 'discord.js';
 import { getGuildConfig } from './guildConfigStore.js';
 
 // QUÉ CAMBIÓ: se extrajo el núcleo booleano a isStaffFromRoleIds(), reusado por
@@ -54,5 +55,43 @@ export function getModerationBlockReason(interaction, targetMember) {
     return '❌ No podés aplicar esta acción sobre alguien con tu mismo rango o superior.';
   }
 
+  return null;
+}
+
+// Permisos peligrosos si terminan en un rol que el bot asigna SOLO (sin que un staff
+// revise el caso puntual): el rol automático de /config rol-automatico (se le pone a
+// CADA miembro nuevo que se une) y el rol de castigo de /config rol-castigo (punish.js
+// se lo agrega a un usuario sancionado). En los dos casos, elegir por error un rol que
+// ya tiene privilegios reales es una escalada de privilegios accidental — no hace falta
+// que sea intencional, alcanza con clickear el rol equivocado en el selector.
+//
+// No es "cualquier permiso especial": se listan específicamente los que dan control real
+// del servidor o de otros usuarios — administración total, gestión de servidor/roles/
+// canales/webhooks, y poderes de moderación (kick/ban/timeout/manage messages/apodos) —
+// más @everyone (spam masivo). Se dejan afuera permisos "molestos pero no peligrosos"
+// para este caso (ManageEmojisAndStickers, ManageEvents, ManageThreads, ViewAuditLog,
+// CreateInstantInvite, etc.) para no bloquear roles normales de comunidad sin necesidad.
+const DANGEROUS_ROLE_PERMISSIONS = [
+  [PermissionFlagsBits.Administrator, 'Administrador'],
+  [PermissionFlagsBits.ManageGuild, 'Gestionar servidor'],
+  [PermissionFlagsBits.ManageRoles, 'Gestionar roles'],
+  [PermissionFlagsBits.ManageChannels, 'Gestionar canales'],
+  [PermissionFlagsBits.ManageWebhooks, 'Gestionar webhooks'],
+  [PermissionFlagsBits.KickMembers, 'Expulsar miembros'],
+  [PermissionFlagsBits.BanMembers, 'Banear miembros'],
+  [PermissionFlagsBits.ModerateMembers, 'Aplicar timeout (moderar miembros)'],
+  [PermissionFlagsBits.ManageMessages, 'Gestionar mensajes'],
+  [PermissionFlagsBits.ManageNicknames, 'Gestionar apodos'],
+  [PermissionFlagsBits.MentionEveryone, 'Mencionar a @everyone/@here'],
+];
+
+// Devuelve null si "role" es seguro para auto-asignar, o la etiqueta en español del
+// primer permiso peligroso encontrado (para mostrarlo en el mensaje de error). Puro —
+// no toca guild_config ni hace ningún await, mismo criterio que getModerationBlockReason.
+export function getDangerousRolePermission(role) {
+  if (!role?.permissions) return null;
+  for (const [flag, label] of DANGEROUS_ROLE_PERMISSIONS) {
+    if (role.permissions.has(flag)) return label;
+  }
   return null;
 }

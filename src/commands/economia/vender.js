@@ -66,7 +66,21 @@ export async function execute(interaction) {
     }
 
     const sellPrice = Math.floor(item.price * SELL_RATIO);
-    await incrementInventoryItem(guildId, userId, itemId, -1);
+    // El pre-check de arriba (owned < 1) lee bajo el mismo lock, pero ese lock es solo
+    // por usuario+comando ("vender:...") — no cubre otra feature con OTRO lock
+    // consumiendo el mismo ítem al mismo tiempo (ej. /pet alimentar, "pet:...", ver
+    // schema.sql increment_inventory_item). Ahí es donde puede llegar
+    // insufficient_inventory (Fase 1.1): respuesta de negocio clara, no el catch
+    // genérico de interactionCreate.js.
+    try {
+      await incrementInventoryItem(guildId, userId, itemId, -1);
+    } catch (error) {
+      if (error.code === 'insufficient_inventory') {
+        await interaction.editReply({ content: `❌ Ya no tenés **${item.name}** en tu inventario — puede que se haya usado justo ahora. Revisá \`/inventory\` e intentá de nuevo.` });
+        return;
+      }
+      throw error;
+    }
     const newBalance = await addBalance(guildId, userId, sellPrice, { type: 'sell', reason: item.name });
 
     const embed = new EmbedBuilder()

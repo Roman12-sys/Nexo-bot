@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { eventBus } from '../src/utils/eventBus.js';
 
 // giveawayEngine.js importa giveawaysStore.js, que a su vez importa supabaseClient.js
 // (requiere variables de entorno reales). Se mockea para testear pickWinners() aislado.
@@ -13,9 +14,12 @@ const updateGiveaway = vi.fn();
 const getActiveGiveaways = vi.fn();
 vi.mock('../src/utils/giveawaysStore.js', () => ({ getGiveaway, updateGiveaway, getActiveGiveaways }));
 
-const unlockAchievement = vi.fn().mockResolvedValue(null);
-vi.mock('../src/utils/achievements.js', () => ({ unlockAchievement }));
-
+// achievements.js YA NO se llama directo desde acá (consolidación del Event Engine,
+// auditoría 2026-08-29 — ver CLAUDE.md "Logros — consolidados en un solo handler"):
+// endGiveaway emite ACHIEVEMENT_CHECK vía eventBus, y es achievements.js (probado aparte
+// en achievements.test.js) el único consumidor que después llama unlockAchievement. Acá
+// alcanza con espiar eventBus.emit — mismo patrón que economyStore.test.js usa para
+// COINS_EARNED/COINS_DESTROYED.
 const { pickWinners, endGiveaway, scheduleGiveawayEnd, rescheduleActiveGiveaways } = await import('../src/utils/giveawayEngine.js');
 
 function makeGiveaway(overrides = {}) {
@@ -78,9 +82,16 @@ describe('pickWinners', () => {
 });
 
 describe('endGiveaway', () => {
+  let emitSpy;
+
   beforeEach(() => {
     vi.clearAllMocks();
     updateGiveaway.mockImplementation(async (guildId, messageId, updates) => ({ ...makeGiveaway(), ...updates }));
+    emitSpy = vi.spyOn(eventBus, 'emit').mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    emitSpy.mockRestore();
   });
 
   it('con participantes: elige ganador, marca ended y anuncia en el canal', async () => {
@@ -93,7 +104,7 @@ describe('endGiveaway', () => {
     expect(updateGiveaway).toHaveBeenCalledWith('guild-1', 'msg-1', expect.objectContaining({ ended: true, winners: expect.any(Array) }));
     expect(client.message.edit).toHaveBeenCalled();
     expect(client.channel.send).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Felicidades') }));
-    expect(unlockAchievement).toHaveBeenCalledWith('guild-1', expect.any(String), 'con_suerte');
+    expect(emitSpy).toHaveBeenCalledWith('ACHIEVEMENT_CHECK', { guildId: 'guild-1', userId: expect.any(String), achievementId: 'con_suerte' });
   });
 
   it('sin participantes: avisa que nadie participó y no desbloquea logros', async () => {
@@ -103,7 +114,7 @@ describe('endGiveaway', () => {
     await endGiveaway(client, 'guild-1', 'msg-1');
 
     expect(client.channel.send).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Nadie participó') }));
-    expect(unlockAchievement).not.toHaveBeenCalled();
+    expect(emitSpy).not.toHaveBeenCalled();
   });
 
   it('un giveaway que ya estaba ended no se vuelve a procesar (protección contra doble finalización)', async () => {

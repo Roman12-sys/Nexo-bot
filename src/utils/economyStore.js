@@ -338,7 +338,12 @@ export async function deductBalanceIfSufficient(guildId, userId, amount) {
 
 // Suma "qty" a un ítem puntual del inventario (jsonb) de forma atómica (RPC
 // increment_inventory_item) — dos compras simultáneas del mismo ítem ya no pueden
-// leer el mismo inventario "viejo" y pisarse la unidad que agregó la otra.
+// leer el mismo inventario "viejo" y pisarse la unidad que agregó la otra. La RPC
+// además rechaza (insufficient_inventory) si el delta dejaría la cantidad en negativo —
+// piso atómico en Postgres, no solo el lock de JS que ya tenía cada comando (ver
+// comentario de la función en schema.sql: dos FEATURES distintas consumiendo el mismo
+// ítem a la vez, ej. /vender y /pet alimentar, usan locks con keys distintas y nunca se
+// excluyen entre sí).
 export async function incrementInventoryItem(guildId, userId, itemId, qty) {
   const { data: newInventory, error } = await supabase.rpc('increment_inventory_item', {
     p_guild_id: guildId,
@@ -347,7 +352,14 @@ export async function incrementInventoryItem(guildId, userId, itemId, qty) {
     p_qty: qty,
   });
 
-  if (error) throw error;
+  if (error) {
+    if (error.message?.includes('insufficient_inventory')) {
+      const insufficientError = new Error('insufficient_inventory');
+      insufficientError.code = 'insufficient_inventory';
+      throw insufficientError;
+    }
+    throw error;
+  }
   return newInventory;
 }
 

@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, AttachmentBuilder, MessageFlags } from 'discord.js';
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { getDangerousRolePermission } from '../../utils/permissions.js';
 import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
@@ -137,6 +138,16 @@ export async function execute(interaction) {
   // que ya usa /setup, que trabaja sobre estos mismos campos de guild_config.
   if (sub === 'rol-castigo') {
     const rol = interaction.options.getRole('rol');
+    if (rol) {
+      const dangerousPermission = getDangerousRolePermission(rol);
+      if (dangerousPermission) {
+        await interaction.reply({
+          content: `❌ ${rol} tiene el permiso **${dangerousPermission}**, así que no se puede usar como rol de castigo — el bot se lo agregaría a cualquier usuario sancionado, entregándole ese permiso por error. Elegí (o creá) un rol sin privilegios administrativos.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+    }
     await setGuildConfig(guildId, { punish_role_id: rol?.id ?? null });
     await interaction.reply({ content: rol ? `✅ Rol de castigo configurado: ${rol}.` : '✅ Rol de castigo desactivado.', flags: MessageFlags.Ephemeral });
     await logConfigChange(interaction, rol ? `🚫 Rol de castigo → ${rol}` : '🚫 Rol de castigo desactivado');
@@ -145,6 +156,16 @@ export async function execute(interaction) {
 
   if (sub === 'rol-automatico') {
     const rol = interaction.options.getRole('rol');
+    if (rol) {
+      const dangerousPermission = getDangerousRolePermission(rol);
+      if (dangerousPermission) {
+        await interaction.reply({
+          content: `❌ ${rol} tiene el permiso **${dangerousPermission}**, así que no se puede usar como rol automático — el bot se lo daría a CADA miembro nuevo que se una, entregándole ese permiso por error. Elegí (o creá) un rol sin privilegios administrativos.`,
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+    }
     await setGuildConfig(guildId, { auto_role_id: rol?.id ?? null });
     await interaction.reply({ content: rol ? `✅ Rol automático configurado: ${rol}.` : '✅ Rol automático desactivado.', flags: MessageFlags.Ephemeral });
     await logConfigChange(interaction, rol ? `🎫 Rol automático → ${rol}` : '🎫 Rol automático desactivado');

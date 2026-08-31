@@ -12,6 +12,7 @@ import {
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
+import { getDangerousRolePermission } from '../../utils/permissions.js';
 import { BRAND_COLOR, LOG_COLOR } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
@@ -206,16 +207,37 @@ function buildSetupPanel(state) {
 // Genérico para cualquier rol que /setup pueda crear: reusa por ID guardado, después
 // por nombre exacto, recién ahí crea uno nuevo — mismo criterio en los 3 roles que
 // maneja el comando (staff, automático, castigo), nunca duplica si ya existe.
-async function resolveRole(interaction, cfg, { column, name, color, hoist = false, requestedRole = null }) {
+//
+// rejectDangerous (Fase 1.1): SOLO lo pasan en true los llamados de auto_role_id/
+// punish_role_id — el rol de staff está pensado para tener privilegios reales, no
+// corresponde bloquearlo con la misma política. Cuando está en true, un candidato de
+// reuso (por ID guardado o por nombre) con un permiso de getDangerousRolePermission()
+// (misma política central que ya usa /config, src/utils/permissions.js — no se duplica
+// acá) se descarta en vez de reusarse silenciosamente, y en su lugar se crea un rol
+// nuevo — nunca se interrumpe /setup a mitad de camino por esto, pero tampoco se asigna
+// nunca un rol peligroso. skippedDangerousPermission (si no es null) le avisa al caller
+// qué pasó, para que el resumen final se lo explique al admin en vez de quedar en
+// silencio.
+async function resolveRole(interaction, cfg, { column, name, color, hoist = false, requestedRole = null, rejectDangerous = false }) {
   if (requestedRole) return { role: requestedRole, created: false };
+
+  let skippedDangerousPermission = null;
 
   if (cfg[column]) {
     const existing = await interaction.guild.roles.fetch(cfg[column]).catch(() => null);
-    if (existing) return { role: existing, created: false };
+    if (existing) {
+      const dangerous = rejectDangerous ? getDangerousRolePermission(existing) : null;
+      if (!dangerous) return { role: existing, created: false };
+      skippedDangerousPermission = dangerous;
+    }
   }
 
   const byName = interaction.guild.roles.cache.find((r) => r.name === name);
-  if (byName) return { role: byName, created: false };
+  if (byName) {
+    const dangerous = rejectDangerous ? getDangerousRolePermission(byName) : null;
+    if (!dangerous) return { role: byName, created: false };
+    skippedDangerousPermission = dangerous;
+  }
 
   const role = await interaction.guild.roles.create({
     name,
@@ -223,7 +245,7 @@ async function resolveRole(interaction, cfg, { column, name, color, hoist = fals
     hoist,
     reason: 'Creado por /setup de Nexo Bot',
   });
-  return { role, created: true };
+  return { role, created: true, skippedDangerousPermission };
 }
 
 async function resolveCategory(interaction, cfg) {
@@ -360,22 +382,32 @@ async function runSetup(interaction, state) {
   }
 
   if (state.autoRol) {
-    const { role, created } = await resolveRole(interaction, cfg, {
+    const { role, created, skippedDangerousPermission } = await resolveRole(interaction, cfg, {
       column: 'auto_role_id',
       name: 'Miembro',
       color: '#43B581',
+      rejectDangerous: true,
     });
-    summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} rol automático: ${role}`);
+    summary.push(
+      skippedDangerousPermission
+        ? `⚠️ Ya existía un rol "Miembro" con el permiso **${skippedDangerousPermission}** — no se reusó (se lo asignaría a CADA miembro nuevo). Se creó ${role} en su lugar.`
+        : `${created ? '🆕 Creado' : '♻️ Reusado'} rol automático: ${role}`,
+    );
     await setGuildConfig(interaction.guildId, { auto_role_id: role.id });
   }
 
   if (state.castigo) {
-    const { role, created } = await resolveRole(interaction, cfg, {
+    const { role, created, skippedDangerousPermission } = await resolveRole(interaction, cfg, {
       column: 'punish_role_id',
       name: 'Sancionado',
       color: LOG_COLOR,
+      rejectDangerous: true,
     });
-    summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} rol de castigo: ${role}`);
+    summary.push(
+      skippedDangerousPermission
+        ? `⚠️ Ya existía un rol "Sancionado" con el permiso **${skippedDangerousPermission}** — no se reusó (el bot se lo agregaría a cualquier usuario sancionado). Se creó ${role} en su lugar.`
+        : `${created ? '🆕 Creado' : '♻️ Reusado'} rol de castigo: ${role}`,
+    );
     await setGuildConfig(interaction.guildId, { punish_role_id: role.id });
   }
 

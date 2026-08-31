@@ -3,6 +3,7 @@
 // (`npm run dashboard`). No comparte proceso ni conexión de gateway con el bot: solo
 // lee de la misma base de Supabase y usa el token del bot para llamadas REST puntuales.
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { dashboardConfig } from './config.js';
 import { buildAuthorizeUrl, exchangeCodeForToken, fetchDiscordUser, fetchApplicationOwnerId, resolveUsers } from './discordApi.js';
@@ -10,7 +11,7 @@ import { buildSpotifyAuthorizeUrl, exchangeSpotifyCode, isSpotifyAuthConfigured 
 import { saveSpotifyRefreshToken } from '../src/utils/spotifyAuthStore.js';
 import { createSessionCookie, clearSessionCookie, createStateCookie, clearStateCookie, readSession, parseCookies } from './session.js';
 import { listManagedGuilds, checkGuildAccess, loadGuildDashboardData } from './queries.js';
-import { layout } from './html.js';
+import { layout, escapeHtml } from './html.js';
 import { renderLoginPage, renderGuildList, renderGuildDashboard } from './views.js';
 import { rateLimitMiddleware } from './rateLimiter.js';
 
@@ -113,7 +114,7 @@ app.get('/spotify/callback', async (req, res) => {
     if (spotifyError) {
       res.setHeader('Set-Cookie', clearStateCookie());
       res.status(400).send(
-        layout({ title: 'Autorización cancelada', body: `<div class="card"><p>Spotify no completó la autorización (${spotifyError}).</p></div>`, loggedIn: true }),
+        layout({ title: 'Autorización cancelada', body: `<div class="card"><p>Spotify no completó la autorización (${escapeHtml(spotifyError)}).</p></div>`, loggedIn: true }),
       );
       return;
     }
@@ -126,6 +127,31 @@ app.get('/spotify/callback', async (req, res) => {
           body: '<div class="card"><p>El intento expiró o es inválido. <a href="/spotify/authorize">Volvé a intentar</a>.</p></div>',
           loggedIn: true,
         }),
+      );
+      return;
+    }
+
+    // Revalida el owner acá — /spotify/authorize ya lo valida antes de redirigir a
+    // Spotify, pero /spotify/callback comparte la MISMA cookie oauth_state que también
+    // usa /auth/login (login normal de Discord). Sin este chequeo, cualquier usuario
+    // logueado en el dashboard podía: pegarle a /auth/login (setea oauth_state), armar a
+    // mano una URL de autorización de Spotify con ese mismo state apuntando a este
+    // /spotify/callback, autorizar con SU PROPIA cuenta de Spotify, y terminar
+    // pisándole al bot la integración global de Spotify (spotify_auth es una sola fila,
+    // no por-usuario) — sin haber pasado nunca por el gate de /spotify/authorize.
+    let ownerId;
+    try {
+      ownerId = await fetchApplicationOwnerId();
+    } catch (error) {
+      console.error('❌ Error verificando el dueño de la aplicación en el callback de Spotify:', error);
+      res.setHeader('Set-Cookie', clearStateCookie());
+      res.status(500).send(layout({ title: 'Error', body: '<div class="card"><p>No se pudo verificar el dueño de la aplicación.</p></div>', loggedIn: true }));
+      return;
+    }
+    if (session.userId !== ownerId) {
+      res.setHeader('Set-Cookie', clearStateCookie());
+      res.status(403).send(
+        layout({ title: 'Sin acceso', body: '<div class="card"><p>Solo el dueño de la aplicación puede autorizar Spotify.</p></div>', loggedIn: true }),
       );
       return;
     }
@@ -209,6 +235,16 @@ app.use((req, res) => {
   res.status(404).send(layout({ title: 'No encontrado', body: '<div class="card"><p>Página no encontrada. <a href="/">Volver</a>.</p></div>' }));
 });
 
-app.listen(dashboardConfig.port, () => {
-  console.log(`📊 Dashboard de Nexo Bot corriendo en el puerto ${dashboardConfig.port}`);
-});
+// Export + guard, para poder importar `app` desde un test (Fase 1, auditoría de
+// seguridad/economía, 2026-08-30) sin que la sola importación abra un puerto real — el
+// listen() de abajo solo corre cuando el archivo se ejecuta directo (`node
+// dashboard/server.js`, que es como lo arrancan npm run dashboard/dashboard:dev), nunca
+// cuando otro módulo hace `import { app } from './server.js'`. No cambia nada del
+// comportamiento en producción.
+export { app };
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  app.listen(dashboardConfig.port, () => {
+    console.log(`📊 Dashboard de Nexo Bot corriendo en el puerto ${dashboardConfig.port}`);
+  });
+}

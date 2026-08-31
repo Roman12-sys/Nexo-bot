@@ -130,7 +130,21 @@ async function handleAlimentar(interaction) {
       return;
     }
 
-    await incrementInventoryItem(guildId, userId, foodItem.id, -1);
+    // El pre-check de arriba (foodItem encontrado con cantidad > 0) lee bajo el mismo
+    // lock, pero ese lock es solo por usuario+comando ("pet:...") — no cubre otra
+    // feature con OTRO lock consumiendo el mismo ítem al mismo tiempo (ej. /vender,
+    // "vender:...", ver schema.sql increment_inventory_item). Ahí es donde puede llegar
+    // insufficient_inventory (Fase 1.1): respuesta de negocio clara, no el catch
+    // genérico de interactionCreate.js.
+    try {
+      await incrementInventoryItem(guildId, userId, foodItem.id, -1);
+    } catch (error) {
+      if (error.code === 'insufficient_inventory') {
+        await interaction.editReply({ content: `❌ Ya no tenés **${foodItem.name}** — puede que se haya usado justo ahora. Revisá \`/inventory\` e intentá de nuevo.` });
+        return;
+      }
+      throw error;
+    }
     const updated = await feedPet(guildId, userId);
 
     await interaction.editReply({

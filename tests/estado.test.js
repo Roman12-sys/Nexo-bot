@@ -20,7 +20,9 @@ const { execute } = await import('../src/commands/admin/estado.js');
 function makeInteraction({ isStaffMember = true } = {}) {
   return {
     guildId: 'guild-1',
-    member: { roles: { cache: { has: (id) => (isStaffMember ? id === 'role-admin' : false) } } },
+    // Map real, no un objeto ad-hoc con solo .has(): /estado usa isStaff(), que hace
+    // [...roles.cache.keys()] — igual que la Collection real de discord.js.
+    member: { roles: { cache: new Map(isStaffMember ? [['role-admin', { id: 'role-admin' }]] : []) } },
     client: {
       ws: { ping: 42 },
       uptime: 3_600_000,
