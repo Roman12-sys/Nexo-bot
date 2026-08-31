@@ -653,6 +653,100 @@ renovarla; el resto del bot sigue andando igual, solo Spotify se apaga). Tambié
 removieron `external_ids` (el ISRC) de varias respuestas — el campo existe en el track
 normalizado, pero en la práctica viene `null` casi siempre.
 
+## Fase 1 + Fase 1.1 — auditoría de seguridad/economía (2026-08-30/31)
+
+Primer punto estable post-auditorías: 7 fixes críticos (Fase 1) + cierre de cabos
+sueltos (Fase 1.1). Commit `fc14277`, migrado y confirmado en producción el 2026-08-31
+(ver verificación abajo). El *qué* está en el diff; esto documenta el *por qué* de cada
+decisión, mismo criterio que el resto de este archivo.
+
+**`/rob` — revalidación en fresco dentro del lock.** El pre-check (cooldown del
+atacante, protección de la víctima) fuera de `withLock` sigue existiendo, pero solo por
+UX/latencia (responder ephemeral rápido sin arriesgar la ventana de 3s de Discord) —
+nunca es el chequeo autoritativo. El lock (`rob:{guildId}:{userId}`) solo serializa
+ejecuciones del MISMO atacante entre sí; sin releer y revalidar cooldown/protección con
+datos frescos DENTRO del lock, la segunda ejecución en cola (nunca rechazada, solo en
+espera) robaba de nuevo ignorando lo que la primera ya había escrito. Mismo patrón que
+ya usaban `/daily` y `/crime` — `/rob` era el que le faltaba.
+
+**Roles peligrosos — política centralizada, dos superficies.** `getDangerousRolePermission()`
+(`src/utils/permissions.js`) es la ÚNICA lista de permisos peligrosos (Administrator,
+ManageGuild/Roles/Channels/Webhooks, Kick/Ban/ModerateMembers, ManageMessages/Nicknames,
+MentionEveryone — deliberadamente NO incluye permisos "molestos pero no peligrosos" como
+ManageEmojisAndStickers/ManageEvents/ViewAuditLog, para no bloquear roles normales sin
+necesidad). La usan `/config` (`rol-castigo`/`rol-automatico`, valida antes de guardar,
+rechaza sin persistir nada) y `/setup` (`resolveRole(..., rejectDangerous: true)`, SOLO
+en los llamados de `auto_role_id`/`punish_role_id` — el rol de Staff está pensado para
+tener privilegios reales, nunca pasa por esta validación). Cuando `/setup` encuentra un
+candidato de reuso (por ID guardado o por nombre "Miembro"/"Sancionado") que resulta
+peligroso, NO aborta el flujo (rompería la promesa de "/setup siempre termina, nunca
+duplica") — descarta ese candidato, crea un rol nuevo seguro en su lugar, y lo deja
+explícito en el resumen final/log de actividad. Efecto secundario conocido y aceptado:
+puede quedar un rol viejo (el peligroso, sin usar) con el mismo nombre visible que el
+nuevo — cosmético, no se borra solo (borrar un rol existente sin que se pida
+explícitamente sería una acción destructiva fuera de lugar).
+
+**Dashboard — XSS + TOCTOU del owner de Spotify.** `/spotify/callback` interpolaba el
+parámetro `error` de Spotify sin escapar (ahora usa `escapeHtml`, ya existente en
+`html.js`) y NO revalidaba el owner antes de persistir el refresh token — vector real:
+`/spotify/callback` comparte la MISMA cookie `oauth_state` que usa `/auth/login` (login
+normal de Discord), así que cualquier usuario logueado en el dashboard podía pegarle a
+`/auth/login` para setear esa cookie, armar a mano una URL de autorización de Spotify
+con ese mismo `state` apuntando a `/spotify/callback`, autorizar con SU propia cuenta, y
+pisar la fila global `spotify_auth` sin pasar nunca por el gate de `/spotify/authorize`.
+Ahora `/spotify/callback` revalida `fetchApplicationOwnerId()` de nuevo, antes de
+`exchangeSpotifyCode`/`saveSpotifyRefreshToken`.
+
+**Dashboard — rate limiter y la topología real de Railway.** El limiter tomaba la
+PRIMERA entrada de `X-Forwarded-For` — un cliente podía mandar cualquier valor ahí y
+resetear su propio límite en cada request. Railway pone exactamente UN proxy de borde
+entre internet y el proceso; cualquier proxy estándar (Railway incluido) AGREGA (nunca
+reemplaza) al FINAL de esa cabecera la IP de quien se conectó directo a él — la ÚLTIMA
+entrada es la única que un cliente no puede falsificar. El fix toma la última entrada,
+mismo criterio que `trust proxy: 1` de Express, implementado a mano (no con `req.ip`)
+para que los tests sigan usando objetos `req` simples en vez de tener que replicar el
+cálculo interno de `proxy-addr`.
+
+**`increment_inventory_item` — guard atómico, no solo lock de JS.** Dos consumos
+concurrentes del mismo ítem por FEATURES distintas (ej. `/vender`, lock
+`vender:{guild}:{user}`, y `/pet alimentar`, lock `pet:{guild}:{user}` — namespaces
+DISTINTOS, nunca se excluyen entre sí) podían dejar una cantidad en negativo. La RPC
+ahora hace `select ... for update` (bloquea la fila) y `raise exception
+'insufficient_inventory'` si el resultado daría negativo, antes de escribir. El wrapper
+de JS (`incrementInventoryItem`) mapea eso a `.code === 'insufficient_inventory'`.
+Callers que reciben delta negativo (`/vender`, `/pet alimentar`) lo atrapan con un
+mensaje de negocio claro ("ya no tenés ese ítem, puede que se haya usado justo ahora");
+cualquier otro error se re-lanza tal cual. `/buy` NO necesita este manejo — su delta es
+siempre `+1`, matemáticamente no puede disparar `insufficient_inventory`.
+
+**`economy_transactions.delivered` — schema drift cerrado.** El código
+(`getGuildPurchasesByReason`/`markPurchaseDelivered`, `/economia-staff pendientes`) ya
+usaba esta columna antes de que `schema.sql` la declarara. `migration_2026_08_30_fase1.sql`
+(mismo patrón que `migration_2026_08_27_criticos.sql`) trae la columna nueva + el guard
+de `increment_inventory_item` — corrida y verificada contra producción (Table Editor +
+`select prosrc from pg_proc where proname = 'increment_inventory_item'`) el 2026-08-31.
+
+**Suite de tests — 356→394 passed, 24→0 failed.** Los 24 fallos preexistentes (antes de
+Fase 1, no causados por ella) tenían DOS causas distintas, no una:
+1. **Mock de `roles.cache` incompleto** (`{ has: fn }` en vez de un `Map` real) en
+   `tests/helpers/discordMock.js`, `tests/isStaff.test.js`, `tests/estado.test.js` —
+   `isStaff()` hace `[...roles.cache.keys()]` (igual que la `Collection` real de
+   discord.js, que extiende `Map`); un objeto sin `.keys()` revienta. **Al escribir un
+   mock de `member.roles.cache` nuevo, usar un `Map` real, nunca un objeto ad-hoc.**
+2. **Test desactualizado** (`giveawayEngine.test.js`): asertaba `unlockAchievement`
+   llamado directo, pero ese call-site fue migrado al Event Engine
+   (`eventBus.emit('ACHIEVEMENT_CHECK', ...)`) en la consolidación de logros de la
+   auditoría 2026-08-29 y el test nunca se actualizó — sin relación con el bug de mocks.
+
+**`dashboard/server.js` — patrón de testabilidad.** `app` se exporta y `app.listen()`
+queda detrás de un guard (`process.argv[1] === fileURLToPath(import.meta.url)`) — solo
+corre cuando el archivo se ejecuta directo (`node dashboard/server.js`, que es como lo
+arrancan `npm run dashboard`/`dashboard:dev`), nunca al importarlo desde un test. Permite
+testear rutas HTTP reales (`node:http` + `app`, sin supertest — el proyecto no lo tiene
+como dependencia) sin abrir un puerto real solo por importar el módulo. Verificado
+empíricamente (no solo leído) que el guard resuelve igual con invocación relativa,
+absoluta, y bajo `--watch`.
+
 ## Stack
 
 Node 22+, discord.js 14 (ESM, `"type": "module"` en `package.json`), Supabase
