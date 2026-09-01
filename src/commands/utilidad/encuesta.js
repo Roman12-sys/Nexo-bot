@@ -95,7 +95,18 @@ registerButtonPrefix('encuesta_cerrar_', async (interaction) => {
     return;
   }
 
-  const message = interaction.message;
+  // QUÉ CAMBIÓ: fetch explícito del mensaje antes de leer las reacciones — antes se leía
+  // interaction.message directo, que puede traer el conteo de reacciones desactualizado
+  // (discord.js lo mantiene al día vía eventos de gateway de reacciones, y el cliente NO
+  // tiene el intent GuildMessageReactions prendido, así que esos eventos nunca le llegan
+  // al bot). El resultado real: el cierre mostraba siempre "0 votos" en todas las
+  // opciones, aunque la gente sí hubiera votado — el conteo quedaba congelado en el
+  // momento en que el bot sembró sus propias reacciones. .fetch() pega un GET directo a
+  // la API de Discord (no depende de ningún intent ni del cache de gateway), así que
+  // siempre trae el conteo real en el momento del cierre. Si el fetch falla por lo que
+  // sea, sigue con lo que ya tenía en vez de romper el cierre.
+  // MOTIVO: bug reportado en vivo 2026-09-01 (votos en 0 al cerrar).
+  const message = await interaction.message.fetch().catch(() => interaction.message);
   const counts = message.reactions.cache
     .filter((r) => ALL_POLL_EMOJIS.includes(r.emoji.name))
     .sort((a, b) => ALL_POLL_EMOJIS.indexOf(a.emoji.name) - ALL_POLL_EMOJIS.indexOf(b.emoji.name))
