@@ -22,6 +22,7 @@ function rowToGiveaway(row, participants) {
     winners: row.winners || [],
     creatorId: row.creator_id,
     requiredRoleId: row.required_role_id || null,
+    winnersAnnouncedAt: row.winners_announced_at || null,
     participants,
   };
 }
@@ -75,6 +76,7 @@ export async function updateGiveaway(guildId, messageId, updates) {
   if ('ended' in updates) patch.ended = updates.ended;
   if ('cancelled' in updates) patch.cancelled = updates.cancelled;
   if ('winners' in updates) patch.winners = updates.winners;
+  if ('winnersAnnouncedAt' in updates) patch.winners_announced_at = updates.winnersAnnouncedAt;
 
   const { error } = await supabase.from(GIVEAWAYS_TABLE).update(patch).eq('guild_id', guildId).eq('message_id', messageId);
   if (error) throw error;
@@ -126,6 +128,23 @@ export async function getActiveGiveaways() {
 
   if (error) throw error;
   return (data || []).map((row) => ({ guildId: row.guild_id, messageId: row.message_id, endTimestamp: row.end_timestamp }));
+}
+
+// Sorteos YA finalizados (de TODOS los servidores) cuyos ganadores se calcularon pero
+// el anuncio nunca se mandó — la ventana de crash real que cierra
+// reconcilePendingGiveawayAnnouncements() en giveawayEngine.js al arrancar el bot (ver
+// winners_announced_at en schema.sql). Los cancelados quedan afuera a propósito: nunca
+// tienen nada que anunciar.
+export async function getGiveawaysPendingAnnouncement() {
+  const { data, error } = await supabase
+    .from(GIVEAWAYS_TABLE)
+    .select('guild_id, message_id')
+    .eq('ended', true)
+    .eq('cancelled', false)
+    .is('winners_announced_at', null);
+
+  if (error) throw error;
+  return (data || []).map((row) => ({ guildId: row.guild_id, messageId: row.message_id }));
 }
 
 // Sorteos de UN servidor por estado (activos o ya finalizados) con su premio — a

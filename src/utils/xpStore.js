@@ -8,6 +8,7 @@
 import { supabase } from '../supabaseClient.js';
 import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7/Fase 3
 import { resolveXpOrigin } from './economyOrigins.js'; // Fase A, segunda auditoría (2026-08-30)
+import { withLock } from './asyncLock.js'; // Fase 2A (2026-08-31) — ver grantMessageXp
 
 const TABLE = 'xp';
 
@@ -221,20 +222,32 @@ export async function setXp(guildId, userId, amount) {
 // — ej. el toggle de finde) — xpStore.js se mantiene sin depender de guild_config, ver el
 // comentario del archivo. El impulso comprado en la tienda (xp_boost_until) en cambio se
 // resuelve ACÁ porque es un dato propio de esta misma tabla, no de guild_config.
+//
+// QUÉ CAMBIÓ (Fase 2A, 2026-08-31): todo el cuerpo (leer cooldown, decidir, recién
+// después escribir lastXpTs) corre ahora bajo withLock por guild+usuario. Sin esto, dos
+// mensajes del mismo usuario procesados casi al mismo tiempo (ej. doble entrega del
+// gateway, o dos mensajes mandados con <1 tick de diferencia) podían los dos leer el
+// mismo lastXpTs viejo, pasar los dos el chequeo de cooldown, y los dos ganar XP — el
+// cooldown de 60s saltado por concurrencia, no por diseño. El lock es por
+// guild+usuario, no global: mensajes de otros usuarios (la inmensa mayoría del tráfico)
+// nunca se serializan entre sí, solo dos mensajes del MISMO usuario compitiendo por su
+// propio cooldown.
 export async function grantMessageXp(guildId, userId, content, externalMultiplier = 1) {
-  const record = await getUserXp(guildId, userId);
-  const now = Date.now();
-  const trimmed = (content || '').trim();
+  return withLock(`xp-message:${guildId}:${userId}`, async () => {
+    const record = await getUserXp(guildId, userId);
+    const now = Date.now();
+    const trimmed = (content || '').trim();
 
-  if (trimmed.length < MIN_CONTENT_LENGTH) return null;
-  if (trimmed === record.lastContent) return null;
-  if (now - record.lastXpTs < MESSAGE_XP_COOLDOWN_MS) return null;
+    if (trimmed.length < MIN_CONTENT_LENGTH) return null;
+    if (trimmed === record.lastContent) return null;
+    if (now - record.lastXpTs < MESSAGE_XP_COOLDOWN_MS) return null;
 
-  const boostActive = record.xpBoostUntil > now;
-  const multiplier = (boostActive ? XP_BOOST_MULTIPLIER : 1) * externalMultiplier;
-  const base = Math.floor(Math.random() * (XP_MAX_PER_MESSAGE - XP_MIN_PER_MESSAGE + 1)) + XP_MIN_PER_MESSAGE;
-  const gained = Math.floor(base * multiplier);
-  return addXp(guildId, userId, gained, { lastXpTs: now, lastContent: trimmed, source: 'message' });
+    const boostActive = record.xpBoostUntil > now;
+    const multiplier = (boostActive ? XP_BOOST_MULTIPLIER : 1) * externalMultiplier;
+    const base = Math.floor(Math.random() * (XP_MAX_PER_MESSAGE - XP_MIN_PER_MESSAGE + 1)) + XP_MIN_PER_MESSAGE;
+    const gained = Math.floor(base * multiplier);
+    return addXp(guildId, userId, gained, { lastXpTs: now, lastContent: trimmed, source: 'message' });
+  });
 }
 
 // Ítem de tienda type:'xp_boost' (ver buy.js) — extiende (no reemplaza) el impulso: si ya
@@ -252,15 +265,19 @@ export async function extendXpBoost(guildId, userId, durationMs) {
 // /prestigio: resetea nivel y XP a 0 a cambio de una insignia permanente (⭐×N) — el
 // mínimo de nivel para poder hacerlo se valida en el comando, no acá (esta función solo
 // aplica el reset, no decide si el usuario tiene permitido pedirlo).
+//
+// QUÉ CAMBIÓ (Fase 2A, 2026-08-31): antes era read (getUserXp) -> calculate
+// (prestige+1) -> write en JS, sin lock ni RPC — dos /prestigio casi simultáneos del
+// mismo usuario podían leer el mismo "prestige" viejo y las dos escribir prestige+1, así
+// que el resultado final quedaba en +1 en vez de +2 (un incremento perdido). Ahora es una
+// sola RPC (apply_prestige, schema.sql) con "for update", mismo patrón que increment_xp/
+// increment_balance — Postgres serializa las dos llamadas, ninguna ve el prestige viejo
+// de la otra.
 export async function applyPrestige(guildId, userId) {
-  const record = await getUserXp(guildId, userId);
-  const newPrestige = record.prestige + 1;
-
-  const { error } = await supabase
-    .from(TABLE)
-    .update({ xp: 0, level: 0, prestige: newPrestige })
-    .eq('guild_id', guildId)
-    .eq('user_id', userId);
+  const { data: newPrestige, error } = await supabase.rpc('apply_prestige', {
+    p_guild_id: guildId,
+    p_user_id: userId,
+  });
   if (error) throw error;
   return newPrestige;
 }

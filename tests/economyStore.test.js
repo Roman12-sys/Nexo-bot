@@ -11,7 +11,7 @@ import { eventBus } from '../src/utils/eventBus.js';
 const supabaseMock = createSupabaseMock();
 vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMock; } }));
 
-const { addBalance, deductBalanceIfSufficient, transferBalance, setBalance, setRobCooldowns, recordTransaction } = await import('../src/utils/economyStore.js');
+const { addBalance, deductBalanceIfSufficient, transferBalance, setBalance, setRobCooldowns, recordTransaction, getUserEconomy } = await import('../src/utils/economyStore.js');
 
 beforeEach(() => {
   // clearAllMocks limpia el historial de llamadas de TODOS los vi.fn() vivos —
@@ -266,5 +266,48 @@ describe('recordTransaction — COINS_DESTROYED (Fase A)', () => {
     await recordTransaction('guild-1', 'user-1', { type: 'rob_fine', amount: -30, balanceAfter: 70 });
 
     expect(emitSpy).not.toHaveBeenCalled();
+  });
+});
+
+// Multi-guild (Fase 2A, 2026-08-31) — el MISMO userId activo en dos guilds donde el bot
+// está es el caso real de producción; economy no tiene ningún cache en memoria (a
+// diferencia de missionsStore/guildConfigStore), así que lo que puede romperse acá es
+// más simple pero igual de real: un guildId que se pierde en el camino y termina
+// pegándole a la fila equivocada. Se verifica que cada llamada, sin importar el orden,
+// mande el guild_id correcto a Postgres — nunca el del guild anterior.
+describe('multi-guild — el mismo userId en dos guilds nunca se mezcla', () => {
+  it('getUserEconomy: guild-a y guild-b para el mismo user_id consultan filas distintas', async () => {
+    await getUserEconomy('guild-a', 'user-123');
+    await getUserEconomy('guild-b', 'user-123');
+
+    const eqCalls = supabaseMock.getBuilder('economy').eq.mock.calls;
+    expect(eqCalls).toEqual(
+      expect.arrayContaining([
+        ['guild_id', 'guild-a'],
+        ['guild_id', 'guild-b'],
+        ['user_id', 'user-123'],
+      ]),
+    );
+  });
+
+  it('addBalance: dos llamadas para el mismo user_id en guilds distintos mandan cada una su propio p_guild_id a la RPC', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: 100, error: null });
+
+    await addBalance('guild-a', 'user-123', 50);
+    await addBalance('guild-b', 'user-123', 999);
+
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, 'increment_balance', { p_guild_id: 'guild-a', p_user_id: 'user-123', p_amount: 50 });
+    expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, 'increment_balance', { p_guild_id: 'guild-b', p_user_id: 'user-123', p_amount: 999 });
+  });
+
+  it('addBalance con meta: la transacción registrada para cada guild lleva su propio guild_id, nunca el del otro', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: 100, error: null });
+    const insert = supabaseMock.getBuilder('economy_transactions').insert;
+
+    await addBalance('guild-a', 'user-123', 50, { type: 'daily' });
+    await addBalance('guild-b', 'user-123', 999, { type: 'daily' });
+
+    expect(insert).toHaveBeenNthCalledWith(1, expect.objectContaining({ guild_id: 'guild-a', user_id: 'user-123' }));
+    expect(insert).toHaveBeenNthCalledWith(2, expect.objectContaining({ guild_id: 'guild-b', user_id: 'user-123' }));
   });
 });

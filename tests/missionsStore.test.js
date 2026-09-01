@@ -138,4 +138,25 @@ describe('ensureCurrentMissions — sin upsert redundante (Fase A)', () => {
 
     expect(supabaseMock.getBuilder('user_missions').upsert).toHaveBeenCalledTimes(2);
   });
+
+  // Multi-guild (Fase 2A, 2026-08-31) — la cache está keyeada por `${guildId}:${userId}`
+  // (missionsStore.js), no solo por userId. El MISMO usuario activo en dos servidores
+  // donde el bot está es el caso real que puede pasar en producción: si la cache
+  // ignorara guildId, el segundo guild se saltearía su propio upsert pensando que ya
+  // estaba asegurado (lo aseguró el primero).
+  it('el MISMO usuario en dos guilds distintos: cada guild upsertea su propia fila de misiones, ninguno se salta', async () => {
+    await eventBus.emit('XP_GAINED', { guildId: 'guild-a', userId: 'user-123', amount: 20, source: 'message' });
+    await eventBus.emit('XP_GAINED', { guildId: 'guild-b', userId: 'user-123', amount: 20, source: 'message' });
+
+    expect(supabaseMock.getBuilder('user_missions').upsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('el MISMO usuario en dos guilds: el progreso de misión de cada guild se manda con su propio p_guild_id', async () => {
+    await eventBus.emit('XP_GAINED', { guildId: 'guild-a', userId: 'user-123', amount: 20, source: 'message' });
+    await eventBus.emit('XP_GAINED', { guildId: 'guild-b', userId: 'user-123', amount: 20, source: 'message' });
+
+    const calls = supabaseMock.rpc.mock.calls.filter(([name]) => name === 'increment_mission_progress');
+    const guildIds = calls.map(([, params]) => params.p_guild_id);
+    expect(guildIds).toEqual(expect.arrayContaining(['guild-a', 'guild-b']));
+  });
 });

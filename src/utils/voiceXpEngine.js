@@ -14,6 +14,27 @@ const XP_MAX = 20;
 // farmeando XP solo, AFK, en un canal de voz vacío de gente real.
 const MIN_HUMANS_IN_CHANNEL = 2;
 
+// Evaluación técnica (Fase 2A, 2026-08-31) — se revisó si discord.js expone alguna señal
+// mejor que "2+ humanos, ninguno ensordecido" para detectar actividad REAL en voz (no
+// solo presencia) antes de tocar nada acá. Conclusión: no existe una señal confiable sin
+// unirse al canal de voz de verdad.
+//   - El Gateway de Discord (VoiceState) no expone "quién está hablando ahora mismo" —
+//     eso solo viaja como paquetes de audio Opus dentro de la conexión de voz misma
+//     (protocolo separado del Gateway normal), y discord.js solo la recibe si el bot ya
+//     se unió a ESE canal puntual (@discordjs/voice, VoiceReceiver/AudioReceiveStream).
+//   - Unirse a TODOS los canales de voz de un servidor a la vez para escuchar "quién
+//     habla" no es viable: un bot solo puede tener una conexión de voz activa por
+//     servidor (la que ya usa el sistema de música cuando está reproduciendo), no una
+//     por canal — y hacerlo solo para medir actividad sería invasivo (procesar audio de
+//     canales donde nadie pidió que el bot esté) y carísimo en recursos para algo que
+//     hoy es un barrido cada 5 minutos sobre potencialmente muchos servidores.
+//   - selfMute (a diferencia de selfDeaf) se evaluó y se descartó como filtro extra:
+//     mutear el propio micrófono no implica estar inactivo (alguien mirando una
+//     pantalla compartida, escuchando sin querer interrumpir, etc.) — a diferencia de
+//     estar ensordecido, que sí implica no poder ni siquiera escuchar la conversación.
+// Conclusión: "2+ humanos, no ensordecido" queda como el mejor proxy disponible sin
+// falsos positivos de "detección de actividad" que en realidad no mide nada real.
+
 async function grantVoiceXpTick(client) {
   for (const guild of client.guilds.cache.values()) {
     let cfg;

@@ -99,7 +99,7 @@ create table if not exists guild_config (
 
   -- niveles
   level_roles jsonb not null default '{}',
-  level_roles_mode text not null default 'cumulative',
+  level_roles_mode text not null default 'cumulative' check (level_roles_mode in ('cumulative', 'replace')), -- únicos 2 valores que ofrece /config (addChoices)
   xp_ignored_channel_ids jsonb not null default '[]', -- canales que no dan XP por mensaje
   xp_weekend_boost boolean not null default false, -- sáb/dom: doble XP por mensaje y voz
 
@@ -132,7 +132,7 @@ create table if not exists temporary_voice_channels (
   guild_id text not null,
   owner_id text not null,
   category_id text,
-  type text not null default 'public', -- 'private' | 'invite_only' | 'public'
+  type text not null default 'public' check (type in ('public', 'private', 'invite_only')), -- únicos 3 valores que escribe tempVoiceEngine.js
   locked boolean not null default false,
   created_at timestamptz not null default now(),
   unique (guild_id, owner_id)
@@ -145,9 +145,9 @@ create table if not exists voice_channel_stats (
   owner_id text not null,
   type text not null,
   created_at timestamptz not null default now(),
-  duration_seconds integer not null default 0,
-  unique_users_count integer not null default 0,
-  max_concurrent_users integer not null default 0
+  duration_seconds integer not null default 0 check (duration_seconds >= 0),
+  unique_users_count integer not null default 0 check (unique_users_count >= 0),
+  max_concurrent_users integer not null default 0 check (max_concurrent_users >= 0)
 );
 -- A diferencia de temporary_voice_channels (donde unique(guild_id, owner_id) ya sirve
 -- de índice para filtrar por guild_id), esta tabla no tenía NINGÚN índice por guild_id
@@ -160,17 +160,17 @@ create index if not exists voice_channel_stats_guild_idx on voice_channel_stats 
 create table if not exists economy (
   guild_id text not null,
   user_id text not null,
-  balance bigint not null default 0, -- "wallet": arriesgable por /rob
+  balance bigint not null default 0 check (balance >= 0), -- "wallet": arriesgable por /rob. Piso >=0 ya lo garantizan las RPCs (greatest(0,...) / insufficient_funds) — el CHECK es la red de seguridad a nivel de tabla, contra cualquier escritura directa que las bypasee.
   last_daily bigint not null default 0, -- epoch ms, no timestamptz: el bot hace Date.now() - last_daily
   last_work bigint not null default 0,  -- idem
-  daily_streak integer not null default 0, -- días consecutivos reclamando /daily
-  bank bigint not null default 0, -- protegido de /rob, rinde interés (ver collectBankInterest)
+  daily_streak integer not null default 0 check (daily_streak >= 0), -- días consecutivos reclamando /daily
+  bank bigint not null default 0 check (bank >= 0), -- protegido de /rob, rinde interés (ver collectBankInterest)
   last_interest_ts bigint not null default 0, -- se resetea en cada depósito/retiro, ver deposit_to_bank/withdraw_from_bank
   last_rob bigint not null default 0, -- cooldown de quien roba
   last_robbed bigint not null default 0, -- protección de quien fue robado
   last_crime bigint not null default 0,
   last_weekly bigint not null default 0,
-  rob_shield_until bigint not null default 0, -- item de tienda type:'rob_shield'
+  rob_shield_until bigint not null default 0 check (rob_shield_until >= 0), -- item de tienda type:'rob_shield'
   inventory jsonb not null default '{}',
   primary key (guild_id, user_id)
 );
@@ -179,7 +179,15 @@ create table if not exists economy_transactions (
   id bigint generated always as identity primary key,
   guild_id text not null,
   user_id text not null,
-  type text not null, -- 'daily' | 'work' | 'weekly' | 'crime_win' | 'crime_fine' | 'trivia' | 'guess' | 'purchase' | 'sell' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set' | 'gamble_bet' | 'gamble_win' | 'bank_deposit' | 'bank_withdraw' | 'bank_interest' | 'rob_win' | 'rob_loss' | 'rob_fine' | 'pet_battle_win'
+  -- QUÉ CAMBIÓ (Fase 2A, 2026-08-31): comentario corregido — le faltaban 'mystery_box',
+  -- 'mission' y 'admin_set_level', ya usados en código (buy.js, missionsStore.js,
+  -- xpStaff.js) desde antes de esta fase. Verificado a mano contra CADA call-site real
+  -- de addBalance/recordTransaction/setBalance en el repo (auditoría anterior a esta ya
+  -- había detectado que el comentario estaba desactualizado, sin corregirlo).
+  -- Sin CHECK a propósito: esta lista crece con cada feature nueva de economía y un
+  -- CHECK desincronizado (como este comentario, que ya estuvo desactualizado una vez)
+  -- rompería inserts legítimos en producción de forma silenciosa hasta notarlo.
+  type text not null, -- 'daily' | 'work' | 'weekly' | 'crime_win' | 'crime_fine' | 'trivia' | 'guess' | 'purchase' | 'sell' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set' | 'admin_set_level' | 'gamble_bet' | 'gamble_win' | 'bank_deposit' | 'bank_withdraw' | 'bank_interest' | 'rob_win' | 'rob_loss' | 'rob_fine' | 'pet_battle_win' | 'mystery_box' | 'mission'
   amount bigint not null,
   balance_after bigint not null,
   actor_id text,
@@ -200,7 +208,7 @@ create table if not exists shop_items (
   name text not null,
   description text not null default '',
   category text not null default 'General',
-  price bigint not null,
+  price bigint not null check (price > 0), -- /shop-admin agregar/editar ya validan setMinValue(1) en Discord; esto cierra la misma regla si alguna vez se escribe directo a la tabla
   role_id text,
   fulfillment text, -- null (automático, va al inventario) | 'manual' (staff lo entrega a mano)
   type text, -- null (ítem normal) | 'xp_boost' | 'mystery_box'
@@ -214,12 +222,12 @@ create table if not exists shop_items (
 create table if not exists xp (
   guild_id text not null,
   user_id text not null,
-  xp bigint not null default 0,
-  level integer not null default 0,
+  xp bigint not null default 0 check (xp >= 0),
+  level integer not null default 0 check (level >= 0),
   last_xp_ts bigint not null default 0, -- epoch ms, no timestamptz: Date.now() - last_xp_ts
   last_content text,
   xp_boost_until bigint not null default 0, -- epoch ms, item de tienda type:'xp_boost'
-  prestige integer not null default 0, -- /prestigio
+  prestige integer not null default 0 check (prestige >= 0), -- /prestigio
   primary key (guild_id, user_id)
 );
 
@@ -280,8 +288,27 @@ create table if not exists giveaways (
   creator_id text not null,
   required_role_id text, -- rol requerido para participar (null = sin restricción)
   created_at timestamptz not null default now(),
+  -- epoch ms; null = ganadores calculados (o el sorteo sigue activo) pero el anuncio
+  -- todavía no se mandó. Ver giveawayEngine.js — separa "ended=true" de "se avisó de
+  -- verdad", así un crash entre persistir ganadores y mandar el mensaje es recuperable
+  -- al reiniciar (reconcilePendingGiveawayAnnouncements) en vez de perder el anuncio.
+  winners_announced_at bigint,
   primary key (guild_id, message_id)
 );
+-- ended=false es lo único que rescheduleActiveGiveaways/toggleParticipant filtran, y la
+-- tabla acumula historial (sorteos ya terminados nunca se borran) — sin este índice
+-- parcial, ese filtro escanea filas de todos los servidores para siempre, no solo las
+-- activas de ahora.
+create index if not exists giveaways_active_idx on giveaways (ended) where ended = false;
+
+-- Fase 2A.1 (2026-08-31) — getGiveawaysPendingAnnouncement() (giveawaysStore.js) filtra
+-- exactamente estos 3 predicados; el índice parcial los repite tal cual para que
+-- Postgres pueda resolverla contra un puñado de filas (los sorteos "atascados", en la
+-- práctica casi siempre 0) en vez de escanear el historial completo de sorteos ya
+-- anunciados. La corre tanto reconcilePendingGiveawayAnnouncements() al arrancar como
+-- startGiveawayReconcileLoop() cada 5 minutos durante toda la vida del proceso.
+create index if not exists giveaways_pending_announcement_idx on giveaways (guild_id, message_id)
+  where ended = true and cancelled = false and winners_announced_at is null;
 
 create table if not exists giveaway_entries (
   guild_id text not null,
@@ -297,9 +324,9 @@ create table if not exists giveaway_entries (
 create table if not exists trivia_user_stats (
   guild_id text not null,
   user_id text not null,
-  points bigint not null default 0,
-  correct integer not null default 0,
-  answered integer not null default 0,
+  points bigint not null default 0 check (points >= 0),
+  correct integer not null default 0 check (correct >= 0),
+  answered integer not null default 0 check (answered >= 0),
   answered_question_ids jsonb not null default '[]',
   plays_window_start bigint,
   plays_in_window integer not null default 0,
@@ -402,15 +429,15 @@ create table if not exists pets (
   user_id text not null,
   species text not null,
   name text not null,
-  level integer not null default 0,
-  xp bigint not null default 0,
-  hunger integer not null default 100,
-  happiness integer not null default 100,
+  level integer not null default 0 check (level >= 0),
+  xp bigint not null default 0 check (xp >= 0),
+  hunger integer not null default 100 check (hunger between 0 and 100), -- petsStore.js ya clampea cada write (Math.max(0,...)/Math.min(100,...)) — mismo criterio que balance/bank arriba: el CHECK es la red de seguridad de tabla
+  happiness integer not null default 100 check (happiness between 0 and 100),
   last_fed bigint not null default 0,
   last_played bigint not null default 0,
   last_battle bigint not null default 0,
-  wins integer not null default 0,
-  losses integer not null default 0,
+  wins integer not null default 0 check (wins >= 0),
+  losses integer not null default 0 check (losses >= 0),
   created_at timestamptz not null default now(),
   primary key (guild_id, user_id)
 );
@@ -457,12 +484,12 @@ create table if not exists command_usage (
 create table if not exists guild_daily_stats (
   guild_id text not null,
   date date not null,
-  messages_sent integer not null default 0,
-  commands_executed integer not null default 0,
-  new_members integer not null default 0,
-  money_created bigint not null default 0,
-  money_destroyed bigint not null default 0,
-  xp_distributed bigint not null default 0,
+  messages_sent integer not null default 0 check (messages_sent >= 0),
+  commands_executed integer not null default 0 check (commands_executed >= 0),
+  new_members integer not null default 0 check (new_members >= 0),
+  money_created bigint not null default 0 check (money_created >= 0),
+  money_destroyed bigint not null default 0 check (money_destroyed >= 0),
+  xp_distributed bigint not null default 0 check (xp_distributed >= 0),
   primary key (guild_id, date)
 );
 
@@ -633,6 +660,35 @@ begin
   returning xp into v_new_xp;
 
   return v_new_xp;
+end;
+$$;
+
+-- /prestigio (Fase 2A, 2026-08-31): reemplaza el read->calculate->write que tenía
+-- applyPrestige en xpStore.js por esta RPC atómica, mismo patrón que increment_xp/
+-- increment_balance de arriba. "for update" bloquea la fila hasta que la primera
+-- llamada termina — sin esto, dos /prestigio simultáneos del mismo usuario podían leer
+-- el mismo prestige viejo y las dos escribir prestige+1, perdiendo un incremento (el
+-- resultado final quedaba en +1 en vez de +2).
+create or replace function apply_prestige(p_guild_id text, p_user_id text)
+returns integer
+language plpgsql
+as $$
+declare
+  v_prestige integer;
+begin
+  select prestige into v_prestige
+  from xp
+  where guild_id = p_guild_id and user_id = p_user_id
+  for update;
+
+  v_prestige := coalesce(v_prestige, 0) + 1;
+
+  insert into xp (guild_id, user_id, xp, level, prestige)
+  values (p_guild_id, p_user_id, 0, 0, v_prestige)
+  on conflict (guild_id, user_id)
+  do update set xp = 0, level = 0, prestige = v_prestige;
+
+  return v_prestige;
 end;
 $$;
 

@@ -114,6 +114,47 @@ describe('cancelPunishExpiry', () => {
   });
 });
 
+// Multi-guild (Fase 2A, 2026-08-31) — activeTimeouts está keyeado por
+// `${guildId}:${userId}`, pero eso solo protege si de verdad se usan los dos campos en
+// cada key. El MISMO userId con una restricción activa en dos guilds distintos a la vez
+// es el caso real que puede pasar en producción (un usuario problemático en varios
+// servidores donde el bot está) — nunca debería mezclarse.
+describe('multi-guild — el mismo userId en dos guilds nunca se mezcla', () => {
+  it('cancelar la restricción en guild-a no cancela la de guild-b para el mismo usuario', async () => {
+    const { client: clientA, rolesRemove: removeA } = makeClient();
+    const { client: clientB, rolesRemove: removeB } = makeClient();
+
+    schedulePunishExpiry(clientA, makePunishment({ guildId: 'guild-a', userId: 'user-123', expiresAt: Date.now() + 60_000 }));
+    schedulePunishExpiry(clientB, makePunishment({ guildId: 'guild-b', userId: 'user-123', expiresAt: Date.now() + 60_000 }));
+
+    cancelPunishExpiry('guild-a', 'user-123');
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(removeA).not.toHaveBeenCalled(); // cancelado
+    expect(removeB).toHaveBeenCalledTimes(1); // guild-b nunca se tocó, expira normal
+    expect(deleteActivePunishment).toHaveBeenCalledWith('guild-b', 'user-123');
+    expect(deleteActivePunishment).not.toHaveBeenCalledWith('guild-a', 'user-123');
+  });
+
+  it('reprogramar al reiniciar con el mismo userId en dos guilds programa dos timers independientes', async () => {
+    const { client, rolesRemove } = makeClient();
+    getAllActivePunishments.mockResolvedValue([
+      makePunishment({ guildId: 'guild-a', userId: 'user-123', expiresAt: Date.now() + 30_000 }),
+      makePunishment({ guildId: 'guild-b', userId: 'user-123', expiresAt: Date.now() + 90_000 }),
+    ]);
+
+    await rescheduleActivePunishments(client);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(deleteActivePunishment).toHaveBeenCalledWith('guild-a', 'user-123');
+    expect(deleteActivePunishment).not.toHaveBeenCalledWith('guild-b', 'user-123');
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(deleteActivePunishment).toHaveBeenCalledWith('guild-b', 'user-123');
+    expect(rolesRemove).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('rescheduleActivePunishments — reprogramar al reiniciar', () => {
   it('una restricción ya vencida expira ya; una futura espera su turno', async () => {
     const { client, rolesRemove } = makeClient();

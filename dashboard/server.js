@@ -14,6 +14,7 @@ import { listManagedGuilds, checkGuildAccess, loadGuildDashboardData } from './q
 import { layout, escapeHtml } from './html.js';
 import { renderLoginPage, renderGuildList, renderGuildDashboard } from './views.js';
 import { rateLimitMiddleware } from './rateLimiter.js';
+import { registerShutdown } from '../src/utils/shutdown.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -244,7 +245,13 @@ app.use((req, res) => {
 export { app };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  app.listen(dashboardConfig.port, () => {
+  const server = app.listen(dashboardConfig.port, () => {
     console.log(`📊 Dashboard de Nexo Bot corriendo en el puerto ${dashboardConfig.port}`);
   });
+
+  // Mismo shutdown chico que el bot (src/index.js) — server.close() deja de aceptar
+  // conexiones nuevas y espera a que las requests en curso terminen antes de cerrar.
+  registerShutdown(['SIGTERM', 'SIGINT'], () => new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  }));
 }

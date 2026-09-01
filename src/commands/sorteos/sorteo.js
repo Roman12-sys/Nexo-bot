@@ -6,11 +6,12 @@ import {
   ButtonStyle,
   MessageFlags,
 } from 'discord.js';
-import { saveGiveaway, getGiveaway, updateGiveaway, toggleParticipant, getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
-import { pickWinners, endGiveaway, scheduleGiveawayEnd } from '../../utils/giveawayEngine.js';
+import { saveGiveaway, getGiveaway, toggleParticipant, getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
+import { endGiveaway, rerollGiveaway, cancelGiveaway, scheduleGiveawayEnd } from '../../utils/giveawayEngine.js';
 import { createGiveawayEmbed } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
+import { withLock } from '../../utils/asyncLock.js';
 
 export const data = new SlashCommandBuilder()
   .setName('sorteo')
@@ -156,44 +157,29 @@ async function handleTerminar(interaction) {
   await interaction.editReply({ content: '✅ Sorteo finalizado manualmente.' });
 }
 
+const REROLL_ERROR_MESSAGES = {
+  not_found: '❌ No se encontró un sorteo con ese ID de mensaje.',
+  not_ended: '⚠️ Ese sorteo todavía no finalizó, no se puede rerollear.',
+  cancelled: '❌ Ese sorteo fue cancelado, no se puede rerollear.',
+  no_participants: '❌ No hubo participantes, no hay de dónde elegir un nuevo ganador.',
+};
+
+// rerollGiveaway (giveawayEngine.js) hace todo el trabajo — lee el estado fresco,
+// excluye a los ganadores actuales del pool cuando hay de dónde elegir otra persona, y
+// corre bajo el mismo lock que endGiveaway/toggleParticipant para que un reroll no
+// pueda pisarse con un cierre de sorteo simultáneo.
 async function handleReroll(interaction) {
   const messageId = interaction.options.getString('mensaje_id');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const giveaway = await getGiveaway(interaction.guild.id, messageId);
-
-  if (!giveaway) {
-    await interaction.editReply({ content: '❌ No se encontró un sorteo con ese ID de mensaje.' });
-    return;
-  }
-  if (!giveaway.ended) {
-    await interaction.editReply({ content: '⚠️ Ese sorteo todavía no finalizó, no se puede rerollear.' });
-    return;
-  }
-  if (giveaway.cancelled) {
-    await interaction.editReply({ content: '❌ Ese sorteo fue cancelado, no se puede rerollear.' });
-    return;
-  }
-  if (giveaway.participants.length === 0) {
-    await interaction.editReply({ content: '❌ No hubo participantes, no hay de dónde elegir un nuevo ganador.' });
-    return;
-  }
-
-  const newWinners = pickWinners(giveaway.participants, giveaway.winnersCount);
-  const updated = await updateGiveaway(interaction.guild.id, messageId, { winners: newWinners });
-
   try {
-    const channel = await interaction.client.channels.fetch(giveaway.channelId).catch(() => null);
-    if (channel) {
-      const message = await channel.messages.fetch(messageId).catch(() => null);
-      if (message) {
-        const embed = createGiveawayEmbed({ ...updated, ended: true });
-        await message.edit({ embeds: [embed] }).catch(() => {});
-      }
-      await channel
-        .send({ content: `🔁 Reroll del sorteo de **${giveaway.prize}**: ¡Felicidades ${newWinners.map((id) => `<@${id}>`).join(', ')}!` })
-        .catch(() => {});
+    const result = await rerollGiveaway(interaction.client, interaction.guild.id, messageId);
+
+    if (result.error) {
+      await interaction.editReply({ content: REROLL_ERROR_MESSAGES[result.error] || '❌ No se pudo hacer el reroll.' });
+      return;
     }
+
     await interaction.editReply({ content: '✅ Se eligieron nuevos ganadores.' });
   } catch (error) {
     console.error('❌ Error en el reroll:', error);
@@ -201,32 +187,26 @@ async function handleReroll(interaction) {
   }
 }
 
+const CANCEL_ERROR_MESSAGES = {
+  not_found: '❌ No se encontró un sorteo con ese ID de mensaje.',
+  already_ended: '⚠️ Ese sorteo ya finalizó, no se puede cancelar.',
+};
+
+// cancelGiveaway (giveawayEngine.js) corre bajo el mismo lock que endGiveaway/
+// rerollGiveaway/toggleParticipant — un /sorteo cancelar justo cuando vence el timer no
+// puede pisarse con la finalización normal.
 async function handleCancelar(interaction) {
   const messageId = interaction.options.getString('mensaje_id');
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const giveaway = await getGiveaway(interaction.guild.id, messageId);
-
-  if (!giveaway) {
-    await interaction.editReply({ content: '❌ No se encontró un sorteo con ese ID de mensaje.' });
-    return;
-  }
-  if (giveaway.ended) {
-    await interaction.editReply({ content: '⚠️ Ese sorteo ya finalizó, no se puede cancelar.' });
-    return;
-  }
-
-  const updated = await updateGiveaway(interaction.guild.id, messageId, { ended: true, cancelled: true });
-
   try {
-    const channel = await interaction.client.channels.fetch(giveaway.channelId).catch(() => null);
-    if (channel) {
-      const message = await channel.messages.fetch(messageId).catch(() => null);
-      if (message) {
-        const embed = createGiveawayEmbed({ ...updated, ended: true, cancelled: true });
-        await message.edit({ embeds: [embed], components: [] }).catch(() => {});
-      }
+    const result = await cancelGiveaway(interaction.client, interaction.guild.id, messageId);
+
+    if (result.error) {
+      await interaction.editReply({ content: CANCEL_ERROR_MESSAGES[result.error] || '❌ No se pudo cancelar el sorteo.' });
+      return;
     }
+
     await interaction.editReply({ content: '✅ Sorteo cancelado.' });
   } catch (error) {
     console.error('❌ Error cancelando el sorteo:', error);
@@ -234,32 +214,50 @@ async function handleCancelar(interaction) {
   }
 }
 
+// Bajo el mismo lock que endGiveaway/rerollGiveaway (Diagnóstico Fase 2A): sin esto, un
+// click en "Participar" corriendo justo cuando el sorteo cierra podía leer
+// giveaway.ended=false un instante antes de que endGiveaway lo marque true, anotar a
+// alguien en un sorteo que ya en la práctica terminó, y mostrarle "✅ te anotaste"
+// aunque nunca vaya a entrar al sorteo de verdad.
 registerButtonPrefix('giveaway_enter_', async (interaction) => {
   const messageId = interaction.customId.slice('giveaway_enter_'.length);
-  const giveaway = await getGiveaway(interaction.guild.id, messageId);
 
-  if (!giveaway) {
+  const result = await withLock(`giveaway:${interaction.guild.id}:${messageId}`, async () => {
+    const giveaway = await getGiveaway(interaction.guild.id, messageId);
+    if (!giveaway) return { error: 'not_found' };
+    if (giveaway.ended) return { error: 'ended' };
+    if (giveaway.requiredRoleId && !interaction.member.roles.cache.has(giveaway.requiredRoleId)) {
+      return { error: 'missing_role', requiredRoleId: giveaway.requiredRoleId };
+    }
+
+    const { joined } = await toggleParticipant(interaction.guild.id, messageId, interaction.user.id);
+    const updated = await getGiveaway(interaction.guild.id, messageId);
+    return { joined, updated };
+  });
+
+  if (result.error === 'not_found') {
     await interaction.reply({ content: '❌ No se encontró este sorteo.', flags: MessageFlags.Ephemeral });
     return;
   }
-  if (giveaway.ended) {
+  if (result.error === 'ended') {
     await interaction.reply({ content: '⚠️ Este sorteo ya finalizó.', flags: MessageFlags.Ephemeral });
     return;
   }
-
-  if (giveaway.requiredRoleId && !interaction.member.roles.cache.has(giveaway.requiredRoleId)) {
-    await interaction.reply({ content: `❌ Este sorteo es solo para quienes tengan el rol <@&${giveaway.requiredRoleId}>.`, flags: MessageFlags.Ephemeral });
+  if (result.error === 'missing_role') {
+    await interaction.reply({ content: `❌ Este sorteo es solo para quienes tengan el rol <@&${result.requiredRoleId}>.`, flags: MessageFlags.Ephemeral });
     return;
   }
 
-  const { joined } = await toggleParticipant(interaction.guild.id, messageId, interaction.user.id);
-  const updated = await getGiveaway(interaction.guild.id, messageId);
-
-  const embed = createGiveawayEmbed({ ...updated, ended: false });
-  await interaction.message.edit({ embeds: [embed] }).catch(() => {});
+  // Estado real leído después de escribir (nunca "ended: false" hardcodeado) — si el
+  // sorteo cerró en el instante entre soltar el lock y llegar acá, el embed ya refleja
+  // "finalizado" en vez de mentir mostrando el panel de participación.
+  const embed = createGiveawayEmbed({ ...result.updated, ended: result.updated.ended });
+  const editPayload = { embeds: [embed] };
+  if (result.updated.ended) editPayload.components = [];
+  await interaction.message.edit(editPayload).catch(() => {});
 
   await interaction.reply({
-    content: joined ? '✅ ¡Te anotaste en el sorteo!' : '❌ Saliste del sorteo.',
+    content: result.joined ? '✅ ¡Te anotaste en el sorteo!' : '❌ Saliste del sorteo.',
     flags: MessageFlags.Ephemeral,
   });
 });

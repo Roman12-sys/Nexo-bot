@@ -66,6 +66,53 @@ describe('grantMessageXp — filtros anti-farm', () => {
   });
 });
 
+// Fase 2A (2026-08-31) — grantMessageXp corre ahora bajo withLock por guild+usuario (ver
+// xpStore.js). Este test simula el estado real de la fila 'xp' en memoria (a diferencia
+// del resto del archivo, que usa un __setResult estático) para poder demostrar la
+// carrera de verdad: sin el lock, las dos llamadas leerían el mismo lastXpTs viejo antes
+// de que cualquiera escriba, y las dos pasarían el cooldown.
+describe('grantMessageXp — concurrencia (Fase 2A)', () => {
+  it('dos mensajes casi simultáneos del mismo usuario: el segundo respeta el cooldown que dejó el primero', async () => {
+    let row = { xp: 100, level: 0, last_xp_ts: Date.now() - 120_000, last_content: 'viejo', xp_boost_until: 0, prestige: 0 };
+    let pendingPatch = null;
+    const builder = supabaseMock.getBuilder('xp');
+
+    builder.select.mockImplementation(() => builder);
+    builder.eq.mockImplementation(() => builder);
+    builder.update.mockImplementation((patch) => {
+      pendingPatch = patch;
+      return builder;
+    });
+    builder.maybeSingle.mockImplementation(() => Promise.resolve({ data: { ...row }, error: null }));
+    builder.single.mockImplementation(() => {
+      if (pendingPatch) {
+        row = { ...row, ...pendingPatch };
+        pendingPatch = null;
+      }
+      return Promise.resolve({ data: { ...row }, error: null });
+    });
+
+    supabaseMock.rpc.mockImplementation(async (fn, params) => {
+      if (fn === 'increment_xp') {
+        row = { ...row, xp: row.xp + params.p_amount };
+        return { data: row.xp, error: null };
+      }
+      return { data: null, error: null };
+    });
+
+    const [a, b] = await Promise.all([
+      grantMessageXp('guild-1', 'user-1', 'primer mensaje distinto'),
+      grantMessageXp('guild-1', 'user-1', 'segundo mensaje distinto'),
+    ]);
+
+    // Sin el lock, las dos hubieran leído el mismo lastXpTs viejo y las dos habrían
+    // ganado XP — con el lock, la segunda ve el lastXpTs que dejó la primera y respeta
+    // el cooldown de 60s.
+    const granted = [a, b].filter((r) => r !== null);
+    expect(granted.length).toBe(1);
+  });
+});
+
 describe('addXp — detección de subida de nivel', () => {
   it('leveledUp es true cuando el nuevo total cruza el umbral del siguiente nivel', async () => {
     // xpRequiredForLevel(0) = 100 → con 90 de xp previa y +20, el total (110) ya es nivel 1.

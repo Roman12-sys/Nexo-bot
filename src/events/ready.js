@@ -1,5 +1,5 @@
 import { ActivityType } from 'discord.js';
-import { rescheduleActiveGiveaways } from '../utils/giveawayEngine.js';
+import { rescheduleActiveGiveaways, reconcilePendingGiveawayAnnouncements, startGiveawayReconcileLoop } from '../utils/giveawayEngine.js';
 import { reconcileOnStartup } from '../utils/tempVoiceEngine.js';
 import { rescheduleReminders } from '../utils/reminderEngine.js';
 import { rescheduleActivePunishments } from '../utils/punishEngine.js';
@@ -27,6 +27,17 @@ export async function execute(client) {
   // Los setTimeout de scheduleGiveawayEnd se pierden en cada redeploy — hay que
   // volver a programarlos contra lo que ya está guardado en Supabase.
   await rescheduleActiveGiveaways(client).catch((error) => console.error('❌ Error reprogramando sorteos activos:', error));
+
+  // Caso B de la recuperación de sorteos (Fase 2A): ganadores ya calculados y
+  // persistidos, pero el proceso murió antes de mandar el anuncio. rescheduleActiveGiveaways
+  // no los encuentra (filtra ended=false) — esta pasada aparte sí.
+  await reconcilePendingGiveawayAnnouncements(client).catch((error) => console.error('❌ Error reconciliando anuncios de sorteos pendientes:', error));
+
+  // Fase 2A.1: la reconciliación de arriba solo cubre el momento del arranque — este
+  // loop la repite cada 5 minutos durante toda la vida del proceso, para no depender de
+  // un restart si channel.send() falla por algo transitorio en medio de la ejecución
+  // normal (ver el comentario de startGiveawayReconcileLoop en giveawayEngine.js).
+  startGiveawayReconcileLoop(client);
 
   // Limpia registros de salas temporales cuyo canal ya no existe, y siembra las
   // estadísticas en vivo de las que sí siguen activas.

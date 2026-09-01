@@ -20,3 +20,16 @@ export function clearAfk(guildId, userId) {
   afkUsers.delete(key(guildId, userId));
   return existed;
 }
+
+// Limpieza real del Map (Fase 2A, 2026-08-31) — sin esto, un usuario que se pone AFK y
+// después sale del server (o el bot deja de estar en ese guild) dejaba la entrada viva
+// para siempre: nada la volvía a tocar, así que nunca se borraba sola. Se resuelve con
+// los eventos que YA existen (guildMemberRemove, guildDelete) en vez de un TTL — no hace
+// falta inventar expiración por tiempo cuando los eventos reales de Discord ya avisan
+// exactamente cuándo una entrada dejó de tener sentido.
+export function clearGuildAfk(guildId) {
+  const prefix = `${guildId}:`;
+  for (const mapKey of afkUsers.keys()) {
+    if (mapKey.startsWith(prefix)) afkUsers.delete(mapKey);
+  }
+}

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { config } from './config.js';
+import { registerShutdown } from './utils/shutdown.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,5 +85,13 @@ async function loadEvents() {
 
 await loadCommands();
 await loadEvents();
+
+// SIGTERM es lo que manda Railway en cada redeploy/restart antes de matar el proceso
+// con SIGKILL si no respondió a tiempo; SIGINT es Ctrl+C en desarrollo. client.destroy()
+// cierra la conexión de gateway de forma prolija (deja de aceptar eventos nuevos) en vez
+// de cortarla de golpe.
+registerShutdown(['SIGTERM', 'SIGINT'], async () => {
+  await client.destroy();
+});
 
 client.login(config.discordToken);
