@@ -206,6 +206,30 @@ termina descargando es standalone, con Python embebido). Se resuelve con
 (Linux) no pasa nada de esto porque `YOUTUBE_DL_FILENAME=yt-dlp_linux` (ver
 `.env.example`) fuerza a bajar el binario standalone directo, sin pasar por el chequeo.
 
+**`interaction.message.reactions.cache` puede estar desactualizado — el bot no tiene el
+intent `GuildMessageReactions`.** Pisado en vivo en producción 2026-09-01: `/encuesta
+cerrar` mostraba siempre "0 votos" en todas las opciones, sin importar cuánta gente
+hubiera votado. discord.js mantiene el conteo de reacciones al día vía eventos de
+gateway (`MESSAGE_REACTION_ADD`/`_REMOVE`), que dependen de ese intent — sin él, el
+conteo queda congelado en el momento en que el mensaje se cacheó por última vez (para
+una encuesta recién creada, eso es justo después de que el bot sembrara sus propias
+reacciones, antes de que nadie vote). Fix en `encuesta.js`: `await
+interaction.message.fetch()` antes de leer `.reactions.cache` — pega un GET directo a
+la API, no depende de ningún intent ni del cache de gateway. Cualquier otro lugar que
+lea reacciones de un mensaje desde una interaction vieja tiene el mismo riesgo.
+
+**`guild.members.fetch()` sin argumentos usa el GATEWAY (opcode 8), con su propio rate
+limit aparte del de REST.** Pisado en vivo en producción 2026-09-01:
+`sanciones_punish` (panel `/sanciones`) reventó con `GatewayRateLimitError` (`retry_after`
+de hasta ~30s) — confirmado leyendo el código fuente de discord.js instalado
+(`GuildMemberManager.js`), no adivinado: `fetch()` sin un `user` puntual manda
+`RequestGuildMembers` por el WebSocket, un mecanismo que Discord throttlea aparte del
+límite normal de REST, y que discord.js no reintenta solo (a diferencia de un 429 de
+REST común). `/roles` tenía el mismo patrón. Fix: `guild.members.list({ limit, after })`
+paginado (REST puro, mismo rate limit generoso que el resto del proyecto) — ver
+`fetchAllMembers()` en `src/utils/sanctions.js`, reusado por `roles.js`. Nunca usar
+`guild.members.fetch()` sin argumentos para "traer todos los miembros" de nuevo.
+
 ## Dos proyectos de Supabase — no confundirlos
 
 El usuario tiene DOS proyectos de Supabase que se prestan a confundir (pueden estar los
