@@ -360,15 +360,30 @@ Hasta la auditoría de 2026-08-27 no existía la contraparte de `guildCreate.js`
 bot era expulsado o el servidor se borraba, `guild_config` y el resto de las tablas
 por-guild quedaban huérfanas para siempre. `src/events/guildDelete.js` borra por
 `guild_id` en un array explícito (`GUILD_SCOPED_TABLES`), con `Promise.allSettled` para
-que una tabla fallando no frene la limpieza de las demás.
+que una tabla fallando no frene la limpieza de las demás. El borrado en sí es idempotente
+sin necesitar ningún chequeo extra (cada paso es un `DELETE ... WHERE guild_id = X`, no
+un `UPDATE` relativo) — correrlo dos veces para el mismo guild borra 0 filas la segunda
+vez, nunca falla ni toca otros guilds.
 
 **Al agregar una tabla nueva con columna `guild_id`, hay que sumarla a ese array a
 mano** — no hay forma automática de detectarlo (introspección de schema es más frágil
-que una lista explícita acá). Dos tablas quedan afuera a propósito:
+que una lista explícita acá). Fase 2A (2026-08-31) encontró y sumó 3 que faltaban
+(`active_punishments`, `user_missions`, `guild_daily_stats` — agregadas en fases
+posteriores a la auditoría original de 2026-08-27, nunca sincronizadas acá) comparando
+el array a mano contra CADA `create table` de `schema.sql` con columna `guild_id`, no
+solo contra hallazgos previos de auditoría. Tres tablas quedan afuera a propósito:
 - `reminders` — se entregan por DM, `guild_id` es solo referencia de dónde se creó, no
   acota la entrega; borrar el recordatorio de un usuario porque el bot se fue de ESE
   server no tiene sentido.
-- `lol_patch_state` — una sola fila fija (`league_of_legends`), sin `guild_id`.
+- `lol_patch_state` / `spotify_auth` — una sola fila fija cada una, sin `guild_id`: no
+  son guild-scoped, son estado global del bot.
+
+Desde Fase 2A, `guildDelete` también invalida el cache en memoria de `guildConfigStore`
+(`invalidateGuildConfig`) y limpia las entradas de `afkStore` de ese guild
+(`clearGuildAfk`) — ninguno de los dos vive en Supabase, así que ninguna de las `DELETE`
+de arriba los toca; sin esto, un guild que el bot vuelve a sumar en la misma vida del
+proceso (kick + re-invite antes de que expiren los 30s de cache) podía seguir viendo
+config vieja un rato.
 
 ## Seguridad Supabase: RLS preparado pero apagado (a propósito)
 
@@ -523,6 +538,22 @@ token, 401/403/404/429), `spotifyAuthStore.test.js` y `musicSourceSpotify.test.j
 dos rutas nuevas del dashboard (`/spotify/authorize`/`/spotify/callback`) no tienen test
 HTTP directo — el proyecto no tiene infraestructura para eso (ni supertest ni
 equivalente), se verificaron a mano contra Spotify real.
+
+Fase 2A (2026-08-31) sumó 52 tests nuevos (394→446), la mayoría de concurrencia real, no
+solo de lógica: `giveawayEngine.test.js` reproduce carreras genuinas con
+`Promise.all(...)` sobre el `asyncLock.js` REAL (nunca mockeado) — participar vs cierre,
+reroll simultáneo, cancelar vs timer, dos reconciliaciones sobre el mismo pendiente — y
+fue la que encontró un bug real durante la escritura del test (`endGiveaway` no
+chequeaba `cancelled`, así que un `cancelGiveaway` ganando la carrera contra el timer
+podía terminar igual anunciando ganadores de un sorteo cancelado). Mismo patrón de
+"carrera real, no mockeada" en `xpEngineLogic.test.js` (cooldown de `grantMessageXp`) y
+`xpStore.test.js` (`applyPrestige`, simulando el `for update` de Postgres con estado
+mutable compartido en el mock). Tests multi-guild nuevos (mismo `user-123` en
+`guild-a`/`guild-b`) en `economyStore`/`xpStore`/`missionsStore`/`punishEngine.test.js` —
+en `missionsStore` y `punishEngine` es el caso de mayor riesgo real porque ambos tienen
+estado en memoria keyeado por string (`${guildId}:${userId}`), no solo una query
+filtrada. `guildDelete.test.js` dejó de mantener una lista manual de tablas: compara
+contra `GUILD_SCOPED_TABLES`, la constante real exportada por el propio módulo.
 
 ## Sistema de música (`src/utils/music*.js`, `src/commands/musica/`)
 
@@ -746,6 +777,84 @@ testear rutas HTTP reales (`node:http` + `app`, sin supertest — el proyecto no
 como dependencia) sin abrir un puerto real solo por importar el módulo. Verificado
 empíricamente (no solo leído) que el guard resuelve igual con invocación relativa,
 absoluta, y bajo `--watch`.
+
+## Fase 2A + Fase 2A.1 — recovery, concurrencia e integridad de datos (2026-08-31)
+
+Commit `ad80cd8`, migrado y confirmado en producción el 2026-08-31 (deploy limpio en
+Railway + `/sorteo crear`/participar probado a mano en Discord). A diferencia de Fase 1
+(bugs puntuales encontrados por auditoría), esta fase fue un endurecimiento deliberado de
+tres ejes — recuperación tras crash, concurrencia, e invariantes de base de datos — sobre
+partes del código que ya funcionaban pero no estaban blindadas contra fallas parciales.
+Alcance explícitamente excluido: música (tiene su propio proyecto de eliminación
+después), features nuevas de Pets (solo constraints de integridad, cero comportamiento
+nuevo), Premium/billing/dashboard visual.
+
+**Sorteos — estado de 2 fases, no 1.** `giveaways.winners_announced_at` (epoch ms,
+nullable) separa "se calcularon los ganadores" de "se avisó de verdad" — antes
+`endGiveaway` hacía ambas cosas como si fueran un solo paso, así que un crash (o un
+`channel.send()` fallando por rate limit/timeout) entre persistir `ended+winners` y
+mandar el anuncio dejaba el sorteo marcado como terminado pero sin ganador anunciado,
+sin ninguna forma de detectarlo. La recuperación tiene DOS capas, no una:
+`reconcilePendingGiveawayAnnouncements()` corre una vez al arrancar (cubre un crash real
+del proceso) y `startGiveawayReconcileLoop()` la repite cada 5 minutos durante toda la
+vida del proceso (Fase 2A.1 — cierra el caso de que el fallo sea transitorio, no un
+crash, y el proceso siga corriendo días sin reiniciar). Ambas reusan `endGiveaway` tal
+cual: como el sorteo ya está `ended=true`, entra directo a la rama de "reintentar el
+anuncio sin recalcular ganadores" — nunca hay una segunda tirada de `pickWinners` sobre
+un sorteo ya resuelto. Índice parcial (`giveaways_pending_announcement_idx`) con el
+MISMO predicado que la query, para que el barrido periódico no escanee historial.
+
+**Un solo lock para las 4 formas de tocar un sorteo.** `giveaway:{guildId}:{messageId}`
+(el lock que ya usaba `endGiveaway`) ahora también envuelve `rerollGiveaway`,
+`cancelGiveaway` (las dos movidas de `sorteo.js` a `giveawayEngine.js` para poder
+compartirlo) y el botón "Participar" (`toggleParticipant` en el handler de
+`sorteo.js`). El botón ya no muestra `ended: false` hardcodeado — lee el estado real
+después de escribir, así que si el sorteo cerró en el instante entre soltar el lock y
+responder, el embed refleja "finalizado" en vez de mentir. Reroll excluye del pool a los
+ganadores ya elegidos cuando hay otra gente para elegir (si no, vuelve a elegir de todos).
+
+**`/prestigio` — RPC atómica, no read-calculate-write.** `apply_prestige` (schema.sql,
+`for update`) reemplaza lo que antes era `getUserXp` → `+1` en JS → `update` — dos
+`/prestigio` casi simultáneos podían leer el mismo `prestige` viejo y las dos escribir
+`+1`, perdiendo un incremento (quedaba en `+1` en vez de `+2`). Mismo patrón que
+`increment_xp`/`increment_balance`, que ya eran atómicas desde antes.
+
+**`grantMessageXp` bajo lock por guild+usuario.** El cooldown de 60s entre mensajes que
+dan XP se leía y escribía sin lock — dos mensajes del mismo usuario procesados casi al
+mismo tiempo (doble entrega del gateway, dos mensajes con <1 tick de diferencia) podían
+los dos leer el mismo `lastXpTs` viejo y los dos ganar XP. El lock (`xp-message:{guild}:
+{user}`) es por usuario, no global — el resto del tráfico de XP por mensaje nunca se
+serializa entre sí, solo dos mensajes del MISMO usuario compitiendo por su propio
+cooldown. XP por voz (`voiceXpEngine.js`) se evaluó aparte y quedó sin cambios de
+comportamiento — ver el comentario propio del archivo: no existe una señal de "está
+hablando de verdad" en discord.js sin unirse al canal de voz (fuera de alcance, invasivo
+y caro para lo que es solo un barrido de XP).
+
+**28 CHECK constraints + 2 enums, uno por uno verificado contra código real antes de
+agregarlo** (no una pasada genérica) — `balance`/`bank`/`daily_streak`/`rob_shield_until`
+en `economy`, `xp`/`level`/`prestige` en `xp`, `price > 0` en `shop_items`,
+`level`/`xp`/`wins`/`losses` + `hunger`/`happiness BETWEEN 0 AND 100` en `pets` (sin
+cambiar comportamiento — el JS ya clampeaba esos valores desde antes de esta fase),
+contadores de `voice_channel_stats`/`trivia_user_stats`/`guild_daily_stats`, y enums
+`IN (...)` en `temporary_voice_channels.type`/`guild_config.level_roles_mode`.
+**`economy_transactions.type` deliberadamente SIN CHECK** — el comentario que lo
+documenta ya estaba desactualizado una vez (le faltaban `mystery_box`/`mission`/
+`admin_set_level`, corregido en esta fase); una lista que ya demostró desincronizarse
+sola no es un buen candidato para una constraint que rompería inserts legítimos en
+silencio ante la próxima feature de economía.
+
+**Shutdown limpio, chico a propósito.** `src/utils/shutdown.js` (`registerShutdown`) es
+lo único nuevo — un guard contra doble ejecución + `process.exit()` con el código
+correcto. Se llama UNA vez en `src/index.js` (`client.destroy()`) y UNA vez en
+`dashboard/server.js` (`server.close()`, detrás del mismo guard `process.argv[1]` que ya
+protegía `app.listen()`). No intenta drenar interacciones en curso ni nada más
+sofisticado — pedido explícito de la fase ("pequeña y robusta", no un sistema de
+graceful shutdown completo) y a propósito no diseñado pensando en conservar sesiones de
+música activas (se van a eliminar en un proyecto aparte).
+
+**guildDelete — 22 tablas reales, no las que auditoría había encontrado hasta ahora.**
+Ver la sección "Limpieza al salir de un servidor" más arriba — el array se comparó
+tabla por tabla contra `schema.sql`, no contra la lista previa.
 
 ## Stack
 
