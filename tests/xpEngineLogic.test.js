@@ -71,6 +71,13 @@ describe('grantMessageXp — filtros anti-farm', () => {
 // del resto del archivo, que usa un __setResult estático) para poder demostrar la
 // carrera de verdad: sin el lock, las dos llamadas leerían el mismo lastXpTs viejo antes
 // de que cualquiera escriba, y las dos pasarían el cooldown.
+//
+// guild/user PROPIOS de este test (no 'guild-1'/'user-1', que ya se usa en el describe
+// de arriba): Fase 2C sumó un caché en memoria por guild+usuario (lastGrantedLocally,
+// ver xpStore.js) que sigue vivo entre tests del mismo archivo — reusar el mismo par acá
+// arrancaría este test con ese caché ya "caliente" por el otorgamiento exitoso de la
+// prueba anterior, y las dos llamadas de abajo rebotarían en el camino rápido en vez de
+// ejercitar la carrera real contra el lock, que es lo que este test quiere probar.
 describe('grantMessageXp — concurrencia (Fase 2A)', () => {
   it('dos mensajes casi simultáneos del mismo usuario: el segundo respeta el cooldown que dejó el primero', async () => {
     let row = { xp: 100, level: 0, last_xp_ts: Date.now() - 120_000, last_content: 'viejo', xp_boost_until: 0, prestige: 0 };
@@ -101,8 +108,8 @@ describe('grantMessageXp — concurrencia (Fase 2A)', () => {
     });
 
     const [a, b] = await Promise.all([
-      grantMessageXp('guild-1', 'user-1', 'primer mensaje distinto'),
-      grantMessageXp('guild-1', 'user-1', 'segundo mensaje distinto'),
+      grantMessageXp('guild-concurrency-1', 'user-concurrency-1', 'primer mensaje distinto'),
+      grantMessageXp('guild-concurrency-1', 'user-concurrency-1', 'segundo mensaje distinto'),
     ]);
 
     // Sin el lock, las dos hubieran leído el mismo lastXpTs viejo y las dos habrían

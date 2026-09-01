@@ -88,8 +88,31 @@ async function grantVoiceXpTick(client) {
   }
 }
 
+// Guardia contra ticks solapados — setInterval no espera a que el tick anterior termine
+// antes de disparar el siguiente. grantVoiceXpTick recorre TODOS los guilds de forma
+// secuencial y, por cada canal con actividad real, hace 2 awaits a Supabase POR
+// MIEMBRO (getUserXp + addXp), también en secuencia — con muchos servidores y mucha
+// gente en voz a la vez, un barrido puede tardar más que TICK_MS. Sin esta guardia, dos
+// barridos corriendo en paralelo podían darle XP doble a quien siguiera conectado en
+// ambos, sin ningún lock que lo evite (a diferencia de grantMessageXp, que sí tiene uno
+// por usuario). No se paraleliza el barrido en sí: la actividad de voz simultánea real
+// (no la cantidad total de guilds) es lo que determina el costo de cada tick, y hoy no
+// hay evidencia de que ESO sea el cuello de botella — la guardia resuelve la duplicación
+// real sin inventar una reescritura que todavía no hace falta.
+// MOTIVO: auditoría Fase 2C, sección 8.
+let tickRunning = false;
+
 export function startVoiceXpLoop(client) {
   setInterval(() => {
-    grantVoiceXpTick(client).catch((error) => console.error('❌ [XP voz] Error en el barrido de XP por voz:', error));
+    if (tickRunning) {
+      console.warn('⚠️ [XP voz] El barrido anterior todavía no terminó — se saltea este tick para no duplicar XP.');
+      return;
+    }
+    tickRunning = true;
+    grantVoiceXpTick(client)
+      .catch((error) => console.error('❌ [XP voz] Error en el barrido de XP por voz:', error))
+      .finally(() => {
+        tickRunning = false;
+      });
   }, TICK_MS).unref();
 }

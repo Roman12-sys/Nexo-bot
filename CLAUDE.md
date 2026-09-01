@@ -1027,6 +1027,143 @@ apareció ninguna otra (los que parecen candidatos, como `voice_admin_select` vs
 3 routers: buscar el prefijo MÁS LARGO entre todos los que matchean, no el primero — dejó
 de depender del orden de registro, sin tocar ningún prefijo existente.
 
+## Fase 2C — performance, escalabilidad y operación (2026-09-01)
+
+Objetivo explícito de esta fase: no "más rápido por las dudas", sino sacar costos
+reales y confirmados. Alcance excluido a propósito: música (sale del bot en un proyecto
+aparte) y Pets (se elimina después) — ninguna de las dos se tocó ni se optimizó. Código
+de esta fase, **sin commitear todavía** al momento de escribir esto — ver el informe de
+la sesión para el estado exacto de tests.
+
+**Dashboard — `listManagedGuilds` (home): cache de metadata, NUNCA de autorización.**
+Recorre TODOS los `guild_config` del bot (no solo los del usuario) para saber a cuáles
+tiene acceso — antes eso significaba 1-2 requests REST a Discord POR GUILD, en CADA
+carga de "/", sin importar cuántos admins pidieran la página en la misma ventana. Fix:
+`fetchGuildCached()` (local a `queries.js`, TTL 5 min) cachea nombre/ícono/`owner_id`
+—viajan en la MISMA respuesta de Discord, no se pueden pedir por separado— compartido
+entre TODOS los usuarios que cargan la home. El chequeo de ROL de staff
+(`fetchGuildMember`, lo que determina acceso para quien no es dueño) se sigue pidiendo
+fresco SIEMPRE, sin ninguna excepción — deliberadamente NO se tocó el `fetchGuild()`
+compartido de `discordApi.js`, que también usa `checkGuildAccess()` (el gate real de la
+página de un servidor puntual): cachear ahí hubiera hecho que una autorización real
+dependiera de un cache stale. Si la lista muestra algo desactualizado por hasta 5
+minutos, lo peor que pasa es un click que `checkGuildAccess()` rechaza fresco — nunca se
+llega a mostrar un dato sensible sin re-verificar.
+
+**Dashboard — `fetchPunishedMembers`: recorte con total real, no un límite mudo.** Antes
+devolvía hasta 1000 IDs (el máximo de una página de Discord) y el caller los resolvía
+UNO POR UNO contra la API de Discord solo para mostrar sus nombres — con un server que
+acumuló sancionados con el tiempo, cientos de requests para una tabla que la UI ya
+truncaba visualmente. Ahora se corta en 20 (`PUNISHED_MEMBERS_DISPLAY_LIMIT`) pero se
+devuelve el conteo REAL aparte (`punishedTotal`) — el título de la tarjeta sigue diciendo
+el número correcto, con un "(+N más)" cuando corresponde (mismo patrón que
+`roles.js`/`shop.js`).
+
+**Dashboard — agregaciones movidas a Postgres.** `fetchAllBalances` (traía la columna
+`balance` de CADA fila de `economy` del server para sumarlas en JS) y `fetchTopAchievers`
+(traía TODAS las filas de `achievements_unlocked`, sin límite, para agrupar y contar en
+JS) reemplazadas por `sum_guild_balances`/`top_guild_achievers` (RPC, ver
+`migration_2026_09_01_fase2c.sql`, **preparada, no ejecutada**) — cero filas transferidas
+de más, mismo resultado. `getGuildFrequentReasons`/`getGuildFrequentWarnReasons`
+(moderación) y `getTotalUsage` (command_usage) se revisaron con el mismo criterio y se
+dejaron como estaban: el primer par ya tiene un `.limit(200)` explícito y consciente: el
+segundo está acotado por el tamaño del catálogo de comandos (~100), nunca crece con la
+actividad del server — ninguno de los dos es el patrón "trae todo, crece sin límite" que
+sí tenían los otros dos.
+
+**Dashboard — concurrencia hacia Supabase acotada, sin pool global.**
+`loadGuildDashboardData` disparaba sus 18 fuentes de datos en un solo `Promise.all` sin
+ningún límite — una sola carga de página no es el problema, lo es que esto puede correr
+muchas veces a la vez (varios admins, varios servidores) contra la MISMA base que
+también usa el bot para todo lo demás. `allWithConcurrency` (mismo patrón que
+`mapWithConcurrency` de `discordApi.js`, pero para thunks heterogéneos en vez de la
+misma función aplicada a una lista) lo acota a 6 en vuelo — límite chico y explícito,
+local a esta función, no una cola/pool global nueva.
+
+**Dashboard — errores globales.** `dashboard/server.js` no tenía ningún
+`process.on('unhandledRejection'/'uncaughtException')`, a diferencia de `src/index.js`.
+Evaluado (no copiado a ciegas): cada ruta de Express ya tiene su propio try/catch
+alrededor de la lógica async, así que el camino normal de un request ya estaba cubierto
+— lo que no cubre es cualquier promesa rechazada que escape de eso (código futuro, un
+`setInterval` sincrónico rompiendo), y desde Node 15 eso tira el proceso entero por
+default sin un listener. Mismo criterio que el bot: se loguea siempre, y
+`uncaughtException` sale con `process.exit(1)` directo (no por `registerShutdown`, que
+espera a que terminen requests en curso — después de una excepción no capturada no se
+sabe en qué estado quedó el proceso).
+
+**`grantMessageXp` — camino rápido en memoria para el hot path real del bot.** Cada
+mensaje elegible pagaba un lock + una lectura real a Supabase (`getUserXp`) solo para,
+la mayoría de las veces en un canal activo, descubrir que el usuario seguía en cooldown
+(60s). `lastGrantedLocally` (Map en memoria, `guildId:userId` → timestamp del último
+otorgamiento de ESTE proceso) corta ese round-trip cuando ya se sabe, con certeza, que
+el cooldown real en la base también rechazaría — nunca puede hacer que se otorgue XP de
+más, solo rechazar más rápido: el otorgamiento en sí sigue yendo 100% por el camino con
+lock + Supabase de siempre. Seguro porque esta función es la ÚNICA que escribe
+`last_xp_ts` de mensaje-XP y en producción corre un solo proceso del bot a la vez (ver
+"nunca levantar el bot local" más abajo) — el caché nunca puede ir por delante de la
+base, como mucho atrasado (proceso recién reiniciado), y ahí simplemente cae al camino
+real.
+
+**`voiceXpEngine.js` — guardia contra ticks solapados.** El barrido de XP por voz (cada
+5 min) recorre guilds/canales/miembros en secuencia con awaits reales a Supabase por
+cada humano presente — con mucha actividad de voz simultánea, un barrido puede tardar
+más que el intervalo. `setInterval` no espera a que el callback anterior termine antes
+de disparar el siguiente: sin guardia, dos barridos solapados podían darle XP doble a
+quien siguiera conectado en los dos (a diferencia de `grantMessageXp`, este barrido no
+tenía ningún lock). Un flag booleano (`tickRunning`) salta el tick si el anterior sigue
+en curso, con log de aviso. No se paralelizó el barrido en sí: el costo real lo determina
+la actividad de voz simultánea (no la cantidad total de guilds, que se descarta rápido
+si no tienen canales activos), y no hay evidencia de que eso sea hoy el cuello de
+botella — la guardia resuelve la duplicación real sin una reescritura que todavía no
+hace falta.
+
+**`/estado` — Supabase "lento" como estado distinto de "OK"/"caído", y el caso `-1ms`
+del gateway.** Antes Supabase era binario; un round-trip que responde pero tarda >1s
+(`SUPABASE_SLOW_MS`, umbral operativo, no una medición) se mostraba igual que uno de
+50ms. Y `client.ws.ping` vale `-1` cuando discord.js todavía no completó ningún
+heartbeat ACK (recién conectado/reconectando) — mostrar "-1ms" crudo no dice nada útil
+sin leer el código. Ningún sistema nuevo: son dos umbrales/labels sobre datos que
+`/estado` ya pedía.
+
+**Revisado sin cambios (ya estaba bien):** `userUpdate.js` (el throttle de Fase 2B ya
+filtra por campo relevante antes de marcar/consumir la ventana; el gate de "¿hay canal
+de logs configurado?" es inherentemente por-guild, no se puede adelantar sin romper el
+soporte multi-guild); `giveawayEngine.js`/`reminderEngine.js`/`lolPatchEngine.js`/
+`lolPatchMonitor.js`/`logPurgeEngine.js` (loops ya acotados: índice parcial, tick largo,
+circuit breaker de páginas, o volumen bajo por diseño); `spamDetector.js`/
+`guessSessions.js`/`giveTracker.js`/`tempVoiceEngine.js`/`afkStore.js`/
+`guildConfigStore.js`/`missionsStore.js` (`ensuredCache`) — todos los Map en memoria
+revisados ya tenían barrido periódico o limpieza atada a un evento real (`guildDelete`,
+`guildMemberRemove`, fin de sala) desde antes de esta fase. Rate limits (`rateLimiter.js`
+del bot: usuario, cruza guilds a propósito; `dashboard/rateLimiter.js`: IP, protege el
+proceso completo; cooldown de `/encuesta` y throttle de `userUpdate.js`: guild+usuario y
+usuario respectivamente, Fase 2B) revisados sin encontrar ninguna inconsistencia real de
+scope — ninguno se tocó.
+
+**Reglas de arquitectura para features futuras** (sección 13 de la auditoría — generales
+a propósito, no un framework):
+- Un `SELECT` que solo existe para reducirse a un número/top-N en JS (`sum`, `count`,
+  agrupar+contar) va en Postgres, no trayendo todas las filas — salvo que ya esté
+  acotado con un `.limit()` explícito y consciente (ver `getGuildFrequentReasons`/
+  `getTotalUsage` arriba: acotados no es lo mismo que sin límite).
+- Si la UI muestra top-N, el backend nunca trae más que eso (+ margen chico para un
+  indicador "+N más") — nunca "total posible" solo porque ya se estaba pidiendo.
+- Concurrencia hacia Supabase o Discord disparada por UN request: límite explícito
+  (`mapWithConcurrency`/`allWithConcurrency` o equivalente), nunca un `Promise.all` sin
+  tope sobre algo que puede crecer con el catálogo del bot o la base de usuarios.
+- `guild.members.fetch()` sin argumentos (gateway, opcode 8) nunca para "traer todos los
+  miembros" — usar `guild.members.list()` (REST paginado, ver `sanctions.js`/
+  `roles.js`), el gateway tiene su propio rate limit aparte del de REST.
+- Todo loop periódico nuevo: `.unref()`, try/catch propio por iteración (un guild roto
+  no debe tumbar el barrido de los demás), y guardia contra solapamiento si el trabajo
+  por tick puede tardar más que el intervalo.
+- Todo `Map`/`Set` en memoria nuevo necesita una estrategia de limpieza desde el día en
+  que se crea (TTL + barrido periódico, o atada a un evento real como `guildDelete`) —
+  no un "ya lo vemos después".
+- En un hot path real (`messageCreate` y similares), un atajo en memoria contra una
+  consulta cara solo se justifica si, en el peor caso, puede rechazar de más — nunca
+  aceptar/otorgar de más.
+
 ## Stack
 
 Node 22+, discord.js 14 (ESM, `"type": "module"` en `package.json`), Supabase

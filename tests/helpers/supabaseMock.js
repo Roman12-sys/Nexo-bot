@@ -10,7 +10,7 @@
 // tener que replicar el driver real de supabase-js.
 import { vi } from 'vitest';
 
-const CHAIN_METHODS = ['select', 'eq', 'order', 'limit', 'upsert', 'update', 'insert', 'delete', 'in'];
+const CHAIN_METHODS = ['select', 'eq', 'gt', 'order', 'limit', 'upsert', 'update', 'insert', 'delete', 'in'];
 
 export function createQueryBuilder(initialResult = { data: null, error: null }) {
   let result = initialResult;

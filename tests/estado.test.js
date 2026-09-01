@@ -77,4 +77,33 @@ describe('/estado', () => {
     const field = (name) => embed.data.fields.find((f) => f.name === name)?.value;
     expect(field('🗄️ Supabase')).toMatch(/Sin conexión/);
   });
+
+  // Fase 2C, sección 12 — antes "Supabase" era binario (OK/Sin conexión): un round-trip
+  // lento pero que SÍ responde se mostraba igual que uno rápido, sin forma de que un
+  // operador notara la degradación sin mirar el número exacto de ms.
+  it('Supabase responde pero lento: se distingue de "OK" y de "Sin conexión"', async () => {
+    pingSupabase.mockResolvedValue({ ok: true, ms: 1500 });
+    const interaction = makeInteraction();
+
+    await execute(interaction);
+
+    const embed = interaction.editReply.mock.calls[0][0].embeds[0];
+    const field = (name) => embed.data.fields.find((f) => f.name === name)?.value;
+    expect(field('🗄️ Supabase')).toMatch(/Lento \(1500ms\)/);
+  });
+
+  // client.ws.ping vale -1 cuando discord.js todavía no completó ningún heartbeat ACK
+  // (recién conectado/reconectando) — mostrar "-1ms" crudo no dice nada útil sin leer el
+  // código.
+  it('gateway con ping -1 (sin heartbeat todavía): se muestra como reconectando, no "-1ms"', async () => {
+    const interaction = makeInteraction();
+    interaction.client.ws.ping = -1;
+
+    await execute(interaction);
+
+    const embed = interaction.editReply.mock.calls[0][0].embeds[0];
+    const field = (name) => embed.data.fields.find((f) => f.name === name)?.value;
+    expect(field('📡 Latencia (gateway)')).not.toContain('-1ms');
+    expect(field('📡 Latencia (gateway)')).toMatch(/Reconectando/);
+  });
 });

@@ -8,7 +8,7 @@ import { createSupabaseMock } from './helpers/supabaseMock.js';
 const supabaseMock = createSupabaseMock();
 vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMock; } }));
 
-const { xpRequiredForLevel, getLevelProgress, totalXpForLevel, addXp, applyPrestige, getUserXp } = await import('../src/utils/xpStore.js');
+const { xpRequiredForLevel, getLevelProgress, totalXpForLevel, addXp, applyPrestige, getUserXp, grantMessageXp } = await import('../src/utils/xpStore.js');
 const { eventBus } = await import('../src/utils/eventBus.js');
 
 describe('xpRequiredForLevel', () => {
@@ -139,6 +139,82 @@ describe('applyPrestige — RPC atómica (Fase 2A)', () => {
     supabaseMock.rpc.mockResolvedValue({ data: null, error: { message: 'boom' } });
 
     await expect(applyPrestige('guild-1', 'user-1')).rejects.toBeTruthy();
+  });
+});
+
+// grantMessageXp — camino rápido en memoria (Fase 2C, sección 7): antes de esto, CADA
+// mensaje elegible pagaba un lock + una lectura real a Supabase solo para, la mayoría de
+// las veces en un canal activo, descubrir que el usuario seguía en cooldown. Lo que
+// importa probar acá es que el caché local rechaza SIN tocar Supabase cuando corresponde,
+// y que nunca hace que se otorgue de más (solo puede rechazar más rápido).
+describe('grantMessageXp — camino rápido en memoria (Fase 2C, sección 7)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    supabaseMock.rpc.mockReset();
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('mensaje muy corto: rechazado sin tocar Supabase', async () => {
+    const result = await grantMessageXp('guild-fast-1', 'user-1', 'hi');
+
+    expect(result).toBeNull();
+    expect(supabaseMock.getBuilder('xp').select).not.toHaveBeenCalled();
+  });
+
+  it('primer mensaje elegible: otorga XP consultando Supabase normalmente', async () => {
+    supabaseMock.getBuilder('xp').__setResult({ data: { xp: 0, level: 0, last_xp_ts: 0, last_content: '', xp_boost_until: 0 }, error: null });
+    supabaseMock.rpc.mockResolvedValue({ data: 20, error: null });
+
+    const result = await grantMessageXp('guild-fast-2', 'user-1', 'mensaje real de verdad');
+
+    expect(result).not.toBeNull();
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('increment_xp', expect.objectContaining({ p_guild_id: 'guild-fast-2', p_user_id: 'user-1' }));
+  });
+
+  it('segundo mensaje dentro de la ventana de cooldown: rechazado por el caché local, SIN volver a leer Supabase', async () => {
+    supabaseMock.getBuilder('xp').__setResult({ data: { xp: 0, level: 0, last_xp_ts: 0, last_content: '', xp_boost_until: 0 }, error: null });
+    supabaseMock.rpc.mockResolvedValue({ data: 20, error: null });
+
+    await grantMessageXp('guild-fast-3', 'user-1', 'primer mensaje elegible');
+    supabaseMock.getBuilder('xp').select.mockClear();
+    supabaseMock.rpc.mockClear();
+
+    const result = await grantMessageXp('guild-fast-3', 'user-1', 'segundo mensaje distinto');
+
+    expect(result).toBeNull();
+    expect(supabaseMock.getBuilder('xp').select).not.toHaveBeenCalled();
+    expect(supabaseMock.rpc).not.toHaveBeenCalled();
+  });
+
+  it('pasada la ventana de cooldown: vuelve a consultar Supabase y puede otorgar de nuevo', async () => {
+    supabaseMock.getBuilder('xp').__setResult({ data: { xp: 0, level: 0, last_xp_ts: 0, last_content: '', xp_boost_until: 0 }, error: null });
+    supabaseMock.rpc.mockResolvedValue({ data: 20, error: null });
+
+    await grantMessageXp('guild-fast-4', 'user-1', 'primer mensaje elegible');
+    vi.setSystemTime(Date.now() + 60_000 + 1);
+    // Tras el cooldown real, la fila de la base también reflejaría el último envío.
+    supabaseMock.getBuilder('xp').__setResult({
+      data: { xp: 20, level: 0, last_xp_ts: Date.now() - 60_001, last_content: 'primer mensaje elegible', xp_boost_until: 0 },
+      error: null,
+    });
+
+    const result = await grantMessageXp('guild-fast-4', 'user-1', 'tercer mensaje distinto');
+
+    expect(result).not.toBeNull();
+    expect(supabaseMock.getBuilder('xp').select).toHaveBeenCalled();
+  });
+
+  it('mismo usuario en guilds distintos: el caché local no se comparte entre guilds', async () => {
+    supabaseMock.getBuilder('xp').__setResult({ data: { xp: 0, level: 0, last_xp_ts: 0, last_content: '', xp_boost_until: 0 }, error: null });
+    supabaseMock.rpc.mockResolvedValue({ data: 20, error: null });
+
+    await grantMessageXp('guild-fast-5a', 'user-1', 'mensaje en guild A');
+    const resultOtherGuild = await grantMessageXp('guild-fast-5b', 'user-1', 'mensaje en guild B');
+
+    expect(resultOtherGuild).not.toBeNull();
   });
 });
 

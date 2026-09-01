@@ -16,6 +16,23 @@ import { renderLoginPage, renderGuildList, renderGuildDashboard } from './views.
 import { rateLimitMiddleware } from './rateLimiter.js';
 import { registerShutdown } from '../src/utils/shutdown.js';
 
+// Red de seguridad general (mismo criterio que src/index.js, no copiado a ciegas: se
+// evaluó qué puede fallar acá). Cada ruta de este archivo ya tiene su propio try/catch
+// alrededor de la lógica async — eso cubre el camino normal de un request. Lo que NO
+// cubre es cualquier rechazo de promesa que escape de ese try/catch (ej. un handler de
+// setInterval synchrónico rompiendo, o código futuro que no envuelva su propio await) —
+// desde Node 15, una unhandledRejection sin listener tira todo el proceso por default,
+// exactamente el mismo riesgo que ya tiene el bot. uncaughtException sale directo con
+// process.exit(1) en vez de pasar por registerShutdown (que espera a que las requests en
+// curso terminen): tras una excepción no capturada no se sabe en qué estado quedó el
+// proceso, así que esperar es más arriesgado que reiniciar ya.
+// MOTIVO: auditoría Fase 2C, sección 5.
+process.on('unhandledRejection', (reason) => console.error('❌ Promesa rechazada sin manejar (dashboard):', reason));
+process.on('uncaughtException', (error) => {
+  console.error('❌ Excepción no capturada (dashboard), reiniciando el proceso:', error);
+  process.exit(1);
+});
+
 const app = express();
 app.disable('x-powered-by');
 app.use(rateLimitMiddleware);

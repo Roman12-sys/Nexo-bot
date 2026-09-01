@@ -72,9 +72,16 @@ export function renderGuildDashboard(guild, data, usersById) {
     data.topTrivia.map((t) => `<tr><td>${userLabel(usersById, t.userId)}</td><td>${t.points}</td></tr>`).join('') ||
     '<tr><td colspan="2" class="muted">Todavía nadie sumó puntos</td></tr>';
 
+  // QUÉ CAMBIÓ (Fase 2C, sección 2): punishedMembers ahora viene recortado desde
+  // queries.js (a lo sumo 20) — punishedTotal es el conteo real, para no perder el
+  // número correcto en el título de la tarjeta ni fingir que no hay más de 20.
   const punishedRows =
     data.punishedMembers.map((userId) => `<tr><td>${userLabel(usersById, userId)}</td></tr>`).join('') ||
     '<tr><td class="muted">Nadie sancionado ahora mismo</td></tr>';
+  const punishedOverflow =
+    data.punishedTotal > data.punishedMembers.length
+      ? `<p class="muted">(+${data.punishedTotal - data.punishedMembers.length} más)</p>`
+      : '';
 
   // --- Fase 5: secciones nuevas, todas sobre datos que ya existían en Supabase pero
   // el dashboard nunca mostraba (XP, salas de voz, logros individuales, LoL, misiones,
@@ -150,9 +157,10 @@ export function renderGuildDashboard(guild, data, usersById) {
         <div class="stat"><div class="value">${data.totalWarns}</div><div class="label">Advertencias totales</div></div>
       </div>
       <table><thead><tr><th>Usuario</th><th>Motivo</th><th>Staff</th><th>Fecha</th></tr></thead><tbody>${warnsRows}</tbody></table>
-      <h3 style="margin:1rem 0 0.5rem;">🚫 Sancionados activos (${data.punishedMembers.length})</h3>
+      <h3 style="margin:1rem 0 0.5rem;">🚫 Sancionados activos (${data.punishedTotal})</h3>
       ${data.punishedPossiblyIncomplete ? '<p class="muted">El servidor tiene muchos miembros — esta lista puede no incluirlos a todos.</p>' : ''}
       <table><thead><tr><th>Usuario</th></tr></thead><tbody>${punishedRows}</tbody></table>
+      ${punishedOverflow}
     </div>
 
     <div class="card">

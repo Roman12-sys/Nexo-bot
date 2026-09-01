@@ -232,13 +232,42 @@ export async function setXp(guildId, userId, amount) {
 // guild+usuario, no global: mensajes de otros usuarios (la inmensa mayoría del tráfico)
 // nunca se serializan entre sí, solo dos mensajes del MISMO usuario compitiendo por su
 // propio cooldown.
+// Caché local (por proceso) del último timestamp en que ESTE proceso otorgó XP por
+// mensaje a un usuario — antes, CADA mensaje elegible pagaba un lock + una lectura real
+// a Supabase (getUserXp) solo para, la mayoría de las veces en un canal activo (alguien
+// mandando varios mensajes dentro de la misma ventana de 60s), descubrir que seguía en
+// cooldown. Como esta función es la ÚNICA que escribe last_xp_ts de mensaje-XP, y en
+// producción corre un solo proceso del bot a la vez (ver CLAUDE.md, "nunca levantar el
+// bot local"), este caché nunca puede ir POR DELANTE de lo que hay en la base — como
+// mucho va atrasado (recién reiniciado el proceso), y en ese caso simplemente cae al
+// camino real de siempre. Nunca puede hacer que se otorgue XP de más: solo permite
+// rechazar más rápido cuando YA se sabe, con certeza, que el cooldown real en la base
+// también rechazaría — el otorgamiento en sí sigue yendo 100% por el camino con lock +
+// Supabase, sin ningún cambio.
+// MOTIVO: auditoría Fase 2C, sección 7 — messageCreate es el hot path más transitado del
+// bot; esto le saca un round-trip a Supabase innecesario a la enorme mayoría de los
+// mensajes de un canal activo, sin tocar ninguna regla de negocio.
+const lastGrantedLocally = new Map(); // `${guildId}:${userId}` -> timestamp del último otorgamiento
+
+setInterval(() => {
+  const cutoff = Date.now() - MESSAGE_XP_COOLDOWN_MS;
+  for (const [key, ts] of lastGrantedLocally) {
+    if (ts < cutoff) lastGrantedLocally.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
 export async function grantMessageXp(guildId, userId, content, externalMultiplier = 1) {
+  const trimmed = (content || '').trim();
+  if (trimmed.length < MIN_CONTENT_LENGTH) return null;
+
+  const cacheKey = `${guildId}:${userId}`;
+  const lastLocal = lastGrantedLocally.get(cacheKey);
+  if (lastLocal && Date.now() - lastLocal < MESSAGE_XP_COOLDOWN_MS) return null;
+
   return withLock(`xp-message:${guildId}:${userId}`, async () => {
     const record = await getUserXp(guildId, userId);
     const now = Date.now();
-    const trimmed = (content || '').trim();
 
-    if (trimmed.length < MIN_CONTENT_LENGTH) return null;
     if (trimmed === record.lastContent) return null;
     if (now - record.lastXpTs < MESSAGE_XP_COOLDOWN_MS) return null;
 
@@ -246,7 +275,9 @@ export async function grantMessageXp(guildId, userId, content, externalMultiplie
     const multiplier = (boostActive ? XP_BOOST_MULTIPLIER : 1) * externalMultiplier;
     const base = Math.floor(Math.random() * (XP_MAX_PER_MESSAGE - XP_MIN_PER_MESSAGE + 1)) + XP_MIN_PER_MESSAGE;
     const gained = Math.floor(base * multiplier);
-    return addXp(guildId, userId, gained, { lastXpTs: now, lastContent: trimmed, source: 'message' });
+    const result = await addXp(guildId, userId, gained, { lastXpTs: now, lastContent: trimmed, source: 'message' });
+    lastGrantedLocally.set(cacheKey, now);
+    return result;
   });
 }
 
