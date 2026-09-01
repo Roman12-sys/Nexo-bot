@@ -73,6 +73,20 @@ export async function execute(interaction) {
     // nuevo sería un cargo por nada (el roles.add de más abajo es un no-op si ya lo tenés).
     let member = null;
     if (item.roleId) {
+      // QUÉ CAMBIÓ: chequeo de que el rol configurado TODAVÍA exista en el servidor,
+      // antes de cobrar nada. roles.cache está siempre completo y actualizado (a
+      // diferencia de members.cache, no hace falta fetch) — mismo chequeo que ya usaba
+      // /punish para su propio rol configurado. Sin esto, un ítem cuyo rol se borró de
+      // Discord (pero sigue en el catálogo) cobraba igual y fallaba en silencio al
+      // intentar asignarlo más abajo, con el usuario pagando sin recibir nada.
+      // MOTIVO: auditoría Fase 2B, sección 11.
+      if (!interaction.guild.roles.cache.has(item.roleId)) {
+        await interaction.editReply({
+          content: `⚠️ El rol de **${item.name}** ya no existe en este servidor. Avisale al staff para que lo reconfigure con \`/shop-admin\` — no se te cobró nada.`,
+        });
+        return;
+      }
+
       member = await interaction.guild.members.fetch(userId).catch(() => null);
       if (member?.roles.cache.has(item.roleId)) {
         await interaction.editReply({ content: `⚠️ Ya tenés **${item.name}**.` });
@@ -157,7 +171,34 @@ export async function execute(interaction) {
         member = member || (await interaction.guild.members.fetch(userId));
         await member.roles.add(item.roleId);
       } catch (error) {
-        console.error('⚠️ No se pudo asignar el rol del ítem comprado:', error);
+        // QUÉ CAMBIÓ: antes este catch solo logueaba y seguía — la compra terminaba
+        // confirmándose como éxito (cobrada + en el inventario) aunque el rol nunca se
+        // hubiera entregado (ej. el rol se borró justo entre el chequeo de arriba y
+        // este punto, o el bot perdió el permiso Gestionar roles). Ahora revierte todo
+        // lo que ya se aplicó (inventario + cobro) y le avisa al usuario, en vez de
+        // confirmarle una compra que no recibió. No es un sistema financiero nuevo: usa
+        // los mismos primitivos atómicos que el resto de la economía
+        // (incrementInventoryItem con delta negativo, addBalance).
+        // MOTIVO: auditoría Fase 2B, sección 11 — "no debe existir una compra que el
+        // usuario pague y el bot confirme como exitosa sin entregar el beneficio".
+        console.error('⚠️ No se pudo asignar el rol del ítem comprado — revirtiendo la compra:', error);
+
+        await incrementInventoryItem(guildId, userId, item.id, -1).catch((e) =>
+          console.error('⚠️ No se pudo revertir el inventario tras el fallo de rol:', e),
+        );
+        const refundedBalance = await addBalance(guildId, userId, item.price, {
+          type: 'purchase_refund',
+          reason: `Reembolso: no se pudo entregar ${item.name}`,
+        }).catch((e) => {
+          console.error('⚠️ No se pudo reembolsar el cobro tras el fallo de rol:', e);
+          return null;
+        });
+
+        const balanceLine = refundedBalance !== null ? ` Balance actual: **${refundedBalance.toLocaleString('es-ES')}**.` : '';
+        await interaction.editReply({
+          content: `❌ No se pudo entregar **${item.name}** (el rol ya no existe o no lo pude asignar). Se te reembolsaron ${item.price.toLocaleString('es-ES')} monedas.${balanceLine}`,
+        });
+        return;
       }
     }
 

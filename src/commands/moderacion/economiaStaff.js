@@ -16,6 +16,7 @@ const TYPE_LABELS = {
   trivia: '🧠 Trivia',
   guess: '🔢 Adivinar número',
   purchase: '🛍️ Compra',
+  purchase_refund: '↩️ Reembolso de compra',
   mystery_box: '🎁 Caja misteriosa',
   transfer_in: '📥 Transferencia recibida',
   transfer_out: '📤 Transferencia enviada',
@@ -227,13 +228,18 @@ async function handleHistorial(interaction) {
 registerButtonPrefix('ecostaff_hist_page_', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
 
+  // deferUpdate() apenas se confirma el permiso — antes el único ack (i.update) llegaba
+  // recién después de 2 awaits (users.fetch + getUserTransactions), lo que arriesgaba
+  // "Unknown interaction" si sumaban más de 3s. Ver sección 3 de la auditoría Fase 2B.
+  await i.deferUpdate();
+
   const [pageRaw, targetUserId] = i.customId.slice('ecostaff_hist_page_'.length).split('_');
   const targetUser = await i.client.users.fetch(targetUserId).catch(() => null);
-  if (!targetUser) return i.reply({ content: '❌ No se pudo encontrar a ese usuario.', flags: MessageFlags.Ephemeral });
+  if (!targetUser) return i.editReply({ content: '❌ No se pudo encontrar a ese usuario.', embeds: [], components: [] });
 
   const movimientos = await getUserTransactions(i.guildId, targetUserId, 25);
   const { embed, clampedPage, totalPages } = buildHistorialEmbed(targetUser, movimientos, parseInt(pageRaw, 10));
-  await i.update({ embeds: [embed], components: [buildHistorialRow(targetUserId, clampedPage, totalPages)] });
+  await i.editReply({ embeds: [embed], components: [buildHistorialRow(targetUserId, clampedPage, totalPages)] });
 });
 
 async function handlePerfil(interaction) {
@@ -325,8 +331,14 @@ async function handlePendientes(interaction) {
 registerSelectPrefix('ecostaff_pendiente_entregada', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
 
+  // deferUpdate() apenas se confirma el permiso — antes el único ack (i.update) llegaba
+  // recién después de markPurchaseDelivered + buildPendientesPayload (2 llamadas a
+  // Supabase), lo que arriesgaba "Unknown interaction" si sumaban más de 3s. Ver
+  // sección 3 de la auditoría Fase 2B.
+  await i.deferUpdate();
+
   await markPurchaseDelivered(parseInt(i.values[0], 10));
-  await i.update(await buildPendientesPayload(i.guildId));
+  await i.editReply(await buildPendientesPayload(i.guildId));
 });
 
 export const data = new SlashCommandBuilder()

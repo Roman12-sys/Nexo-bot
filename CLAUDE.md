@@ -856,6 +856,177 @@ música activas (se van a eliminar en un proyecto aparte).
 Ver la sección "Limpieza al salir de un servidor" más arriba — el array se comparó
 tabla por tabla contra `schema.sql`, no contra la lista previa.
 
+## Fase 2B — Discord, moderación, error handling y consistencia (2026-08-31)
+
+No es una fase de features nuevas — es la que hace que lo que ya existe se comporte de
+forma predecible frente a usuarios reales. Alcance explícitamente excluido (igual que
+Fase 2A): música, Pets, Premium/billing/landing. Código de esta fase, a diferencia de
+Fase 2A, **sin commitear todavía** — ver el informe final de la sesión para el estado
+exacto de tests.
+
+**Panel `/sanciones` — dos inconsistencias reales contra los comandos directos.**
+(1) El select para borrar TODAS las advertencias de un usuario no aplicaba
+`getModerationBlockReason` — a diferencia de `/unwarn` directo, el panel podía borrarle
+las warns a alguien con rango igual/superior (o gatillar sobre el propio staff/el bot,
+aunque esos casos son más de forma que de riesgo real). (2) Quitar una restricción con
+duración desde el panel no cancelaba el timer en memoria ni borraba la fila de
+`active_punishments` — a diferencia de `/unpunish`, que sí lo hacía. El timer disparaba
+igual más tarde, quitaba un rol que ya no estaba (no-op silencioso) pero mandaba un log
+de "expiración automática" falso sobre algo que el staff ya había resuelto a mano. Fix
+centralizado en `revokePunishment()` (`punishEngine.js`) — cancela el timer y borra el
+estado persistido ANTES de tocar Discord (no al revés, que era el orden que tenía
+`/unpunish`), usado ahora tanto por `/unpunish` como por el select del panel, para que
+los dos caminos quedaran garantizados equivalentes en vez de mantener la secuencia
+duplicada en dos archivos. `warn-editar.js` sumó el mismo chequeo de jerarquía que el
+resto de moderación — antes era el único comando de moderación sin ninguno.
+
+**`/economia-staff` y `/xp` — decisión: NO aplicarles jerarquía, documentado a
+propósito.** Ninguno de los dos llama `getModerationBlockReason`, a diferencia de
+ban/kick/timeout/warn/punish — evaluado explícitamente si eso era un bug o una decisión,
+no asumido. Se mantiene la asimetría por 3 motivos concretos: (1) ya tienen una barrera
+de Discord más alta por defecto (`ManageGuild`, tier admin) que la moderación normal
+(`ModerateMembers`/`BanMembers`/`KickMembers`, tier mod) — la asimetría de acceso ya
+existe por diseño. (2) Son herramientas de ajuste/configuración de recursos, no acciones
+coercitivas contra otro miembro — más parecidas a `/config`/`/setup` (que tampoco tienen
+jerarquía de target, porque no actúan "contra" un usuario) que a un ban. (3) Aplicar
+jerarquía estricta rompería el caso legítimo de "un admin premia a otro admin/mod" — en
+un server con roles de staff más o menos al mismo nivel de posición, eso bloquearía casi
+cualquier intercambio entre staff. Riesgo real que SÍ queda abierto y aceptado: nada
+impide que un staff se autoasigne saldo/XP infinitos con estos comandos — mitigado (no
+eliminado) por el log de auditoría que ya mandan a los canales de economía/actividad en
+CADA ajuste (`logStaffAction`), igual que cualquier otra acción de staff queda expuesta a
+revisión. No se tocó código de estos dos comandos en esta fase.
+
+**Defer/reply — barrido de los 17 comandos de moderación.** Clasificados A (ya
+correcto)/B (necesitaba defer)/C (rápido, no amerita cambio). Necesitaban
+`deferReply()`/`deferUpdate()` antes de su operación lenta: `kick`, `timeout`, `punish`,
+`unpunish`, `unban`, `lock`, `unlock`, `warn-editar`, y 6 handlers de botón/select
+(`sanciones_hist_page_`, los 4 selects de `sanciones.js`, `ecostaff_hist_page_` y
+`ecostaff_pendiente_entregada` de `economia-staff`) — todos hacían la llamada mutante a
+Discord/Supabase ANTES del primer ack, arriesgando "Unknown interaction" (interacción
+vencida a los 3s) aunque la acción SÍ se hubiera aplicado. `ban`, `clear`, `unwarn` ya
+estaban bien (su mutación real ocurre en el paso de confirmación, que ya deferría
+primero). `warn`, `warns`, `economia-staff`, `/xp`, `voice` ya deferían desde el
+principio. `voice.js` quedó en C a propósito: sus tres escrituras lentas son upserts
+únicos a Supabase (no una llamada a la API de Discord), mismo orden de magnitud que el
+`getGuildConfig` que ya hace `isStaff()` en CUALQUIER comando — no es una inconsistencia
+nueva, es el mismo costo aceptado en todos lados.
+
+Para los comandos SIN flujo de confirmación (kick/timeout/punish/unpunish/unban/lock/
+unlock/warn-editar), el defer se puso apenas se confirma el permiso, ANTES de leer
+`guild_config`/fetchear al member — no "justo antes" de la llamada lenta, porque eso no
+mueve el problema (el reloj de 3s ya corre desde que llega la interacción, no desde el
+primer await). Esto implica un cambio de visibilidad real: como el defer se hace UNA vez
+y compromete ephemeral-o-no para toda la respuesta, y el mensaje de éxito de estos
+comandos siempre fue público (no ephemeral), los mensajes de error/validación que antes
+eran ephemeral (jerarquía, "no encontrado", etc.) pasan a ser públicos también — mismo
+trade-off que ya tenía `/warn` desde antes (se usó como referencia exacta, no se inventó
+un patrón nuevo). De paso, esos catches se simplificaron a `editReply(...).catch(() =>
+{})` — el patrón viejo (`replied || deferred ? followUp : reply`) hubiera dejado un
+"Pensando..." fantasma sin editar en el error, porque después de un defer-sin-reply real
+`followUp()` no toca el mensaje diferido, solo manda uno nuevo al lado. Los selects de
+`sanciones.js`/`economia-staff` no tuvieron este dilema — ahí TODAS las ramas (éxito y
+error) ya eran ephemeral desde antes, así que deferir ephemeral no cambió ninguna
+respuesta visible.
+
+**Timeout — duración visible en `/sanciones <usuario>`.** `moderation_actions.extra.until`
+se guardaba bien desde que existe `/timeout` pero el render del historial lo ignoraba
+por completo. Solo se tocó el render (`buildHistorialEmbed`), no la persistencia.
+
+**Errores de interacción — revisado el resto (botones/selects/modals/comandos) sin
+hallazgos nuevos confirmados fuera de moderación.** Se leyó `interactionCreate.js`
+(dispatcher central), los 3 routers y `confirmations.js` (usado por `/ban`, `/clear`,
+`/unwarn`) buscando reply-tardío/doble-reply/editReply-sin-defer — sin bugs adicionales
+confirmados ahí. No se hizo una pasada por los ~74 comandos restantes (fuera del alcance
+explícito de esta fase: "no refactor general").
+
+**`/8ball` sin límite de input.** `pregunta` no tenía `setMaxLength` (Discord permite
+hasta 6000 por defecto en un string option) y se pega tal cual en el VALUE de un campo de
+embed (límite real: 1024) — una pregunta larga rompía el comando entero con un error sin
+manejar. Ahora `setMaxLength(200)`. `/choose` se revisó y ya estaba acotado
+(`opciones` ya tenía `setMaxLength(500)`, muy por debajo del límite de 4096 de una
+`description` — no usa `addFields`), no se tocó.
+
+**`logEmbeds.js` — 2 builders sin cota real, el resto ya estaba a salvo.**
+`createRoleChangeLogEmbed` (roles agregados/quitados) y `createGiveSuspiciousLogEmbed`
+("a quiénes") armaban listas con `.join()` sin ningún límite — con suficientes roles o
+receptores el embed entero fallaba al mandarse. Nuevo helper `joinWithOverflow()` (mismo
+patrón "+N más" que ya usan `roles.js`/`shop.js`, no uno inventado) aplicado a esos dos
+lugares únicamente. El resto de los builders con listas (`createChannelLogEmbed`,
+`createRoleLogEmbed`, `createGuildUpdateLogEmbed`, `createBotConfigLogEmbed`) ya tenían
+`.slice(0, 1024)` — corte mudo pero YA a salvo de un payload inválido, así que se
+dejaron como estaban (no era el pedido: "no quiero una refactorización completa").
+Título/descripción/footer de todo el archivo son texto estático o campos ya acotados
+(motivo ≤512) — revisado, sin riesgo real de exceder ningún límite de Discord.
+
+**`userUpdate.js` — throttle de 2 minutos por usuario.** Antes CADA cambio de
+avatar/username/nombre visible disparaba un fan-out completo a todos los servidores
+mutuos, sin límite — alguien cambiando de foto varias veces seguidas (o presente en
+muchos servidores con el bot) multiplicaba envíos de log innecesarios. Mismo patrón de
+`Map` en memoria autolimpiante que el resto del proyecto (`rateLimiter.js`), nunca
+Supabase. El throttle se marca solo cuando de verdad hay algo para loguear (no en
+cualquier `UserUpdate`, que dispara por más campos de los que a NEXO le importan).
+
+**`/help` y `/helpstaff` — un admin nuevo.** `/help` (para todo el mundo) ya estaba bien
+organizado (Información/Economía/Casino/Diversión/Acción/Música) y ya menciona logros
+desbloqueados dentro de la descripción de `/perfil` — no se tocó. `/helpstaff` (staff)
+tenía un hueco real: `/setup` y `/config` — las dos entradas fundamentales de toda la
+configuración de un servidor — no aparecían en NINGÚN lugar. Categoría nueva
+"⚙️ Administración", resumida por tema (no las ~15 subcommands de `/config` una por
+una, para no volver esto una enciclopedia) — separada de "🧹 Moderación" (sanciones del
+día a día), que ya estaba completa.
+
+**`command_usage` — aclarado que mide intentos, no éxitos de negocio (sin cambiar
+comportamiento).** El comentario del archivo afirmaba "ejecución exitosa"; en la
+práctica cuenta "`command.execute()` no tiró excepción", y casi todos los comandos
+atrapan sus propios rechazos (permiso, cooldown, saldo insuficiente, target inválido) sin
+volver a tirarla. Evaluado como decisión, no como bug: para lo que esto alimenta hoy
+(`/metricas` y el logro de servidor por actividad total) "intentos" es la semántica
+correcta — un `/rob` rechazado por su 40% de éxito documentado sigue siendo interacción
+real, contarlo como "no-uso" subestimaría la popularidad real del comando. Migrar a una
+métrica de "solo éxitos" necesitaría una señal explícita por comando en cada rama de
+rechazo — cambio grande, fuera de esta fase. Solo se corrigió el comentario para que
+describa lo que el código realmente hace.
+
+**`/buy` — rol borrado de Discord ya no cobra sin entregar nada.** Dos capas: (1) chequeo
+de que el rol configurado siga existiendo (`guild.roles.cache`, siempre completo y
+gratis, sin fetch) ANTES de cobrar — si no existe, se rechaza la compra sin descontar
+nada. (2) Por si el rol se borra justo en la ventana entre ese chequeo y
+`member.roles.add()` (condición de carrera real pero rara), el catch que antes solo
+logueaba y confirmaba éxito ahora revierte todo lo ya aplicado (inventario −1 vía
+`incrementInventoryItem`, reembolso vía `addBalance` con `type: 'purchase_refund'`) y le
+avisa al usuario — nunca un "compraste con éxito" sin el beneficio. `purchase_refund` se
+sumó a `economyOrigins.js` como `origin: 'admin'` (no es actividad orgánica, es una
+corrección del sistema — sin esto caía en `'activity'` por defecto y contaba como si el
+usuario hubiera "ganado" esas monedas) y a `TYPE_LABELS` de `/economia-staff historial`.
+Nota menor aceptada: la compra original ya había contado como `COINS_DESTROYED` (sumidero,
+`money_destroyed` del día) en el momento del cobro; el reembolso no revierte esa métrica
+retroactivamente (`guild_daily_stats` es solo-incremento, sin cron de recálculo) — un
+desvío cosmético de un evento ya de por sí raro, no vale la complejidad de revertirlo.
+
+**`/encuesta` — cooldown de 2 minutos por guild+usuario.** No existía ningún límite.
+Se evaluó un tope de "encuestas activas simultáneas" además del cooldown y se descartó:
+no hay ningún tracking de qué encuestas siguen abiertas (se resuelven solas por
+reacciones; cerrarlas con el botón es opcional, no un estado que el sistema seguía) —
+armarlo hubiera sido una función nueva real, no la "solución sencilla" pedida. El
+cooldown solo, por guild+usuario (no global — mismo criterio multi-tenant que el resto
+del proyecto), ya cubre el vector real (spam de creación) sin bloquear un uso legítimo
+espaciado. Mismo patrón de `Map` en memoria autolimpiante, guardado local al archivo del
+comando (mismo criterio que la sesión de `/setup`).
+
+**Routers de botones/selects/modals — matching por especificidad, no por orden de
+registro.** `trivia_` y `trivia_ranking_page_` (ambos en `trivia.js`) son el caso real: el
+segundo es substring del primero, así que cualquier customId de ranking matchea los DOS
+prefijos. Hoy no falla porque `trivia.js` los registra en el orden correcto por
+casualidad de escritura del archivo — pero `routeButton`/`routeSelect`/`routeModal`
+tomaban el PRIMER match encontrado en el array, que depende del orden de `import`
+dinámico de `src/index.js`, no de nada controlado a mano. Se revisaron los ~90 prefijos
+registrados en todo el proyecto buscando otras relaciones de substring reales — no
+apareció ninguna otra (los que parecen candidatos, como `voice_admin_select` vs
+`voice_admin_transfer_select_`, divergen antes de que ninguno termine). Fix igual en los
+3 routers: buscar el prefijo MÁS LARGO entre todos los que matchean, no el primero — dejó
+de depender del orden de registro, sin tocar ningún prefijo existente.
+
 ## Stack
 
 Node 22+, discord.js 14 (ESM, `"type": "module"` en `package.json`), Supabase

@@ -33,13 +33,19 @@ export async function execute(interaction) {
     return;
   }
 
+  // Defer apenas se confirma el permiso — antes el primer reply llegaba recién después
+  // de users.fetch + members.unban(), lo que arriesgaba "Unknown interaction" si esos
+  // awaits sumaban más de 3s aunque el desbaneo SÍ se hubiera aplicado. Ver sección 3 de
+  // la auditoría Fase 2B (unban.js estaba en la lista explícita).
+  await interaction.deferReply();
+
   const userId = interaction.options.getString('usuario');
   const motivo = interaction.options.getString('motivo') || 'Sin motivo especificado';
 
   try {
     const user = await interaction.client.users.fetch(userId).catch(() => null);
     await interaction.guild.members.unban(userId, motivo);
-    await interaction.reply({ content: `✅ Se desbaneó a ${user?.tag || userId}.` });
+    await interaction.editReply({ content: `✅ Se desbaneó a ${user?.tag || userId}.` });
 
     // Try/catch propio: el desbaneo ya se aplicó y ya se confirmó — un log fallido no
     // debe mostrarle un error al staff (lo llevaría a reintentar uno ya aplicado).
@@ -59,11 +65,6 @@ export async function execute(interaction) {
     }).catch((e) => console.error('⚠️ No se pudo registrar /unban en el historial de sanciones:', e));
   } catch (error) {
     console.error('❌ Error al ejecutar /unban:', error);
-    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al desbanear (¿estás seguro de que está baneado?).'), flags: MessageFlags.Ephemeral };
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(errorMsg);
-    } else {
-      await interaction.reply(errorMsg);
-    }
+    await interaction.editReply({ content: describeError(error, '❌ Ocurrió un error al desbanear (¿estás seguro de que está baneado?).') }).catch(() => {});
   }
 }

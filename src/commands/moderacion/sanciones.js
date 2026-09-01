@@ -8,6 +8,7 @@ import { createTimeoutLogEmbed, createPunishLogEmbed, createUnbanAutoLogEmbed, c
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
 import { recordModerationAction, getUserModerationActions } from '../../utils/moderationActionsStore.js';
+import { revokePunishment } from '../../utils/punishEngine.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 const ACTION_LABELS = {
@@ -37,10 +38,21 @@ function buildHistorialEmbed(targetUser, list, page) {
     embed.setDescription('Este usuario no tiene sanciones registradas (bans, kicks, timeouts, restricciones).');
   } else {
     embed.addFields(
-      slice.map((a) => ({
-        name: `${ACTION_LABELS[a.actionType] || a.actionType} · <t:${Math.floor(a.timestamp / 1000)}:f>`,
-        value: `${a.reason || 'Sin motivo especificado'} — por <@${a.moderatorId}>`,
-      })),
+      slice.map((a) => {
+        // QUÉ CAMBIÓ: moderation_actions.extra.until (guardado por /timeout desde
+        // siempre) ahora se muestra acá — antes se guardaba correctamente pero el
+        // historial del panel lo ignoraba por completo. `a.extra` es siempre un objeto
+        // (nunca null/undefined, ver rowToAction en moderationActionsStore.js), así que
+        // leer `.until` de una acción sin duración (o de un tipo que no sea timeout)
+        // simplemente da undefined y no agrega la línea — no rompe nada.
+        // MOTIVO: auditoría Fase 2B, sección 4.
+        const untilLine =
+          a.actionType === 'timeout' && a.extra?.until ? `\nHasta: <t:${Math.floor(a.extra.until / 1000)}:f>` : '';
+        return {
+          name: `${ACTION_LABELS[a.actionType] || a.actionType} · <t:${Math.floor(a.timestamp / 1000)}:f>`,
+          value: `${a.reason || 'Sin motivo especificado'} — por <@${a.moderatorId}>${untilLine}`,
+        };
+      }),
     );
   }
 
@@ -98,13 +110,19 @@ export async function execute(interaction) {
 registerButtonPrefix('sanciones_hist_page_', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
 
+  // deferUpdate() apenas se confirma el permiso — antes el único ack (i.update) llegaba
+  // recién después de 2 awaits (users.fetch + getUserModerationActions), lo que
+  // arriesgaba "Unknown interaction" si sumaban más de 3s. Ver sección 3 de la
+  // auditoría Fase 2B.
+  await i.deferUpdate();
+
   const [pageRaw, targetUserId] = i.customId.slice('sanciones_hist_page_'.length).split('_');
   const targetUser = await i.client.users.fetch(targetUserId).catch(() => null);
-  if (!targetUser) return i.reply({ content: '❌ No se pudo encontrar a ese usuario.', flags: MessageFlags.Ephemeral });
+  if (!targetUser) return i.editReply({ content: '❌ No se pudo encontrar a ese usuario.', embeds: [], components: [] });
 
   const list = await getUserModerationActions(i.guildId, targetUserId);
   const { embed, clampedPage, totalPages } = buildHistorialEmbed(targetUser, list, parseInt(pageRaw, 10));
-  await i.update({ embeds: [embed], components: [buildHistorialRow(targetUserId, clampedPage, totalPages)] });
+  await i.editReply({ embeds: [embed], components: [buildHistorialRow(targetUserId, clampedPage, totalPages)] });
 });
 
 // ---------- Botones: listar y armar el select correspondiente ----------
@@ -189,17 +207,25 @@ async function sendPanelLog(interaction, category, embed) {
 
 registerSelectPrefix('sanciones_select_timeout', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+
+  // Defer apenas se confirma el permiso — antes el único ack (i.reply) llegaba recién
+  // después de members.fetch + member.timeout(), lo que arriesgaba "Unknown
+  // interaction" aunque la acción SÍ se hubiera aplicado. Todas las ramas de este
+  // handler ya eran ephemeral, así que deferir ephemeral no cambia ninguna respuesta
+  // visible. Ver sección 3 de la auditoría Fase 2B.
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
   const userId = i.values[0];
   const member = await i.guild.members.fetch(userId).catch(() => null);
-  if (!member) return i.reply({ content: '❌ No se encontró al usuario.', flags: MessageFlags.Ephemeral });
+  if (!member) return i.editReply({ content: '❌ No se encontró al usuario.' });
 
   // Mismo chequeo de jerarquía que /timeout — el panel no puede saltárselo.
   const blockReason = getModerationBlockReason(i, member);
-  if (blockReason) return i.reply({ content: blockReason, flags: MessageFlags.Ephemeral });
-  if (!member.moderatable) return i.reply({ content: '❌ No puedo modificar el timeout de este usuario.', flags: MessageFlags.Ephemeral });
+  if (blockReason) return i.editReply({ content: blockReason });
+  if (!member.moderatable) return i.editReply({ content: '❌ No puedo modificar el timeout de este usuario.' });
 
   await member.timeout(null);
-  await i.reply({ content: `✅ Se le quitó el timeout a ${member.user.tag}.`, flags: MessageFlags.Ephemeral });
+  await i.editReply({ content: `✅ Se le quitó el timeout a ${member.user.tag}.` });
   // Público a propósito, mismo criterio que /timeout directo — la única diferencia es
   // que esto se hizo desde el panel, no debería quedar oculto por eso.
   await i.channel.send({ content: `🔊 ${i.user} le quitó el timeout a ${member.user}.` }).catch(() => {});
@@ -210,17 +236,29 @@ registerSelectPrefix('sanciones_select_timeout', async (i) => {
 
 registerSelectPrefix('sanciones_select_punish', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+
+  // Defer apenas se confirma el permiso — mismo motivo que sanciones_select_timeout
+  // (sección 3 de la auditoría Fase 2B); todas las ramas ya eran ephemeral.
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
   const cfg = await getGuildConfig(i.guildId);
   const userId = i.values[0];
   const member = await i.guild.members.fetch(userId).catch(() => null);
-  if (!member) return i.reply({ content: '❌ No se encontró al usuario.', flags: MessageFlags.Ephemeral });
+  if (!member) return i.editReply({ content: '❌ No se encontró al usuario.' });
 
   // Mismo chequeo de jerarquía que /unpunish — el panel no puede saltárselo.
   const blockReason = getModerationBlockReason(i, member);
-  if (blockReason) return i.reply({ content: blockReason, flags: MessageFlags.Ephemeral });
+  if (blockReason) return i.editReply({ content: blockReason });
 
-  await member.roles.remove(cfg.punish_role_id);
-  await i.reply({ content: `✅ Se le quitó la restricción a ${member.user.tag}.`, flags: MessageFlags.Ephemeral });
+  // QUÉ CAMBIÓ: usa el mismo helper central que /unpunish (revokePunishment) en vez de
+  // solo member.roles.remove() — antes, quitar una restricción CON DURACIÓN desde el
+  // panel no cancelaba el timer en memoria ni borraba la fila de active_punishments, así
+  // que el timer igual disparaba más tarde: quitaba un rol que ya no estaba (no-op) pero
+  // igual mandaba un log de "expiración automática" falso sobre algo que el staff ya
+  // había resuelto a mano. MOTIVO: auditoría Fase 2B, sección 1B.
+  await revokePunishment(i.client, { guildId: i.guildId, userId: member.id, roleId: cfg.punish_role_id, member });
+
+  await i.editReply({ content: `✅ Se le quitó la restricción a ${member.user.tag}.` });
   await i.channel.send({ content: `✅ ${i.user} le quitó la restricción a ${member.user}.` }).catch(() => {});
 
   await sendPanelLog(i, 'moderation', createPunishLogEmbed({ user: member.user, executor: i.user, reason: null, applied: false }));
@@ -229,11 +267,16 @@ registerSelectPrefix('sanciones_select_punish', async (i) => {
 
 registerSelectPrefix('sanciones_select_ban', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+
+  // Defer apenas se confirma el permiso — mismo motivo que los selects de arriba
+  // (sección 3 de la auditoría Fase 2B); todas las ramas ya eran ephemeral.
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
   const userId = i.values[0];
 
   const user = await i.client.users.fetch(userId).catch(() => null);
   await i.guild.members.unban(userId);
-  await i.reply({ content: `✅ Se desbaneó a ${user?.tag || userId}.`, flags: MessageFlags.Ephemeral });
+  await i.editReply({ content: `✅ Se desbaneó a ${user?.tag || userId}.` });
   await i.channel.send({ content: `✅ ${i.user} desbaneó a ${user?.tag || userId}.` }).catch(() => {});
 
   if (user) {
@@ -244,11 +287,27 @@ registerSelectPrefix('sanciones_select_ban', async (i) => {
 
 registerSelectPrefix('sanciones_select_warn', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+
+  // Defer apenas se confirma el permiso — mismo motivo que los selects de arriba
+  // (sección 3 de la auditoría Fase 2B); todas las ramas ya eran ephemeral.
+  await i.deferReply({ flags: MessageFlags.Ephemeral });
+
   const userId = i.values[0];
+
+  // QUÉ CAMBIÓ: mismo chequeo central de jerarquía que /unwarn — antes el panel podía
+  // borrar TODAS las advertencias de alguien con rango igual/superior (o del propio
+  // staff, o del bot) sin ningún control, algo que /unwarn directo sí bloqueaba. member
+  // puede ser null (el usuario ya no está en el server) — getModerationBlockReason no
+  // bloquea en ese caso, mismo criterio que /unwarn.
+  // MOTIVO: auditoría Fase 2B, sección 1A.
+  const member = await i.guild.members.fetch(userId).catch(() => null);
+  const blockReason = getModerationBlockReason(i, member);
+  if (blockReason) return i.editReply({ content: blockReason });
+
   const user = await i.client.users.fetch(userId).catch(() => null);
   const total = await clearWarns(i.guildId, userId);
 
-  await i.reply({ content: `✅ Se borraron las ${total} advertencia(s) de ${user?.tag || userId}.`, flags: MessageFlags.Ephemeral });
+  await i.editReply({ content: `✅ Se borraron las ${total} advertencia(s) de ${user?.tag || userId}.` });
   await i.channel.send({ content: `✅ ${i.user} borró las ${total} advertencia(s) de ${user?.tag || userId}.` }).catch(() => {});
 
   if (user) {

@@ -40,6 +40,11 @@ const ECONOMY_ORIGIN_BY_TYPE = {
   gamble_win: 'stake',
   mystery_box: 'stake',
   admin_add: 'admin',
+  // Reembolso automático de /buy cuando el rol de un ítem ya no existe (ver buy.js) —
+  // no es actividad orgánica del usuario, es una corrección del sistema. Agregado Fase
+  // 2B, sección 11 — sin esto caía en 'activity' por defecto y contaba como si el
+  // usuario hubiera "ganado" esas monedas.
+  purchase_refund: 'admin',
 };
 
 export function resolveEarningOrigin(type) {

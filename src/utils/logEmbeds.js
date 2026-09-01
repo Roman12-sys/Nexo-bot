@@ -8,6 +8,29 @@ const WARN_COLOR = '#E9C46A';
 const userTag = (user) => (user ? `${user.tag} (\`${user.id}\`)` : 'Desconocido');
 const executorText = (executor) => (executor ? userTag(executor) : 'No se pudo determinar con certeza');
 
+// Corta una lista de strings (menciones de rol/usuario, típicamente) ANTES del límite
+// de 1024 de un valor de campo de embed, agregando "(+N más)" en vez de un .slice(0,
+// 1024) mudo que puede cortar a mitad de una mención y nunca avisa que faltó contenido.
+// Mismo patrón que ya usan roles.js/shop.js (ver CLAUDE.md, límites de Discord).
+// MOTIVO: auditoría Fase 2B, sección 7 — createRoleChangeLogEmbed y
+// createGiveSuspiciousLogEmbed armaban esta lista con un .join() sin ninguna cota; con
+// suficientes roles/receptores el embed entero fallaba al mandarse (campo > 1024).
+function joinWithOverflow(items, { max = 1024, sep = ', ' } = {}) {
+  let acc = '';
+  let shown = 0;
+  for (const item of items) {
+    const candidate = acc ? `${acc}${sep}${item}` : item;
+    if (candidate.length > max - 20) break; // deja margen para el sufijo "(+N más)"
+    acc = candidate;
+    shown += 1;
+  }
+  if (shown < items.length) {
+    const suffix = `*(+${items.length - shown} más)*`;
+    acc = acc ? `${acc}${sep}${suffix}` : suffix;
+  }
+  return acc;
+}
+
 function baseLogEmbed({ color = NEUTRAL_COLOR, title, description, fields = [], footer = 'Logs de moderación' }) {
   const embed = new EmbedBuilder()
     .setColor(color)
@@ -206,7 +229,7 @@ export function createGiveSuspiciousLogEmbed({ sender, pattern }) {
           { name: 'Emisor', value: userTag(sender), inline: true },
           { name: 'Receptores distintos', value: `${pattern.receiverIds.length}`, inline: true },
           { name: 'Transferencias', value: `${pattern.count} en ${pattern.windowMinutes} min`, inline: true },
-          { name: 'A quiénes', value: pattern.receiverIds.map((id) => `<@${id}>`).join(', ') },
+          { name: 'A quiénes', value: joinWithOverflow(pattern.receiverIds.map((id) => `<@${id}>`)) },
         ],
   });
 }
@@ -353,8 +376,8 @@ export function createRoleChangeLogEmbed({ member, executor, added, removed }) {
     { name: 'Usuario', value: userTag(member.user), inline: true },
     { name: 'Modificado por', value: executorText(executor), inline: true },
   ];
-  if (added.length > 0) fields.push({ name: '➕ Roles agregados', value: added.map((r) => `${r}`).join(', ') });
-  if (removed.length > 0) fields.push({ name: '➖ Roles quitados', value: removed.map((r) => `${r}`).join(', ') });
+  if (added.length > 0) fields.push({ name: '➕ Roles agregados', value: joinWithOverflow(added.map((r) => `${r}`)) });
+  if (removed.length > 0) fields.push({ name: '➖ Roles quitados', value: joinWithOverflow(removed.map((r) => `${r}`)) });
 
   return baseLogEmbed({ title: '🎭 Roles actualizados', fields });
 }

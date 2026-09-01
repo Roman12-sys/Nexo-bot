@@ -21,9 +21,13 @@ export async function execute(interaction) {
     return;
   }
 
+  // Defer apenas pasan los chequeos sync — mismo motivo que lock.js (sección 3 de la
+  // auditoría Fase 2B, unlock.js estaba en la lista explícita).
+  await interaction.deferReply();
+
   try {
     await interaction.channel.permissionOverwrites.edit(interaction.guild.id, { SendMessages: null });
-    await interaction.reply({ content: '🔓 Canal desbloqueado.' });
+    await interaction.editReply({ content: '🔓 Canal desbloqueado.' });
 
     // Try/catch propio: el canal ya se desbloqueó y ya se confirmó — un log fallido no
     // debe mostrarle un error al staff.
@@ -37,11 +41,6 @@ export async function execute(interaction) {
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /unlock:', error);
-    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al desbloquear el canal.'), flags: MessageFlags.Ephemeral };
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(errorMsg);
-    } else {
-      await interaction.reply(errorMsg);
-    }
+    await interaction.editReply({ content: describeError(error, '❌ Ocurrió un error al desbloquear el canal.') }).catch(() => {});
   }
 }

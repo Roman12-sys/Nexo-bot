@@ -100,3 +100,21 @@ export async function rescheduleActivePunishments(client) {
     schedulePunishExpiry(client, punishment);
   }
 }
+
+// Revoca una restricción de /punish ya aplicada — único lugar que hace las 3 cosas
+// juntas, usado tanto por /unpunish como por el panel /sanciones. Cancela el timer y
+// borra el estado persistido ANTES de tocar Discord: si esto fuera al revés (rol
+// primero), una restricción con duración que se quita a mano justo cuando el timer
+// vence en paralelo podía disparar igual una "expiración automática" (log falso) sobre
+// algo que el staff ya resolvió, o dejar la fila de active_punishments huérfana si el
+// borrado de después nunca se llegaba a ejecutar.
+// MOTIVO: auditoría Fase 2B — el panel /sanciones no hacía NADA de esto (ni cancelaba
+// el timer ni borraba la fila), a diferencia de /unpunish que sí, pero en el orden
+// menos seguro. Centralizarlo acá es lo que garantiza que no puedan volver a divergir.
+export async function revokePunishment(client, { guildId, userId, roleId, member }) {
+  cancelPunishExpiry(guildId, userId);
+  await deleteActivePunishment(guildId, userId).catch((error) =>
+    console.error('⚠️ No se pudo borrar el registro de restricción con duración:', error),
+  );
+  await member.roles.remove(roleId);
+}

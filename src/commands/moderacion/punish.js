@@ -46,11 +46,11 @@ export async function execute(interaction) {
     return;
   }
 
-  const cfg = await getGuildConfig(interaction.guildId);
-  if (!cfg.punish_role_id) {
-    await interaction.reply({ content: '⚠️ Este comando no está configurado. Usá `/config rol-castigo` primero.', flags: MessageFlags.Ephemeral });
-    return;
-  }
+  // Defer apenas se confirma el permiso — antes el primer reply llegaba recién después
+  // de member.roles.add() (+ la escritura de active_punishments cuando hay duración), lo
+  // que arriesgaba "Unknown interaction" si esos awaits sumaban más de 3s aunque la
+  // restricción SÍ se hubiera aplicado. Ver sección 3 de la auditoría Fase 2B.
+  await interaction.deferReply();
 
   const targetUser = interaction.options.getUser('usuario');
   const motivo = interaction.options.getString('motivo') || 'Sin motivo especificado';
@@ -58,30 +58,36 @@ export async function execute(interaction) {
   const durationMs = duracion ? DURATION_MS[duracion] : null;
 
   try {
+    const cfg = await getGuildConfig(interaction.guildId);
+    if (!cfg.punish_role_id) {
+      await interaction.editReply({ content: '⚠️ Este comando no está configurado. Usá `/config rol-castigo` primero.' });
+      return;
+    }
+
     const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
     if (!member) {
-      await interaction.reply({ content: '❌ No se encontró a ese usuario en el servidor.', flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: '❌ No se encontró a ese usuario en el servidor.' });
       return;
     }
 
     const blockReason = getModerationBlockReason(interaction, member);
     if (blockReason) {
-      await interaction.reply({ content: blockReason, flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: blockReason });
       return;
     }
 
     if (member.roles.cache.has(cfg.punish_role_id)) {
-      await interaction.reply({ content: `⚠️ ${targetUser.tag} ya tiene la restricción aplicada.`, flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: `⚠️ ${targetUser.tag} ya tiene la restricción aplicada.` });
       return;
     }
 
     const punishRole = interaction.guild.roles.cache.get(cfg.punish_role_id);
     if (!punishRole) {
-      await interaction.reply({ content: '⚠️ El rol de restricción configurado ya no existe. Reconfigurálo con `/config rol-castigo`.', flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: '⚠️ El rol de restricción configurado ya no existe. Reconfigurálo con `/config rol-castigo`.' });
       return;
     }
     if (punishRole.position >= interaction.guild.members.me.roles.highest.position) {
-      await interaction.reply({ content: '⚠️ No puedo asignar el rol de restricción — está por encima de mi rol más alto.', flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: '⚠️ No puedo asignar el rol de restricción — está por encima de mi rol más alto.' });
       return;
     }
 
@@ -95,7 +101,7 @@ export async function execute(interaction) {
     }
 
     const expiryText = expiresAt ? ` Se le quita sola <t:${Math.floor(expiresAt / 1000)}:R>.` : '';
-    await interaction.reply({ content: `🚫 ${targetUser.tag} ya no puede enviar imágenes ni enlaces.${expiryText}` });
+    await interaction.editReply({ content: `🚫 ${targetUser.tag} ya no puede enviar imágenes ni enlaces.${expiryText}` });
 
     // Try/catch propio: la restricción ya se aplicó y ya se confirmó — un log fallido
     // no debe mostrarle un error al staff (lo llevaría a reintentar una ya aplicada).
@@ -115,11 +121,6 @@ export async function execute(interaction) {
     }).catch((e) => console.error('⚠️ No se pudo registrar /punish en el historial de sanciones:', e));
   } catch (error) {
     console.error('❌ Error al ejecutar /punish:', error);
-    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al aplicar la restricción.'), flags: MessageFlags.Ephemeral };
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(errorMsg);
-    } else {
-      await interaction.reply(errorMsg);
-    }
+    await interaction.editReply({ content: describeError(error, '❌ Ocurrió un error al aplicar la restricción.') }).catch(() => {});
   }
 }

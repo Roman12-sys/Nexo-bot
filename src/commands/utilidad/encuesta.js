@@ -7,6 +7,28 @@ import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditor�
 const NUMBER_EMOJIS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟'];
 const ALL_POLL_EMOJIS = [...NUMBER_EMOJIS, '👍', '👎'];
 
+// Cooldown simple contra spam de encuestas — antes no había ningún límite: nada impedía
+// crear encuestas en loop y llenar un canal de mensajes con reacciones. Ventana corta (2
+// min) a propósito: no hay caso de uso legítimo para crear más de una encuesta nueva en
+// ese lapso, pero tampoco corta a alguien armando varias encuestas espaciadas en una
+// sesión normal. Por guild+usuario (no global) — mismo criterio multi-tenant que el
+// resto del proyecto: actividad en un servidor no debe afectar el cooldown en otro.
+// Mismo patrón en memoria que rateLimiter.js — no amerita persistir en Supabase, y no
+// hace falta un tope de "encuestas activas simultáneas" aparte: no hay ningún tracking
+// de qué encuestas siguen abiertas (se resuelven solas por reacciones, `/encuesta
+// cerrar` es opcional), así que el cooldown de creación ya es el control real sobre el
+// ritmo de spam.
+// MOTIVO: auditoría Fase 2B, sección 12.
+const POLL_COOLDOWN_MS = 2 * 60 * 1000;
+const lastPollAt = new Map(); // `${guildId}:${userId}` -> timestamp de la última encuesta creada
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of lastPollAt) {
+    if (now - ts >= POLL_COOLDOWN_MS) lastPollAt.delete(key);
+  }
+}, 10 * 60 * 1000).unref();
+
 export const data = new SlashCommandBuilder()
   .setName('encuesta')
   .setDescription('Crea una encuesta pública con reacciones.')
@@ -17,6 +39,15 @@ export const data = new SlashCommandBuilder()
   .setDMPermission(false);
 
 export async function execute(interaction) {
+  const cooldownKey = `${interaction.guild.id}:${interaction.user.id}`;
+  const lastPoll = lastPollAt.get(cooldownKey) || 0;
+  const elapsed = Date.now() - lastPoll;
+  if (elapsed < POLL_COOLDOWN_MS) {
+    const retryAt = Math.floor((lastPoll + POLL_COOLDOWN_MS) / 1000);
+    await interaction.reply({ content: `⏳ Ya creaste una encuesta hace poco. Podés crear otra <t:${retryAt}:R>.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
   const pregunta = interaction.options.getString('pregunta');
   const raw = interaction.options.getString('opciones');
 
@@ -28,6 +59,10 @@ export async function execute(interaction) {
     await interaction.reply({ content: '❌ Necesitás entre 2 y 10 opciones separadas por comas.', flags: MessageFlags.Ephemeral });
     return;
   }
+
+  // Recién acá se consume el cooldown — un intento rechazado por opciones inválidas
+  // (arriba) no debería gastarle el turno al usuario.
+  lastPollAt.set(cooldownKey, Date.now());
 
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)

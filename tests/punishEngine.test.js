@@ -19,7 +19,7 @@ const getAllActivePunishments = vi.fn();
 const deleteActivePunishment = vi.fn().mockResolvedValue(undefined);
 vi.mock('../src/utils/punishStore.js', () => ({ getAllActivePunishments, deleteActivePunishment }));
 
-const { schedulePunishExpiry, cancelPunishExpiry, rescheduleActivePunishments } = await import('../src/utils/punishEngine.js');
+const { schedulePunishExpiry, cancelPunishExpiry, rescheduleActivePunishments, revokePunishment } = await import('../src/utils/punishEngine.js');
 
 function makeClient({ hasRole = true } = {}) {
   const rolesRemove = vi.fn().mockResolvedValue(undefined);
@@ -152,6 +152,65 @@ describe('multi-guild — el mismo userId en dos guilds nunca se mezcla', () => 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(deleteActivePunishment).toHaveBeenCalledWith('guild-b', 'user-123');
     expect(rolesRemove).toHaveBeenCalledTimes(2);
+  });
+});
+
+// revokePunishment (Fase 2B, sección 1B) — único lugar que cancela el timer + borra la
+// fila persistida + quita el rol, usado por /unpunish y por el select del panel
+// /sanciones. Lo que más importa: que un timer con duración quedada armado quede
+// REALMENTE cancelado (no solo "borrado de la fila", que ya cubría rescheduleAt-boot) —
+// sin eso, la restricción "vencía" fantasma más tarde con un log de "expiración
+// automática" mintiendo sobre algo que el staff ya había resuelto a mano.
+describe('revokePunishment', () => {
+  it('cancela el timer, borra la fila persistida y quita el rol — en ese orden', async () => {
+    const { client, rolesRemove } = makeClient();
+    const callOrder = [];
+    deleteActivePunishment.mockImplementation(async () => {
+      callOrder.push('delete-row');
+    });
+    rolesRemove.mockImplementation(async () => {
+      callOrder.push('remove-role');
+    });
+
+    schedulePunishExpiry(client, makePunishment({ expiresAt: Date.now() + 60_000 }));
+
+    const member = { roles: { cache: { has: () => true }, remove: rolesRemove } };
+    await revokePunishment(client, { guildId: 'guild-1', userId: 'target-1', roleId: 'role-sancionado', member });
+
+    expect(callOrder).toEqual(['delete-row', 'remove-role']);
+
+    // El timer que había quedado armado por schedulePunishExpiry no debe disparar
+    // después — si revokePunishment no lo hubiera cancelado de verdad, avanzar el reloj
+    // dispararía una "expiración automática" fantasma (rolesRemove/deleteActivePunishment
+    // de vuelta) sobre algo que ya se resolvió a mano.
+    vi.clearAllMocks();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(deleteActivePunishment).not.toHaveBeenCalled();
+    expect(rolesRemove).not.toHaveBeenCalled();
+  });
+
+  it('funciona igual si la restricción nunca tuvo duración (sin timer que cancelar)', async () => {
+    const { client, rolesRemove } = makeClient();
+    const member = { roles: { cache: { has: () => true }, remove: rolesRemove } };
+
+    await expect(
+      revokePunishment(client, { guildId: 'guild-1', userId: 'target-1', roleId: 'role-sancionado', member }),
+    ).resolves.toBeUndefined();
+
+    expect(rolesRemove).toHaveBeenCalledWith('role-sancionado');
+    expect(deleteActivePunishment).toHaveBeenCalledWith('guild-1', 'target-1');
+  });
+
+  it('si borrar la fila persistida falla, igual sigue y quita el rol (no deja la restricción a medias)', async () => {
+    const { client, rolesRemove } = makeClient();
+    deleteActivePunishment.mockRejectedValueOnce(new Error('supabase caído'));
+    const member = { roles: { cache: { has: () => true }, remove: rolesRemove } };
+
+    await expect(
+      revokePunishment(client, { guildId: 'guild-1', userId: 'target-1', roleId: 'role-sancionado', member }),
+    ).resolves.toBeUndefined();
+
+    expect(rolesRemove).toHaveBeenCalledWith('role-sancionado');
   });
 });
 

@@ -21,9 +21,15 @@ export async function execute(interaction) {
     return;
   }
 
+  // Defer apenas pasan los chequeos sync — antes el primer reply llegaba recién después
+  // de permissionOverwrites.edit(), lo que arriesgaba "Unknown interaction" si ese await
+  // se demoraba más de 3s aunque el canal SÍ se hubiera bloqueado. Ver sección 3 de la
+  // auditoría Fase 2B (lock.js estaba en la lista explícita).
+  await interaction.deferReply();
+
   try {
     await interaction.channel.permissionOverwrites.edit(interaction.guild.id, { SendMessages: false });
-    await interaction.reply({ content: '🔒 Canal bloqueado.' });
+    await interaction.editReply({ content: '🔒 Canal bloqueado.' });
 
     // Try/catch propio: el canal ya se bloqueó y ya se confirmó — un log fallido no
     // debe mostrarle un error al staff.
@@ -37,11 +43,6 @@ export async function execute(interaction) {
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /lock:', error);
-    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al bloquear el canal.'), flags: MessageFlags.Ephemeral };
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(errorMsg);
-    } else {
-      await interaction.reply(errorMsg);
-    }
+    await interaction.editReply({ content: describeError(error, '❌ Ocurrió un error al bloquear el canal.') }).catch(() => {});
   }
 }

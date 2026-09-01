@@ -132,7 +132,11 @@ describe('/kick', () => {
 
     await kickExecute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No se encontró') }));
+    // QUÉ CAMBIÓ (Fase 2B, sección 3): /kick ahora deferea apenas se confirma el
+    // permiso, antes de fetchear al member — el resto de la respuesta (éxito o
+    // rechazo) viaja por editReply, no por un segundo reply().
+    expect(interaction.deferReply).toHaveBeenCalledTimes(1);
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No se encontró') }));
   });
 
   it('el bot no puede expulsar a alguien con rango igual/superior al suyo (not kickable)', async () => {
@@ -143,7 +147,7 @@ describe('/kick', () => {
 
     await kickExecute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No puedo expulsar') }));
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No puedo expulsar') }));
   });
 
   it('caso exitoso: llama a member.kick con el motivo y loguea', async () => {
@@ -154,7 +158,7 @@ describe('/kick', () => {
     await kickExecute(interaction);
 
     expect(targetMember.kick).toHaveBeenCalledWith('toxicidad');
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se expulsó') }));
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se expulsó') }));
     expect(logChannel.send).toHaveBeenCalledTimes(1);
   });
 });

@@ -57,6 +57,7 @@ export function buildMainMenuRow() {
 
 export function buildMainMenuRow2() {
   return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('helpstaff_cat_administracion').setLabel('⚙️ Administración').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('helpstaff_cat_xp').setLabel('⭐ XP y niveles').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('helpstaff_cat_bot').setLabel('🩺 Bot').setStyle(ButtonStyle.Secondary),
   );
@@ -66,6 +67,40 @@ export function buildBackRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('helpstaff_back').setLabel('🔙 Volver al menú').setStyle(ButtonStyle.Secondary),
   );
+}
+
+// QUÉ CAMBIÓ: categoría nueva — /setup y /config no aparecían en NINGÚN lugar de
+// /helpstaff, así que un admin nuevo no tenía forma de descubrirlos desde el propio
+// bot (tenía que ya saber que existen). Son las dos entradas fundamentales de todo el
+// modelo de configuración de Nexo (ver guild_config en CLAUDE.md) — se resumen por
+// tema en vez de listar las ~15 subcommands de /config una por una, para no convertir
+// esto en una enciclopedia.
+// MOTIVO: auditoría Fase 2B, sección 9.
+export function buildAdministracionEmbed() {
+  return new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('⚙️ Administración')
+    .setDescription('Configuración del servidor — separado de "Moderación" (sanciones del día a día).')
+    .addFields(
+      {
+        name: '/setup',
+        value:
+          'Configuración inicial guiada: elegí una plantilla, activá módulos (moderación/economía/XP) y extras opcionales (bienvenida, confesiones, rol automático, rol de castigo). Crea los canales/roles que falten. Se puede volver a correr sin duplicar nada.',
+      },
+      { name: '/config ver', value: 'Resumen completo de la configuración actual (todo lo que dejó armado /setup, más lo que se haya tocado después).' },
+      {
+        name: '/config rol-castigo / rol-automatico / canal-bienvenida / canal-confesiones / ...',
+        value: 'Apuntá a un rol/canal que YA existe en el server en vez de crear uno nuevo con /setup.',
+      },
+      {
+        name: '/config rol-nivel / modo-roles-nivel / xp-finde-boost / xp-canal-ignorar / xp-canal-permitir',
+        value: 'Ajustes finos del sistema de XP y niveles.',
+      },
+      { name: '/config confesiones-revision / confesion-bloquear / confesion-desbloquear', value: 'Controles del sistema de confesiones anónimas.' },
+      { name: '/config exportar', value: 'Descarga un JSON de respaldo de toda la configuración (solo lectura, no cambia nada).' },
+    )
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
 }
 
 export function buildModeracionEmbed() {
@@ -200,6 +235,10 @@ export async function execute(interaction) {
   });
 }
 
+registerButtonPrefix('helpstaff_cat_administracion', async (i) => {
+  if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+  await i.update({ embeds: [buildAdministracionEmbed()], components: [buildBackRow()] });
+});
 registerButtonPrefix('helpstaff_cat_moderacion', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
   await i.update({ embeds: [buildModeracionEmbed()], components: [buildBackRow()] });

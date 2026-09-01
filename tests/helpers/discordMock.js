@@ -103,3 +103,50 @@ export function makeButtonInteraction(customId, { userId = 'mod-1', guildId = 'g
     reply: vi.fn().mockResolvedValue(undefined),
   };
 }
+
+// Interaction "falsa" para paneles de select menu (ej. /sanciones, /economia-staff) —
+// a diferencia de makeInteraction (pensada para slash commands con `options`), acá lo
+// que importa es `values` (lo elegido en el menú) y que guild.members.fetch resuelva un
+// member "target" puntual, igual que makeInteraction pero sin el wrapper de options.
+export function makeSelectInteraction({
+  guildId = 'guild-1',
+  userId = 'mod-1',
+  userPosition = 10,
+  staffRoleIds = [],
+  ownerId = 'owner-1',
+  botId = 'bot-1',
+  values = ['target-1'],
+  member = null,
+} = {}) {
+  const guild = {
+    id: guildId,
+    ownerId,
+    members: {
+      fetch: vi.fn(async (id) => (member && id === member.id ? member : null)),
+      unban: vi.fn().mockResolvedValue(undefined),
+    },
+  };
+
+  return {
+    guild,
+    guildId,
+    values,
+    user: { id: userId, tag: `mod-${userId}#0001` },
+    member: {
+      roles: {
+        highest: { position: userPosition },
+        cache: new Map(staffRoleIds.map((id) => [id, { id }])),
+      },
+    },
+    client: {
+      user: { id: botId },
+      users: { fetch: vi.fn(async (id) => ({ id, tag: `user-${id}#0001` })) },
+    },
+    channel: { send: vi.fn().mockResolvedValue(undefined) },
+    deferReply: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue(undefined),
+    reply: vi.fn().mockResolvedValue(undefined),
+    deferUpdate: vi.fn().mockResolvedValue(undefined),
+    update: vi.fn().mockResolvedValue(undefined),
+  };
+}

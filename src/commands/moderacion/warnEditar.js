@@ -3,7 +3,7 @@
 // corrige el motivo en el lugar, conservando cuándo se aplicó de verdad.
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { getUserWarns, updateWarnReasonAt } from '../../utils/warnsStore.js';
-import { isStaff } from '../../utils/permissions.js';
+import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { createWarnEditedLogEmbed } from '../../utils/logEmbeds.js';
 import { describeError } from '../../utils/errorMessages.js';
@@ -32,18 +32,37 @@ export async function execute(interaction) {
     return;
   }
 
+  // Defer apenas se confirma el permiso — antes el primer reply llegaba recién después
+  // de la escritura en Supabase, sin ningún margen si esa llamada se demoraba. Ver
+  // sección 3 de la auditoría Fase 2B (warn-editar estaba en la lista explícita).
+  await interaction.deferReply();
+
   const targetUser = interaction.options.getUser('usuario');
   const numero = interaction.options.getInteger('numero');
   const nuevoMotivo = interaction.options.getString('motivo');
 
   try {
-    const updated = await updateWarnReasonAt(interaction.guildId, targetUser.id, numero, nuevoMotivo);
-    if (!updated) {
-      await interaction.reply({ content: '❌ No se encontró esa advertencia.', flags: MessageFlags.Ephemeral });
+    // QUÉ CAMBIÓ: mismo chequeo central de jerarquía que /warn y /unwarn — antes
+    // warn-editar era el único comando de moderación sin ningún chequeo de jerarquía,
+    // así que un moderador podía corregir (no solo borrar) advertencias de alguien con
+    // su mismo rango o superior. member puede ser null (el usuario ya no está en el
+    // server) — getModerationBlockReason no bloquea en ese caso, mismo criterio que
+    // /unwarn: seguir pudiendo corregir advertencias de alguien que ya se fue.
+    // MOTIVO: auditoría Fase 2B, sección 1C.
+    const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+    const blockReason = getModerationBlockReason(interaction, member);
+    if (blockReason) {
+      await interaction.editReply({ content: blockReason });
       return;
     }
 
-    await interaction.reply({ content: `✅ Se corrigió el motivo de la advertencia #${numero} de ${targetUser}.` });
+    const updated = await updateWarnReasonAt(interaction.guildId, targetUser.id, numero, nuevoMotivo);
+    if (!updated) {
+      await interaction.editReply({ content: '❌ No se encontró esa advertencia.' });
+      return;
+    }
+
+    await interaction.editReply({ content: `✅ Se corrigió el motivo de la advertencia #${numero} de ${targetUser}.` });
 
     try {
       const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
@@ -57,11 +76,6 @@ export async function execute(interaction) {
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /warn-editar:', error);
-    const errorMsg = { content: describeError(error, '❌ Ocurrió un error al editar la advertencia.'), flags: MessageFlags.Ephemeral };
-    if (interaction.replied || interaction.deferred) {
-      await interaction.followUp(errorMsg);
-    } else {
-      await interaction.reply(errorMsg);
-    }
+    await interaction.editReply({ content: describeError(error, '❌ Ocurrió un error al editar la advertencia.') }).catch(() => {});
   }
 }
