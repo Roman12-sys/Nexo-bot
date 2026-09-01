@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
+import { fetchAllMembers } from '../../utils/sanctions.js';
 
 const COUNTRY_NAMES = new Set([
   'argentina', 'bolivia', 'brasil', 'chile', 'colombia', 'ecuador',
@@ -119,7 +120,12 @@ export async function execute(interaction) {
 
   await interaction.deferReply();
   try {
-    await interaction.guild.members.fetch();
+    // QUÉ CAMBIÓ: guild.members.fetch() (gateway, opcode 8) reemplazado por
+    // fetchAllMembers (REST paginado) — mismo motivo que sanctions.js: el mecanismo de
+    // gateway tiene su propio rate limit, separado del de REST, y es fácil agotarlo con
+    // uso repetido. Ver el comentario de fetchAllMembers en sanctions.js.
+    // MOTIVO: mismo bug que sanciones_punish, error real en producción, 2026-09-01.
+    await fetchAllMembers(interaction.guild);
     const embed = buildRolesEmbed(interaction.guild);
     await interaction.editReply({ embeds: [embed] });
   } catch (error) {
