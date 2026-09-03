@@ -1,6 +1,6 @@
 // Bot removido de un servidor (kick o borrado del server) — sin este handler, las
 // filas de guild_config y de cada tabla por-guild (economy, xp, warnings, giveaways,
-// pets, etc.) quedaban huérfanas para siempre: nada las borraba nunca. Auditoría
+// etc.) quedaban huérfanas para siempre: nada las borraba nunca. Auditoría
 // 2026-08-27 encontró que el bot solo tenía guildCreate.js, nunca su contraparte.
 //
 // QUÉ CAMBIÓ (Fase 2A, 2026-08-31): se agregaron 'active_punishments', 'user_missions' y
@@ -39,7 +39,6 @@ export const GUILD_SCOPED_TABLES = [
   'guild_achievements_unlocked',
   'confession_counters',
   'announcement_templates',
-  'pets',
   'command_usage',
   'guild_daily_stats',
 ];

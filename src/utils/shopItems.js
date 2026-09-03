@@ -16,9 +16,7 @@
 //                cosmético/inventario).
 // - type: casos especiales que maneja buy.js de forma distinta a un ítem normal:
 //         'mystery_box' (recompensa en monedas al azar, no se guarda en inventario),
-//         'xp_boost' (x2 XP por 24hs), 'rob_shield' (protegido de /rob por 2hs),
-//         'pet_food' (se guarda en inventario normal, pero /pet alimentar lo busca por
-//         este tipo en vez de por nombre — así funciona aunque el staff lo renombre).
+//         'xp_boost' (x2 XP por 24hs), 'rob_shield' (protegido de /rob por 2hs).
 export default [
   // --- Diversión / mecánicas activas ---
   {
@@ -47,17 +45,6 @@ export default [
     roleId: null,
     type: 'rob_shield',
     description: 'Nadie puede robarte con /rob durante 2 horas.',
-  },
-
-  // --- Mascotas ---
-  {
-    id: 'comida_mascota',
-    name: '🍖 Comida para Mascota',
-    category: 'Mascotas',
-    price: 80,
-    roleId: null,
-    type: 'pet_food',
-    description: 'Usala con /pet alimentar. Sube el hambre de tu mascota y le da experiencia.',
   },
 
   // --- Utilidad (el staff lo entrega a mano) ---
@@ -174,11 +161,11 @@ export default [
   },
   {
     id: 'amuleto_mascota',
-    name: '🐾 Amuleto de Mascota',
+    name: '🍀 Amuleto de la Suerte',
     category: 'Trofeos',
     price: 350,
     roleId: null,
-    description: 'Para dueños orgullosos de su /pet. Cosmético.',
+    description: 'Para los que confían en la suerte. Cosmético.',
   },
   {
     id: 'reliquia_nexo',

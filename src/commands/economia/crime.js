@@ -4,7 +4,6 @@
 // solo se vacía comprando en la tienda.
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, deductBalanceIfSufficient, recordTransaction, setCooldown } from '../../utils/economyStore.js';
-import { getPet, getPetBonusMultiplier } from '../../utils/petsStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 
@@ -62,13 +61,10 @@ export async function execute(interaction) {
     const exito = Math.random() < SUCCESS_CHANCE;
 
     if (exito) {
-      const pet = await getPet(guildId, userId);
-      const petBonus = getPetBonusMultiplier(pet);
-      const baseReward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
-      const reward = Math.floor(baseReward * petBonus);
+      const reward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
       const flavorText = SUCCESS_TEXTS[Math.floor(Math.random() * SUCCESS_TEXTS.length)];
       const newBalance = await addBalance(guildId, userId, reward, { type: 'crime_win', reason: flavorText });
-      return { onCooldown: false, exito: true, amount: reward, flavorText, newBalance, petBonusActive: petBonus > 1 };
+      return { onCooldown: false, exito: true, amount: reward, flavorText, newBalance };
     }
 
     const fine = Math.floor(Math.random() * (MAX_FINE - MIN_FINE + 1)) + MIN_FINE;
@@ -97,7 +93,7 @@ export async function execute(interaction) {
     .setTitle(result.exito ? '🕵️ Golpe exitoso' : '🚨 Te agarraron')
     .setDescription(
       result.exito
-        ? `${result.flavorText}\n\nGanaste **${result.amount.toLocaleString('es-ES')}** monedas.${result.petBonusActive ? ' (🐾 +10% por tu mascota)' : ''}\nBalance: **${result.newBalance.toLocaleString('es-ES')}**.`
+        ? `${result.flavorText}\n\nGanaste **${result.amount.toLocaleString('es-ES')}** monedas.\nBalance: **${result.newBalance.toLocaleString('es-ES')}**.`
         : `${result.flavorText}${result.amount > 0 ? `\n\nPerdiste **${result.amount.toLocaleString('es-ES')}** monedas de multa.` : '\n\nPor suerte no tenías nada que perder.'}\nBalance: **${result.newBalance.toLocaleString('es-ES')}**.`,
     )
     .setFooter({ text: `${BRAND_NAME} • ${Math.round(SUCCESS_CHANCE * 100)}% de éxito` })

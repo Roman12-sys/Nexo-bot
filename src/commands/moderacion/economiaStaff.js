@@ -35,7 +35,6 @@ const TYPE_LABELS = {
   crime_fine: '🚨 Multa por crimen',
   weekly: '🎁 Semanal',
   sell: '💱 Venta de ítem',
-  pet_battle_win: '⚔️ Pelea de mascotas',
 };
 
 // Se llama SIEMPRE después de que el ajuste de balance ya se aplicó y ya se le confirmó

@@ -84,7 +84,6 @@ export function buildEconomiaEmbed() {
       { name: '/leaderboard', value: 'Top de monedas del servidor, paginado.' },
       { name: '/bank ver/depositar/retirar', value: 'Guardá monedas en el banco — a salvo de /rob, y rinde interés.' },
       { name: '/rob <usuario>', value: 'Intentá robarle monedas del wallet a otro usuario. 40% de éxito, con riesgo de multa.' },
-      { name: '/pet adoptar/ver/alimentar/jugar/pelear/renombrar/ayuda', value: 'Adoptá una mascota — bien cuidada da bonus a /work y /crime, y podés pelearla contra la de otro usuario. `/pet ayuda` explica todo el sistema en detalle.' },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();

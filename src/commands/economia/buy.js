@@ -160,9 +160,7 @@ export async function execute(interaction) {
       return;
     }
 
-    // --- Ítems normales: se guardan en el inventario (esto incluye comida de mascota,
-    // type:'pet_food' — /pet alimentar la busca en el inventario por tipo, no hace
-    // falta un caso especial acá) ---
+    // --- Ítems normales: se guardan en el inventario ---
     await incrementInventoryItem(guildId, userId, item.id, 1);
 
     // Si tiene un rol asociado, se lo damos automáticamente

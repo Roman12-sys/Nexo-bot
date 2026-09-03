@@ -9,7 +9,7 @@ import { createSupabaseMock } from './helpers/supabaseMock.js';
 const supabaseMock = createSupabaseMock();
 vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMock; } }));
 
-const { unlockAchievement } = await import('../src/utils/achievements.js');
+const { unlockAchievement, ACHIEVEMENTS } = await import('../src/utils/achievements.js');
 const { eventBus } = await import('../src/utils/eventBus.js');
 
 beforeEach(() => {
@@ -73,5 +73,16 @@ describe('ACHIEVEMENT_CHECK — handler consolidado', () => {
     await expect(
       eventBus.emit('ACHIEVEMENT_CHECK', { guildId: 'g1', userId: 'u4', achievementId: 'primera_moneda' }),
     ).resolves.toBeUndefined();
+  });
+});
+
+// Fase 3B (eliminación de Pets, 2026-09-01) — guarda de contenido, no de comportamiento:
+// si alguien reintroduce estos IDs sin querer (ej. copiando una entrada vieja de otro
+// branch), esto lo detecta acá en vez de en producción.
+describe('catálogo — sin entradas de Pets', () => {
+  it('ACHIEVEMENTS ya no tiene primera_mascota ni primera_pelea', () => {
+    const ids = ACHIEVEMENTS.map((a) => a.id);
+    expect(ids).not.toContain('primera_mascota');
+    expect(ids).not.toContain('primera_pelea');
   });
 });

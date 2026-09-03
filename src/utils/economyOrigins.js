@@ -10,8 +10,7 @@
 // `origin`, que las dos rutas comparten:
 //
 //  - 'activity' → el usuario hizo algo (mensaje, voz, /daily, /work, /crime, /trivia,
-//    /guess, vender un ítem, pelea de mascota). Cuenta para misiones Y para
-//    money_created/xp_distributed.
+//    /guess, vender un ítem). Cuenta para misiones Y para money_created/xp_distributed.
 //  - 'reward'   → recompensa de un sistema de progresión (pagar una misión). Es plata
 //    nueva de verdad (cuenta para money_created), pero NO cuenta para el progreso de
 //    OTRA misión — si contara, pagar una misión podría hacer avanzar otra en cadena
@@ -34,7 +33,6 @@ const ECONOMY_ORIGIN_BY_TYPE = {
   crime_win: 'activity',
   guess: 'activity',
   trivia: 'activity',
-  pet_battle_win: 'activity',
   sell: 'activity',
   mission: 'reward',
   gamble_win: 'stake',

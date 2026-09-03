@@ -62,7 +62,7 @@ describe('guildDelete', () => {
     await expect(execute(makeGuild('guild-1'))).resolves.not.toThrow();
 
     // A pesar del fallo en "economy", el resto de las tablas se intentaron igual.
-    expect(supabaseMock.from).toHaveBeenCalledWith('pets');
+    expect(supabaseMock.from).toHaveBeenCalledWith('announcement_templates');
     expect(supabaseMock.from).toHaveBeenCalledWith('command_usage');
     expect(supabaseMock.from).toHaveBeenCalledWith('guild_daily_stats');
     // El cache igual se invalida — un fallo parcial de borrado no debe dejar la config

@@ -187,7 +187,7 @@ create table if not exists economy_transactions (
   -- Sin CHECK a propósito: esta lista crece con cada feature nueva de economía y un
   -- CHECK desincronizado (como este comentario, que ya estuvo desactualizado una vez)
   -- rompería inserts legítimos en producción de forma silenciosa hasta notarlo.
-  type text not null, -- 'daily' | 'work' | 'weekly' | 'crime_win' | 'crime_fine' | 'trivia' | 'guess' | 'purchase' | 'sell' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set' | 'admin_set_level' | 'gamble_bet' | 'gamble_win' | 'bank_deposit' | 'bank_withdraw' | 'bank_interest' | 'rob_win' | 'rob_loss' | 'rob_fine' | 'pet_battle_win' | 'mystery_box' | 'mission'
+  type text not null, -- 'daily' | 'work' | 'weekly' | 'crime_win' | 'crime_fine' | 'trivia' | 'guess' | 'purchase' | 'sell' | 'transfer_in' | 'transfer_out' | 'admin_add' | 'admin_remove' | 'admin_set' | 'admin_set_level' | 'gamble_bet' | 'gamble_win' | 'bank_deposit' | 'bank_withdraw' | 'bank_interest' | 'rob_win' | 'rob_loss' | 'rob_fine' | 'mystery_box' | 'mission'
   amount bigint not null,
   balance_after bigint not null,
   actor_id text,
@@ -421,28 +421,6 @@ create table if not exists announcement_templates (
 );
 
 -- =========================================================
--- Mascotas (/pet) — una por usuario. Hambre/felicidad decaen en JS (lazy, sin cron),
--- cada una desde su propio last_fed/last_played — ver src/utils/petsStore.js.
--- =========================================================
-create table if not exists pets (
-  guild_id text not null,
-  user_id text not null,
-  species text not null,
-  name text not null,
-  level integer not null default 0 check (level >= 0),
-  xp bigint not null default 0 check (xp >= 0),
-  hunger integer not null default 100 check (hunger between 0 and 100), -- petsStore.js ya clampea cada write (Math.max(0,...)/Math.min(100,...)) — mismo criterio que balance/bank arriba: el CHECK es la red de seguridad de tabla
-  happiness integer not null default 100 check (happiness between 0 and 100),
-  last_fed bigint not null default 0,
-  last_played bigint not null default 0,
-  last_battle bigint not null default 0,
-  wins integer not null default 0 check (wins >= 0),
-  losses integer not null default 0 check (losses >= 0),
-  created_at timestamptz not null default now(),
-  primary key (guild_id, user_id)
-);
-
--- =========================================================
 -- Métricas de uso agregadas (/metricas) — un contador por comando y servidor,
 -- nunca eventos individuales: solo importa el total y la última vez usado.
 -- =========================================================
@@ -574,11 +552,12 @@ $$;
 
 -- QUÉ CAMBIÓ (Fase 1, auditoría de seguridad/economía, 2026-08-30): agrega un piso
 -- atómico en Postgres, igual criterio que greatest(0, ...) en increment_balance/
--- increment_xp — antes, dos consumos concurrentes del MISMO ítem (ej. /vender y /pet
--- alimentar sobre el mismo item_id, que usan locks de JS con keys distintas — "vender:"
--- vs "pet:" — y por lo tanto NUNCA se excluyen entre sí) podían leer la misma cantidad
--- vieja y dejar el inventario en negativo. "select ... for update" bloquea la fila hasta
--- que la primera transacción termina; la segunda, al reanudar, relee la cantidad YA
+-- increment_xp — antes, dos consumos concurrentes del MISMO ítem (ej. /vender y /buy
+-- revirtiendo una compra fallida sobre el mismo item_id, que usan locks de JS con keys
+-- distintas — "vender:" vs "buy:" — y por lo tanto NUNCA se excluyen entre sí) podían
+-- leer la misma cantidad vieja y dejar el inventario en negativo. "select ... for
+-- update" bloquea la fila hasta que la primera transacción termina; la segunda, al
+-- reanudar, relee la cantidad YA
 -- actualizada y recién ahí calcula si su propio delta la manda por debajo de 0.
 -- MOTIVO: el guard vivía solo en JS (el lock de asyncLock.js), que no cubre dos features
 -- distintas tocando el mismo ítem a la vez.

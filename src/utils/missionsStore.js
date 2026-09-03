@@ -12,8 +12,7 @@
 //    se completa (ver increment_mission_progress en schema.sql), igual que un logro se
 //    desbloquea solo al cumplir la condición. Un paso de "reclamar" manual sería el
 //    único lugar de todo el bot que pide una acción extra después de cumplir un
-//    objetivo — inconsistente con logros, subida de nivel y etapas de mascota, que
-//    nunca lo piden.
+//    objetivo — inconsistente con logros y subida de nivel, que nunca lo piden.
 // 3. Sin misiones "seasonal": la auditoría (Parte 16) recomendó explícitamente NO
 //    construir temporadas todavía — meter el campo acá sin nada real detrás sería
 //    scope creep contra esa misma recomendación.

@@ -11,7 +11,6 @@ import { COOLDOWN_MS as WORK_COOLDOWN_MS } from '../economia/work.js';
 import { getUnlockedAchievementIds, buildLogrosEmbed, ACHIEVEMENTS } from '../../utils/achievements.js';
 import { getUnlockedGuildAchievementIds, buildGuildLogrosEmbed } from '../../utils/guildAchievements.js';
 import { getUserMissions } from '../../utils/missionsStore.js';
-import { getPet, getPetStage, SPECIES } from '../../utils/petsStore.js';
 import { BRAND_COLOR, BRAND_NAME, buildProgressBar, progressPercent } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
@@ -33,16 +32,6 @@ function buildMissionsSummary(missions) {
   return `Diarias: ${dailyDone}/${daily.length} · Semanales: ${weeklyDone}/${weekly.length}`;
 }
 
-// `pet` es null tanto si nunca adoptó una mascota como si getPet falló — en los dos
-// casos el mensaje "todavía no tenés una" es razonable (no distinguimos error de "no
-// tiene", igual que el resto de /perfil trata un registro vacío como estado inicial).
-function buildPetSummary(pet) {
-  if (!pet) return 'Sin mascota — `/pet adoptar`';
-  const stage = getPetStage(pet.level);
-  const species = SPECIES[pet.species];
-  return `${species?.emoji ?? '🐾'} ${pet.name} · ${stage.label} (nv. ${pet.level})`;
-}
-
 // Vista principal: solo lo esencial de un vistazo. El detalle (trivia %, cuenta creada,
 // etc.) queda atrás del botón "📊 Estadísticas" para no convertir esto en una pared de texto.
 async function buildPerfilEmbed(guild, targetUser, member) {
@@ -50,14 +39,13 @@ async function buildPerfilEmbed(guild, targetUser, member) {
   // QUÉ CAMBIÓ: se sacó getUserReputation del Promise.all (7 lecturas en vez de 8).
   // MOTIVO: auditoría 2026-08-29 (Diagnóstico Nexo, Parte 11) — reputación eliminada.
   //
-  // QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): se suman misiones y mascota —
-  // eran, junto con XP/economía/logros, la progresión real del usuario, y ninguna de
-  // las dos aparecía acá desde que existen (misiones: Fase 3; mascota: preexistente).
-  // Las 8 lecturas de siempre se dejan EXACTAMENTE como estaban (si una falla, /perfil
-  // sigue rompiendo entero, mismo comportamiento que antes) — las 2 nuevas se agregan
-  // con `.catch(() => null)` propio: son datos "extra" para esta vista puntual, no vale
-  // la pena que un problema de misiones tire abajo todo el perfil.
-  const [xp, rank, economy, trivia, triviaStatus, warns, wins, achievements, missions, pet] = await Promise.all([
+  // QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): se suma misiones — junto con
+  // XP/economía/logros, es la progresión real del usuario, y no aparecía acá desde que
+  // existe (Fase 3). Las 8 lecturas de siempre se dejan EXACTAMENTE como estaban (si una
+  // falla, /perfil sigue rompiendo entero, mismo comportamiento que antes) — la nueva se
+  // agrega con `.catch(() => null)` propio: es un dato "extra" para esta vista puntual,
+  // no vale la pena que un problema de misiones tire abajo todo el perfil.
+  const [xp, rank, economy, trivia, triviaStatus, warns, wins, achievements, missions] = await Promise.all([
     getUserXp(guildId, targetUser.id),
     getRank(guildId, targetUser.id),
     getUserEconomy(guildId, targetUser.id),
@@ -67,7 +55,6 @@ async function buildPerfilEmbed(guild, targetUser, member) {
     getUserWinCount(guildId, targetUser.id),
     getUnlockedAchievementIds(guildId, targetUser.id),
     getUserMissions(guildId, targetUser.id).catch(() => null),
-    getPet(guildId, targetUser.id).catch(() => null),
   ]);
   const progress = getLevelProgress(xp.xp);
 
@@ -100,7 +87,6 @@ async function buildPerfilEmbed(guild, targetUser, member) {
       { name: '🧠 Trivia', value: `${trivia.points} puntos`, inline: true },
       { name: '🏅 Logros', value: `${achievements.size}/${ACHIEVEMENTS.length}`, inline: true },
       { name: '🗓️ Misiones', value: buildMissionsSummary(missions), inline: true },
-      { name: '🐾 Mascota', value: buildPetSummary(pet), inline: true },
       {
         name: '⏳ Al día',
         value: [

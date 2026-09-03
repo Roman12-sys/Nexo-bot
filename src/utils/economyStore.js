@@ -91,7 +91,7 @@ export async function saveUserEconomy(guildId, userId, data) {
 // QUÉ CAMBIÓ: emite COINS_EARNED cuando amount > 0, sin bloquear en el resultado (ver
 // nota de Fase A más abajo), y con `origin`/`netAmount` en el payload.
 // MOTIVO: auditoría 2026-08-29 (Fase 3, misiones) — en vez de agregar el emit a cada
-// comando que da monedas (daily/work/crime/casino/pet/trivia/guess...), se centraliza
+// comando que da monedas (daily/work/crime/casino/trivia/guess...), se centraliza
 // acá, el único primitivo por el que pasan todas esas ganancias. amount<=0 (o meta de
 // tipo admin_remove) nunca emite — evita que un ajuste de staff hacia abajo, o clampear
 // a 0, cuenten como "ganaste monedas" para una misión.
@@ -342,8 +342,8 @@ export async function deductBalanceIfSufficient(guildId, userId, amount) {
 // además rechaza (insufficient_inventory) si el delta dejaría la cantidad en negativo —
 // piso atómico en Postgres, no solo el lock de JS que ya tenía cada comando (ver
 // comentario de la función en schema.sql: dos FEATURES distintas consumiendo el mismo
-// ítem a la vez, ej. /vender y /pet alimentar, usan locks con keys distintas y nunca se
-// excluyen entre sí).
+// ítem a la vez, ej. /vender y /buy revirtiendo una compra fallida, usan locks con keys
+// distintas y nunca se excluyen entre sí).
 export async function incrementInventoryItem(guildId, userId, itemId, qty) {
   const { data: newInventory, error } = await supabase.rpc('increment_inventory_item', {
     p_guild_id: guildId,

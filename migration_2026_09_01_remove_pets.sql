@@ -1,0 +1,29 @@
+-- Migración: Fase 3B (eliminación de Pets, 2026-09-01)
+-- Correr ENTERO en el SQL Editor del proyecto Supabase REAL (gmcqbvrqqpmcqjrbtauk,
+-- NO el viejo de gNoX wglbcbwgrtadcnavtpxg). Verificar después contra la API/tabla real
+-- (confirmar que "pets" ya no existe), no confiar solo en el "Success" del editor.
+--
+-- NO EJECUTAR TODAVÍA. Esta migración solo puede correr DESPUÉS de que el código de
+-- Fase 3B (que deja de usar la tabla "pets" por completo) esté desplegado y confirmado
+-- estable en producción — nunca antes. Correrla antes que el código rompería cualquier
+-- proceso que siguiera sirviendo la versión vieja del bot (leería/escribiría en una
+-- tabla que ya no existe).
+--
+-- Verificado antes de escribir esta migración (ver CLAUDE.md, "Fase 3B — eliminación de
+-- Pets"):
+--   - Sin Foreign Key entrante ni saliente sobre "pets" (grep completo de "references"
+--     en schema.sql, ninguna otra tabla la referencia).
+--   - Sin ninguna RPC de schema.sql que la use (pets siempre fue CRUD directo desde
+--     src/utils/petsStore.js, a diferencia de economía/XP que sí pasan por RPCs).
+--   - Sin ningún cron/job/loop en el código (giveawayEngine.js, reminderEngine.js,
+--     punishEngine.js, voiceXpEngine.js, logPurgeEngine.js, lolPatchEngine.js,
+--     lolPatchMonitor.js) que la consulte.
+--   - Código de Fase 3B ya no importa src/utils/petsStore.js ni src/utils/
+--     petCardImage.js en ningún archivo del repo (grep final, sección 17 del informe).
+--
+-- "drop table" (sin "cascade") ya alcanza: no hay ningún objeto dependiente (vista,
+-- FK, trigger) que requiera arrastrar. Las 6 CHECK constraints de la tabla
+-- (pets_level_nonneg, pets_xp_nonneg, pets_hunger_range, pets_happiness_range,
+-- pets_wins_nonneg, pets_losses_nonneg — agregadas en migration_2026_08_31_fase2a.sql)
+-- se van solas con la tabla, no hace falta un DROP CONSTRAINT por separado.
+drop table if exists pets;

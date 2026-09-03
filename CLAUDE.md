@@ -134,43 +134,23 @@ DISTINTA a propósito: la multa de `/crime` se destruye (no va a nadie — es el
 sumidero real de dinero que no sea comprar en la tienda, algo que la economía casi no
 tenía: `/daily`+`/work`+interés del banco crean plata de la nada sin límite, pero antes
 de esto casi nada la destruía). La multa de `/rob`, en cambio, va a la víctima (no es un
-sumidero, es una compensación). `/pet pelear` tampoco transfiere plata entre los dos
-jugadores — el premio lo pone "la casa", igual que un `/work` — a propósito, para no
-abrir la misma puerta de lavado entre alts que ya vigila `giveTracker.js` para `/give`.
+sumidero, es una compensación).
 
 `/vender` es el primer lugar donde se puede recuperar parte de lo gastado: 50% del
 precio de un ítem de vuelta, pero nunca de ítems con `roleId` (el rol ya se entregó,
 "devolverlo" sería cobrar dos veces por el mismo rol si se recompra después).
 
-## Mascotas (`/pet`)
-
-Una mascota por usuario, a propósito — no hay cría/breeding entre mascotas de dos
-usuarios. Se evaluó y se descartó: hubiera significado rehacer `getPet`, el cálculo del
-bonus y medio comando `/pet`, que asumen una sola mascota en todos lados. En cambio, la
-misma mascota "crece" con el cuidado: evoluciona de etapa (Cría → Adulto → Veterano →
-Legendario) según el nivel, y el bonus a `/work`/`/crime` escala con la etapa (`getPetStage`
-en `src/utils/petsStore.js`).
-
-Hambre y felicidad decaen solas con el tiempo, calculado lazy (sin cron) — pero cada una
-decae desde SU PROPIO último toque (`last_fed` para hambre, `last_played` para
-felicidad), nunca un reloj único compartido entre las dos. Es el mismo tipo de bug que
-el del interés del banco (arriba), evitado desde el diseño en vez de parcheado después.
-
-Descuidar la mascota nunca la "mata" ni le borra progreso — solo le saca el bonus hasta
-que se la cuide de nuevo. Decisión deliberada para que el sistema no sea punitivo/de
-culpa (a diferencia de un Tamagotchi clásico).
-
 ## Gotchas ya pisados (además del de las columnas de cooldown, arriba)
 
-**Emoji dentro de un canvas.** `@napi-rs/canvas` (usado en `welcomeImage.js`,
-`rankCardImage.js`, `petCardImage.js`) no tiene ninguna fuente de emoji de color
-disponible en el contenedor de Railway — cualquier emoji dibujado con `ctx.fillText()`
-se ve como un cuadrado vacío, sin ningún error que lo avise. Pasó dos veces en la misma
-sesión (una vez arreglado en `rankCardImage.js`, después repetido sin querer en
-`petCardImage.js` recién escrito). Nunca poner un emoji en texto de canvas — usar texto
-+ color, o formas dibujadas a mano (`ctx.arc`/`ctx.ellipse`, ver la huella de
-`petCardImage.js`). Y no alcanza con que la función no tire error: hay que generar la
-imagen de verdad, guardarla y mirarla antes de darla por buena.
+**Emoji dentro de un canvas.** `@napi-rs/canvas` (usado en `welcomeImage.js` y
+`rankCardImage.js`) no tiene ninguna fuente de emoji de color disponible en el
+contenedor de Railway — cualquier emoji dibujado con `ctx.fillText()` se ve como un
+cuadrado vacío, sin ningún error que lo avise. Pasó dos veces en la misma sesión (una
+vez arreglado en `rankCardImage.js`, después repetido sin querer en la tarjeta de
+mascota que existió hasta la Fase 3B). Nunca poner un emoji en texto de canvas — usar
+texto + color, o formas dibujadas a mano (`ctx.arc`/`ctx.ellipse`). Y no alcanza con que
+la función no tire error: hay que generar la imagen de verdad, guardarla y mirarla antes
+de darla por buena.
 
 **Nunca levantar el bot local.** `DISCORD_TOKEN` es el MISMO en local y en Railway — no
 existe un bot de desarrollo separado (`GUILD_ID_DEV` solo acota dónde se registran
@@ -450,7 +430,7 @@ significan "se acreditó un monto positivo". Este archivo es el único lugar que
 `missionsStore.js`/`guildDailyStatsStore.js` consumen para decidir qué cuenta:
 
 - **`activity`** — el usuario hizo algo (`daily`/`work`/`crime_win`/`trivia`/`guess`/
-  `pet_battle_win`/`sell`, mensaje o voz). Cuenta para todo.
+  `sell`, mensaje o voz). Cuenta para todo.
 - **`reward`** — recompensa de una misión ya pagada (`type: 'mission'`). Cuenta para
   `money_created` (es plata nueva real) pero NUNCA para el progreso de OTRA misión — si
   contara, pagar una misión completaría otra en cadena (`COINS_EARNED → misión →
@@ -764,15 +744,17 @@ cálculo interno de `proxy-addr`.
 
 **`increment_inventory_item` — guard atómico, no solo lock de JS.** Dos consumos
 concurrentes del mismo ítem por FEATURES distintas (ej. `/vender`, lock
-`vender:{guild}:{user}`, y `/pet alimentar`, lock `pet:{guild}:{user}` — namespaces
-DISTINTOS, nunca se excluyen entre sí) podían dejar una cantidad en negativo. La RPC
-ahora hace `select ... for update` (bloquea la fila) y `raise exception
-'insufficient_inventory'` si el resultado daría negativo, antes de escribir. El wrapper
-de JS (`incrementInventoryItem`) mapea eso a `.code === 'insufficient_inventory'`.
-Callers que reciben delta negativo (`/vender`, `/pet alimentar`) lo atrapan con un
-mensaje de negocio claro ("ya no tenés ese ítem, puede que se haya usado justo ahora");
-cualquier otro error se re-lanza tal cual. `/buy` NO necesita este manejo — su delta es
-siempre `+1`, matemáticamente no puede disparar `insufficient_inventory`.
+`vender:{guild}:{user}`, y `/buy` revirtiendo una compra fallida, lock
+`buy:{guild}:{user}` — namespaces DISTINTOS, nunca se excluyen entre sí) podían dejar
+una cantidad en negativo. La RPC ahora hace `select ... for update` (bloquea la fila) y
+`raise exception 'insufficient_inventory'` si el resultado daría negativo, antes de
+escribir. El wrapper de JS (`incrementInventoryItem`) mapea eso a
+`.code === 'insufficient_inventory'`. `/vender` lo atrapa con un mensaje de negocio
+claro ("ya no tenés ese ítem, puede que se haya usado justo ahora"); cualquier otro
+error se re-lanza tal cual. `/buy` en su compra normal NO necesita este manejo — su
+delta ahí es siempre `+1`, matemáticamente no puede disparar `insufficient_inventory`
+(su propio delta `-1` de reversión, agregado después en Fase 2B, sí puede, y lo trata
+como best-effort con solo un log — ver `buy.js`).
 
 **`economy_transactions.delivered` — schema drift cerrado.** El código
 (`getGuildPurchasesByReason`/`markPurchaseDelivered`, `/economia-staff pendientes`) ya
@@ -1187,6 +1169,65 @@ a propósito, no un framework):
 - En un hot path real (`messageCreate` y similares), un atajo en memoria contra una
   consulta cara solo se justifica si, en el peor caso, puede rechazar de más — nunca
   aceptar/otorgar de más.
+
+## Fase 3B — eliminación de Pets (2026-09-01)
+
+Decisión de producto (no un bug ni una auditoría): Pets no forma parte del NEXO
+comercial. Fase 3A (mapa de dependencias) ya había confirmado que el sistema estaba
+bien aislado — 3 archivos exclusivos (`src/commands/economia/pet.js`,
+`src/utils/petsStore.js`, `src/utils/petCardImage.js`, ninguno con botón/select/modal
+registrado, cero dependencia npm propia, cero variable de entorno, cero ruta de
+dashboard) más 7 puntos de fuga hacia sistemas genéricos (bonus en `/work`/`/crime`,
+2 entradas de `achievements.js`, 1 de `economyOrigins.js`, 1-2 de `shopItems.js`, 1
+campo de `/perfil`, 1 línea de `/help`, 1 entrada de `GUILD_SCOPED_TABLES`). Fase 3B
+ejecutó esa lista completa.
+
+**Verificación de datos ANTES de tocar código** (lectura pura contra Supabase de
+producción, sin modificar nada): `economy.inventory` tenía una sola fila con la clave
+`comida_mascota` en **0 unidades** (nadie perdía nada real al sacar el ítem del
+catálogo) y cero filas con `amuleto_mascota`. La tabla `pets` tenía una sola fila y
+`achievements_unlocked` una sola fila de `primera_mascota` — las tres coincidiendo con
+el mismo `guild_id` (el de `GUILD_ID_DEV`, el server de pruebas), consistente con que
+Pets nunca tuvo adopción real fuera de desarrollo. Cero usuarios reales afectados.
+
+**`amuleto_mascota` — retexturizado, no eliminado.** Investigado antes de decidir por
+nombre: no tenía ningún `type` especial ni lógica propia en `buy.js`/`vender.js` (a
+diferencia de `comida_mascota`, que si dependía de `/pet alimentar` buscándolo por
+`type: 'pet_food'` — ese sí se eliminó, quedaba funcionalmente muerto). El único vínculo
+de `amuleto_mascota` con Pets era el texto de nombre/descripción. Con cero inventarios
+reales que lo tuvieran (verificado arriba), no había ninguna razón de compatibilidad
+para conservar el texto — pero tampoco alguna para borrar un coleccionable cosmético
+más del catálogo de ejemplo. Se mantuvo el `id` interno (nunca visible, es la clave de
+inventario) y se retexturizó a "🍀 Amuleto de la Suerte" / "Para los que confían en la
+suerte." — mismo precio, misma categoría "Trofeos".
+
+**`/pet` — cómo desaparece realmente de Discord.** `src/deploy-commands.js` hace un
+`PUT` (bulk overwrite, `Routes.applicationCommands`/`applicationGuildCommands`) con la
+lista completa de comandos descubiertos en `src/commands/**` — no hay `create`/`delete`
+individual por comando. Borrar `pet.js` hace que `/pet` deje de estar en esa lista, pero
+Discord solo se entera cuando alguien corre ese script a mano (nunca automático: ni el
+boot del bot —que solo llena `client.commands` en memoria, nunca toca la API de
+Discord— ni el deploy de Railway lo disparan). Hasta que eso pase, `/pet` sigue visible
+y invocable en Discord; `interactionCreate.js:53` (`if (!command) return;`) responde con
+un no-op silencioso — Discord le muestra "La interacción falló" a quien lo intente,
+sin que el bot tire ningún error ni loguee nada. Ventana de UX aceptada, no un bug: el
+mismo mecanismo ya existente para cualquier comando viejo que se borra sin redeploy
+inmediato de comandos.
+
+**`achievements_unlocked` con `primera_mascota`/`primera_pelea` — huérfanas, inertes a
+propósito.** El catálogo (`ACHIEVEMENTS` en `achievements.js`) es la única fuente de
+verdad de qué logros existen; la tabla solo guarda IDs desbloqueados, sin FK hacia el
+catálogo. Sacar las 2 entradas del array no rompe `getUnlockedAchievementIds` (sigue
+devolviendo lo que haya en la tabla) ni `/perfil` (solo muestra
+`achievements.size/ACHIEVEMENTS.length`, un conteo). Esas filas quedan como historial
+inerte — no se tocan en esta fase.
+
+**Migración `migration_2026_09_01_remove_pets.sql` preparada, NO ejecutada.** Mismo
+criterio que toda migración de este proyecto: primero el código deja de usar la tabla,
+se despliega y se confirma estable en producción, y RECIÉN AHÍ se corre el `drop table`
+— nunca al revés. `schema.sql` (estado actual deseado) ya no declara `pets` ni sus 6
+CHECK constraints; las migraciones históricas (`migration_2026_08_31_fase2a.sql`, que
+las agregó) no se reescriben — son historial, no el estado deseado.
 
 ## Stack
 
