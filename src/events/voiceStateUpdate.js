@@ -2,7 +2,6 @@ import { Events } from 'discord.js';
 import { createVoiceLogEmbed } from '../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { handleTempVoiceStateUpdate } from '../utils/tempVoiceEngine.js';
-import { handleMusicVoiceStateUpdate } from '../utils/musicVoiceState.js';
 
 export const name = Events.VoiceStateUpdate;
 export const once = false;
@@ -13,13 +12,6 @@ export async function execute(oldState, newState, client) {
   // logging, no debe bloquear este sistema.
   await handleTempVoiceStateUpdate(oldState, newState).catch((error) => {
     console.error('❌ Error en el sistema de canales de voz temporales:', error);
-  });
-
-  // Sistema de música: detecta si el canal donde está tocando el bot se quedó sin
-  // humanos, para desconectarse solo (ver musicVoiceState.js). Independiente del resto
-  // de este handler, igual que el sistema de salas temporales de arriba.
-  await handleMusicVoiceStateUpdate(oldState, newState).catch((error) => {
-    console.error('❌ Error en el sistema de música (voiceStateUpdate):', error);
   });
 
   try {

@@ -1,0 +1,28 @@
+-- Migración: Fase 3C (eliminación de Music/Spotify, 2026-09-03)
+-- Correr ENTERO en el SQL Editor del proyecto Supabase REAL (gmcqbvrqqpmcqjrbtauk,
+-- NO el viejo de gNoX wglbcbwgrtadcnavtpxg). Verificar después contra la API/tabla real
+-- (confirmar que "spotify_auth" ya no existe), no confiar solo en el "Success" del editor.
+--
+-- NO EJECUTAR TODAVÍA. Esta migración solo puede correr DESPUÉS de que el código de
+-- Fase 3C (que deja de usar la tabla "spotify_auth" por completo) esté desplegado y
+-- confirmado estable en producción — nunca antes. Correrla antes que el código rompería
+-- cualquier proceso que siguiera sirviendo la versión vieja del bot/dashboard (leería/
+-- escribiría en una tabla que ya no existe) — mismo orden que ya se siguió en
+-- migration_2026_09_01_remove_pets.sql.
+--
+-- Verificado antes de escribir esta migración (ver informe de Fase 3C):
+--   - Sin Foreign Key entrante ni saliente sobre "spotify_auth" (grep completo de
+--     "references" en schema.sql, ninguna otra tabla la referencia).
+--   - Sin ninguna RPC de schema.sql que la use (spotify_auth siempre fue CRUD directo
+--     desde src/utils/spotifyAuthStore.js, mismo patrón que pets/lol_patch_state).
+--   - Sin ningún cron/job/loop en el código (giveawayEngine.js, reminderEngine.js,
+--     punishEngine.js, voiceXpEngine.js, logPurgeEngine.js, lolPatchEngine.js,
+--     lolPatchMonitor.js) que la consulte.
+--   - src/events/guildDelete.js nunca la incluyó en GUILD_SCOPED_TABLES (fila única a
+--     nivel bot, sin guild_id) — no hace falta tocar ese archivo.
+--   - Código de Fase 3C ya no importa src/utils/spotifyAuthStore.js ni
+--     src/utils/spotifyResolver.js en ningún archivo del repo (grep final del informe).
+--
+-- "drop table" (sin "cascade") ya alcanza: no hay ningún objeto dependiente (vista, FK,
+-- trigger) que requiera arrastrar, y la tabla no tiene CHECK constraints propias.
+drop table if exists spotify_auth;

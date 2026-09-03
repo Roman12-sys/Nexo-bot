@@ -6,7 +6,6 @@ import { isStaff } from '../../utils/permissions.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
 import { getAllTempChannels } from '../../utils/tempVoiceStore.js';
-import { getSession } from '../../utils/musicSessionStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
@@ -29,7 +28,6 @@ export async function execute(interaction) {
   ]);
 
   const onlineSinceTimestamp = Math.floor((Date.now() - interaction.client.uptime) / 1000);
-  const musicSession = getSession(interaction.guildId);
 
   // QUÉ CAMBIÓ: antes "Supabase" era binario (OK/Sin conexión) y la latencia del gateway
   // mostraba el número crudo de discord.js sin traducir su caso especial — client.ws.ping
@@ -58,7 +56,6 @@ export async function execute(interaction) {
       { name: '⏱️ En línea desde', value: `<t:${onlineSinceTimestamp}:R>`, inline: true },
       { name: '🎉 Sorteos activos (este server)', value: `${activeGiveaways.length}`, inline: true },
       { name: '🔊 Salas de voz temporales activas', value: `${tempRooms.length}`, inline: true },
-      { name: '🎵 Música', value: musicSession ? `Sí (${musicSession.queue.length} en cola)` : 'Inactiva', inline: true },
     )
     .setFooter({ text: `${BRAND_NAME} • Usá /metricas para ver los comandos más usados` })
     .setTimestamp();

@@ -24,10 +24,10 @@ const MIN_HUMANS_IN_CHANNEL = 2;
 //     se unió a ESE canal puntual (@discordjs/voice, VoiceReceiver/AudioReceiveStream).
 //   - Unirse a TODOS los canales de voz de un servidor a la vez para escuchar "quién
 //     habla" no es viable: un bot solo puede tener una conexión de voz activa por
-//     servidor (la que ya usa el sistema de música cuando está reproduciendo), no una
-//     por canal — y hacerlo solo para medir actividad sería invasivo (procesar audio de
-//     canales donde nadie pidió que el bot esté) y carísimo en recursos para algo que
-//     hoy es un barrido cada 5 minutos sobre potencialmente muchos servidores.
+//     servidor, no una por canal — y hacerlo solo para medir actividad sería invasivo
+//     (procesar audio de canales donde nadie pidió que el bot esté) y carísimo en
+//     recursos para algo que hoy es un barrido cada 5 minutos sobre potencialmente
+//     muchos servidores.
 //   - selfMute (a diferencia de selfDeaf) se evaluó y se descartó como filtro extra:
 //     mutear el propio micrófono no implica estar inactivo (alguien mirando una
 //     pantalla compartida, escuchando sin querer interrumpir, etc.) — a diferencia de

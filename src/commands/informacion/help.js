@@ -22,9 +22,9 @@ export function buildMainMenuEmbed() {
     .setTimestamp();
 }
 
-// Devuelve un ARRAY de filas (no una sola) — con 6 categorías ya no entran los botones
-// en una sola ActionRow (máximo 5 de Discord). Los call sites spreadean esto directo en
-// `components`, nunca lo envuelven en un array extra.
+// Devuelve un ARRAY de filas (no una sola) — los call sites spreadean esto directo en
+// `components`, nunca lo envuelven en un array extra. Con 5 categorías entran todas en
+// una sola ActionRow (máximo 5 de Discord).
 export function buildMainMenuRow() {
   return [
     new ActionRowBuilder().addComponents(
@@ -33,9 +33,6 @@ export function buildMainMenuRow() {
       new ButtonBuilder().setCustomId('help_cat_casino').setLabel('🎰 Casino').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('help_cat_diversion').setLabel('🎲 Diversión').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('help_cat_accion').setLabel('🎭 Acción').setStyle(ButtonStyle.Secondary),
-    ),
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('help_cat_musica').setLabel('🎵 Música').setStyle(ButtonStyle.Secondary),
     ),
   ];
 }
@@ -124,28 +121,6 @@ export function buildAccionEmbed() {
     .setTimestamp();
 }
 
-export function buildMusicaEmbed() {
-  return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
-    .setTitle('🎵 Música')
-    .setDescription('`/play` acepta nombre de canción, URL de YouTube, o un link de Spotify (canción, playlist o álbum).')
-    .addFields(
-      { name: '/play <cancion>', value: 'Reproduce algo y se une a tu canal de voz. La respuesta es un panel con botones para controlar todo.' },
-      { name: '/stop', value: 'Detiene la reproducción, vacía la cola y desconecta al bot.' },
-      { name: '/queue', value: 'Muestra la cola de reproducción, paginada.' },
-      { name: '/nowplaying', value: 'Qué se está reproduciendo ahora mismo.' },
-      { name: '/volume <nivel>', value: 'Cambia el volumen (0-200).' },
-      { name: '/remove <posicion>', value: 'Elimina una canción puntual de la cola (ver la posición con /queue).' },
-      { name: '/loop <modo>', value: 'Desactivado / canción actual / cola completa.' },
-      {
-        name: '🎛️ Panel de control',
-        value: 'El mensaje de "reproduciendo ahora" tiene botones para pausar/reanudar, saltar, detener, mezclar, cambiar el loop y ver la cola — sin necesidad de otro comando. Solo funcionan para quien esté en el mismo canal de voz que el bot.',
-      },
-    )
-    .setFooter({ text: BRAND_NAME })
-    .setTimestamp();
-}
-
 export const data = new SlashCommandBuilder()
   .setName('help')
   .setDescription('Muestra los comandos disponibles para todos los miembros.')
@@ -185,9 +160,6 @@ registerButtonPrefix('help_cat_diversion', async (i) => {
 });
 registerButtonPrefix('help_cat_accion', async (i) => {
   await i.update({ embeds: [buildAccionEmbed()], components: [buildBackRow()] });
-});
-registerButtonPrefix('help_cat_musica', async (i) => {
-  await i.update({ embeds: [buildMusicaEmbed()], components: [buildBackRow()] });
 });
 registerButtonPrefix('help_back', async (i) => {
   await i.update({ embeds: [buildMainMenuEmbed()], components: buildMainMenuRow() });

@@ -6,12 +6,10 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { dashboardConfig } from './config.js';
-import { buildAuthorizeUrl, exchangeCodeForToken, fetchDiscordUser, fetchApplicationOwnerId, resolveUsers } from './discordApi.js';
-import { buildSpotifyAuthorizeUrl, exchangeSpotifyCode, isSpotifyAuthConfigured } from './spotifyAuth.js';
-import { saveSpotifyRefreshToken } from '../src/utils/spotifyAuthStore.js';
+import { buildAuthorizeUrl, exchangeCodeForToken, fetchDiscordUser, resolveUsers } from './discordApi.js';
 import { createSessionCookie, clearSessionCookie, createStateCookie, clearStateCookie, readSession, parseCookies } from './session.js';
 import { listManagedGuilds, checkGuildAccess, loadGuildDashboardData } from './queries.js';
-import { layout, escapeHtml } from './html.js';
+import { layout } from './html.js';
 import { renderLoginPage, renderGuildList, renderGuildDashboard } from './views.js';
 import { rateLimitMiddleware } from './rateLimiter.js';
 import { registerShutdown } from '../src/utils/shutdown.js';
@@ -74,124 +72,6 @@ app.get('/auth/callback', async (req, res) => {
 app.get('/auth/logout', (req, res) => {
   res.setHeader('Set-Cookie', clearSessionCookie());
   res.redirect('/');
-});
-
-// Autorización (única, a nivel bot completo) de Spotify — Authorization Code Flow, la
-// única forma de que /play liste el contenido de una playlist (ver
-// dashboard/spotifyAuth.js y src/utils/spotifyAuthStore.js). Gateado al dueño real de la
-// aplicación de Discord, no a cualquier admin de un server — reusa la misma cookie de
-// estado (oauth_state) que ya usa el login de Discord, mismo criterio anti-CSRF.
-app.get('/spotify/authorize', async (req, res) => {
-  const session = readSession(req);
-  if (!session) {
-    res.redirect('/auth/login');
-    return;
-  }
-
-  if (!isSpotifyAuthConfigured()) {
-    res.status(500).send(
-      layout({
-        title: 'Spotify no configurado',
-        body: '<div class="card"><p>Faltan SPOTIFY_CLIENT_ID/SPOTIFY_CLIENT_SECRET en las variables de este servicio (dashboard).</p></div>',
-        loggedIn: true,
-      }),
-    );
-    return;
-  }
-
-  try {
-    const ownerId = await fetchApplicationOwnerId();
-    if (session.userId !== ownerId) {
-      res.status(403).send(
-        layout({ title: 'Sin acceso', body: '<div class="card"><p>Solo el dueño de la aplicación puede autorizar Spotify.</p></div>', loggedIn: true }),
-      );
-      return;
-    }
-  } catch (error) {
-    console.error('❌ Error verificando el dueño de la aplicación:', error);
-    res.status(500).send(layout({ title: 'Error', body: '<div class="card"><p>No se pudo verificar el dueño de la aplicación.</p></div>', loggedIn: true }));
-    return;
-  }
-
-  const state = crypto.randomBytes(16).toString('hex');
-  res.setHeader('Set-Cookie', createStateCookie(state));
-  res.redirect(buildSpotifyAuthorizeUrl(state));
-});
-
-app.get('/spotify/callback', async (req, res) => {
-  const session = readSession(req);
-  if (!session) {
-    res.redirect('/auth/login');
-    return;
-  }
-
-  try {
-    const { code, state, error: spotifyError } = req.query;
-    const cookies = parseCookies(req.headers.cookie);
-
-    if (spotifyError) {
-      res.setHeader('Set-Cookie', clearStateCookie());
-      res.status(400).send(
-        layout({ title: 'Autorización cancelada', body: `<div class="card"><p>Spotify no completó la autorización (${escapeHtml(spotifyError)}).</p></div>`, loggedIn: true }),
-      );
-      return;
-    }
-
-    if (!code || !state || state !== cookies.oauth_state) {
-      res.setHeader('Set-Cookie', clearStateCookie());
-      res.status(400).send(
-        layout({
-          title: 'Autorización inválida',
-          body: '<div class="card"><p>El intento expiró o es inválido. <a href="/spotify/authorize">Volvé a intentar</a>.</p></div>',
-          loggedIn: true,
-        }),
-      );
-      return;
-    }
-
-    // Revalida el owner acá — /spotify/authorize ya lo valida antes de redirigir a
-    // Spotify, pero /spotify/callback comparte la MISMA cookie oauth_state que también
-    // usa /auth/login (login normal de Discord). Sin este chequeo, cualquier usuario
-    // logueado en el dashboard podía: pegarle a /auth/login (setea oauth_state), armar a
-    // mano una URL de autorización de Spotify con ese mismo state apuntando a este
-    // /spotify/callback, autorizar con SU PROPIA cuenta de Spotify, y terminar
-    // pisándole al bot la integración global de Spotify (spotify_auth es una sola fila,
-    // no por-usuario) — sin haber pasado nunca por el gate de /spotify/authorize.
-    let ownerId;
-    try {
-      ownerId = await fetchApplicationOwnerId();
-    } catch (error) {
-      console.error('❌ Error verificando el dueño de la aplicación en el callback de Spotify:', error);
-      res.setHeader('Set-Cookie', clearStateCookie());
-      res.status(500).send(layout({ title: 'Error', body: '<div class="card"><p>No se pudo verificar el dueño de la aplicación.</p></div>', loggedIn: true }));
-      return;
-    }
-    if (session.userId !== ownerId) {
-      res.setHeader('Set-Cookie', clearStateCookie());
-      res.status(403).send(
-        layout({ title: 'Sin acceso', body: '<div class="card"><p>Solo el dueño de la aplicación puede autorizar Spotify.</p></div>', loggedIn: true }),
-      );
-      return;
-    }
-
-    const token = await exchangeSpotifyCode(code);
-    if (!token.refresh_token) throw new Error('Spotify no devolvió un refresh_token en la respuesta.');
-
-    await saveSpotifyRefreshToken(token.refresh_token, session.userId);
-    res.setHeader('Set-Cookie', clearStateCookie());
-    res.send(
-      layout({
-        title: 'Spotify autorizado',
-        body:
-          '<div class="card"><p>✅ Spotify quedó autorizado — <code>/play</code> ya puede resolver playlists y álbumes, no solo canciones sueltas. ' +
-          'Si el bot ya estaba corriendo, puede tardar hasta 1 hora en tomarlo solo, o reiniciá el servicio del bot en Railway para que sea al toque.</p></div>',
-        loggedIn: true,
-      }),
-    );
-  } catch (error) {
-    console.error('❌ Error en el callback de OAuth de Spotify:', error);
-    res.status(500).send(layout({ title: 'Error', body: '<div class="card"><p>No se pudo completar la autorización con Spotify.</p></div>', loggedIn: true }));
-  }
 });
 
 app.get('/', async (req, res) => {

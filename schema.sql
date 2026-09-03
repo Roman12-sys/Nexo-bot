@@ -53,18 +53,6 @@
 --   -- pisa sin dropearla, no hace falta borrar la vieja a mano.
 -- =========================================================
 --
--- MIGRACIÓN MANUAL PENDIENTE (extensión de Spotify, 2026-08-30) — tabla nueva para el
--- refresh token de Authorization Code Flow (ver sección "Autorización de Spotify" más
--- abajo, cerca de lol_patch_state):
---
---   create table if not exists spotify_auth (
---     id text primary key default 'main',
---     refresh_token text not null,
---     authorized_by text not null,
---     updated_at timestamptz not null default now()
---   );
--- =========================================================
---
 -- MIGRACIÓN MANUAL PENDIENTE (Fase 1, auditoría de seguridad/economía, 2026-08-30) —
 -- economy_transactions.delivered: el código (getGuildPurchasesByReason/
 -- markPurchaseDelivered en economyStore.js, /economia-staff pendientes) ya usaba esta
@@ -485,22 +473,6 @@ create table if not exists lol_patch_state (
   last_ddragon_version text,
   ddragon_version_detected_at bigint, -- epoch ms, mismo criterio que last_daily/last_work (ver CLAUDE.md)
   ddragon_warning_sent_at bigint -- epoch ms; null = todavía no se avisó nada para la versión actual
-);
-
--- =========================================================
--- Autorización de Spotify (src/utils/spotifyAuthStore.js) — una sola fila fija, a nivel
--- bot completo, no por guild. Guarda el refresh_token de Authorization Code Flow que el
--- dueño de la app autoriza una vez desde el dashboard (dashboard/server.js,
--- /spotify/authorize -> /spotify/callback). Sin esta fila, spotifyResolver.js sigue
--- funcionando con Client Credentials Flow (tracks sueltos), pero playlists/álbumes
--- tiran 401 — Spotify exige un usuario autorizado de verdad para listar el contenido de
--- una playlist, confirmado en producción 2026-08-30.
--- =========================================================
-create table if not exists spotify_auth (
-  id text primary key default 'main',
-  refresh_token text not null,
-  authorized_by text not null, -- Discord user ID de quien completó la autorización
-  updated_at timestamptz not null default now()
 );
 
 -- =========================================================

@@ -1,7 +1,7 @@
 # Nexo Bot
 
 Bot de Discord multi-servidor (economía, XP, moderación, sorteos, trivia, salas de voz
-temporales, constructor de anuncios, tienda, música con soporte de Spotify). Basado en gNoX Bot (`c:\Users\Fran\OneDrive\Escritorio\gnoX-bot`),
+temporales, constructor de anuncios, tienda). Basado en gNoX Bot (`c:\Users\Fran\OneDrive\Escritorio\gnoX-bot`),
 que es un bot de un solo servidor con toda su configuración fija en `.env`. Nexo Bot es
 el mismo código y las mismas features, pero corre como **un único proceso que sirve a
 cualquier cantidad de servidores a la vez** — nunca importa nada de gNoX en tiempo de
@@ -1263,6 +1263,52 @@ listo — la ventana real de `/work`/`/crime` rotos en producción duró lo que 
 commit+push+deploy, no más. `schema.sql` (estado actual deseado) ya no declara `pets`
 ni sus 6 CHECK constraints; las migraciones históricas (`migration_2026_08_31_fase2a.sql`,
 que las agregó) no se reescriben — son historial, no el estado deseado.
+
+## Fase 3C — eliminación de Music/Spotify (2026-09-03)
+
+Decisión de producto (no un bug ni una auditoría, mismo criterio que Fase 3B): Music no
+forma parte del NEXO comercial — podrá renacer como proyecto aparte más adelante, pero
+sale entero del bot principal. Alcance: 7 comandos (`src/commands/musica/`), 8 utils
+exclusivos (`musicEngine.js`, `musicSessionStore.js`, `musicSource.js`,
+`musicPermissions.js`, `musicEmbeds.js`, `musicVoiceState.js`, `spotifyResolver.js`,
+`spotifyAuthStore.js`), 1 archivo de dashboard (`dashboard/spotifyAuth.js`), 8 tests
+exclusivos, y 5 paquetes npm (`@discordjs/voice`, `@discordjs/opus`, `ffmpeg-static`,
+`libsodium-wrappers`, `youtube-dl-exec`). Código de esta fase, **sin commitear
+todavía** al momento de escribir esto.
+
+**Aislamiento confirmado antes de tocar nada** (mismo criterio que Fase 3A/3B: mapa de
+dependencias primero, borrado después) — el sistema entero era autocontenido detrás de
+9 puntos de contacto con código compartido: `voiceStateUpdate.js` (el hook de música
+convivía como un `await` independiente junto al de salas temporales, nunca mezclado con
+esa lógica ni con el logging de actividad), `ready.js` (chequeo de arranque de yt-dlp),
+`config.js` (`spotifyClientId`/`spotifyClientSecret`), `rateLimiter.js` (categoría
+`music`, usada solo por `/play`), `estado.js` (campo "🎵 Música" del embed de
+diagnóstico), `help.js` (categoría "🎵 Música" del menú — la fila de botones baja de 2
+a 1, las 5 categorías restantes ya entraban en una sola `ActionRow`),
+`dashboard/server.js` (rutas `/spotify/authorize`/`/spotify/callback`) y
+`dashboard/discordApi.js` (`fetchApplicationOwnerId`, exclusiva del gate de esas dos
+rutas — sin otro caller en todo el repo, se eliminó junto con el cache en memoria que la
+acompañaba), además de `.env.example`/`package.json`/`schema.sql`.
+
+**Temporary Voice y XP por voz, deliberadamente intactos.** `voiceStateUpdate.js` tenía
+TRES sistemas independientes conviviendo en el mismo handler (salas temporales, música,
+logging de actividad) — se sacó únicamente el `await handleMusicVoiceStateUpdate(...)`
+y su import; el resto del archivo (join-to-create, logging de join/leave/move/cámara)
+quedó igual. `voiceXpEngine.js` nunca dependió de `musicSessionStore.js` — no se tocó.
+
+**Aplicando la lección de Fase 3B: código primero, migración después.**
+`migration_2026_09_01_remove_pets.sql` se había corrido antes de que el código
+estuviera desplegado y dejó producción momentáneamente rota (`/work`/`/crime` rotos
+hasta el commit+push+deploy de remediación, ver arriba). Acá el orden es explícito:
+analizar dependencias → implementar → tests → diff → commit → push → deploy → verificar
+producción → actualizar comandos de Discord → retirar env vars de Railway → **recién
+ahí** `migration_2026_09_03_remove_music.sql` (`drop table if exists spotify_auth`, sin
+FK/RPC/trigger que la referencien, verificado contra `schema.sql` completo) → verificar
+la base. Ningún paso de base de datos corrió en esta fase — la tabla `spotify_auth`
+sigue existiendo en producción hasta que se ejecute esa migración a mano, después del
+deploy. `src/events/guildDelete.js` nunca la tuvo en `GUILD_SCOPED_TABLES` (fila única a
+nivel bot, sin `guild_id` — mismo criterio que `lol_patch_state`), así que no necesitó
+ningún cambio.
 
 ## Stack
 
