@@ -210,6 +210,22 @@ paginado (REST puro, mismo rate limit generoso que el resto del proyecto) — ve
 `fetchAllMembers()` en `src/utils/sanctions.js`, reusado por `roles.js`. Nunca usar
 `guild.members.fetch()` sin argumentos para "traer todos los miembros" de nuevo.
 
+**Correr un `DROP TABLE`/`DROP COLUMN` antes de que el código nuevo esté desplegado
+rompe producción de verdad, no en teoría.** Pisado en vivo 2026-09-03 (Fase 3B,
+eliminación de Pets): el usuario corrió `migration_2026_09_01_remove_pets.sql` en
+Supabase apenas se la mostré, sin esperar el commit/push/deploy del código que dejaba
+de usar `pets` — el orden exacto que el propio plan de la fase pedía respetar. Con la
+tabla ya borrada pero Railway todavía sirviendo el commit viejo (`pet.js`/`petsStore.js`
+sin tocar), `/work` y `/crime` tiraron error real en cada uso (ambos llamaban `getPet()`
+sin ningún `try/catch` propio) hasta que se commiteó y pusheó el código nuevo — `/perfil`
+fue el único que no se rompió, porque esa lectura YA tenía `.catch(() => null)` alrededor
+por otro motivo. Se detectó al toque verificando por API (nunca confiar en el orden que
+alguien dice haber seguido, ver `[[nexo_bot_sql_verification]]`) en vez de asumir que el
+plan se había respetado paso a paso. Para la próxima eliminación de tabla (`spotify_auth`
+en Fase 3C, música): no asumir que el DROP se va a esperar — verificar el estado real
+(`git log -1`, y la tabla por API) apenas se menciona cualquier acción sobre Supabase,
+sin importar en qué paso del plan se supone que está el usuario.
+
 ## Dos proyectos de Supabase — no confundirlos
 
 El usuario tiene DOS proyectos de Supabase que se prestan a confundir (pueden estar los
@@ -1170,7 +1186,7 @@ a propósito, no un framework):
   consulta cara solo se justifica si, en el peor caso, puede rechazar de más — nunca
   aceptar/otorgar de más.
 
-## Fase 3B — eliminación de Pets (2026-09-01)
+## Fase 3B — eliminación de Pets (2026-09-01, confirmada en producción 2026-09-03)
 
 Decisión de producto (no un bug ni una auditoría): Pets no forma parte del NEXO
 comercial. Fase 3A (mapa de dependencias) ya había confirmado que el sistema estaba
@@ -1181,6 +1197,20 @@ dashboard) más 7 puntos de fuga hacia sistemas genéricos (bonus en `/work`/`/c
 2 entradas de `achievements.js`, 1 de `economyOrigins.js`, 1-2 de `shopItems.js`, 1
 campo de `/perfil`, 1 línea de `/help`, 1 entrada de `GUILD_SCOPED_TABLES`). Fase 3B
 ejecutó esa lista completa.
+
+Commit `d7126b0` (`refactor: remove pets system from Nexo`), pusheado y confirmado en
+producción el 2026-09-03: deploy limpio en Railway (bot y dashboard, sin
+`❌ No se pudo cargar el comando` ni restart loop) + `/work`/`/crime`/`/perfil`
+probados a mano en Discord (recompensa sin bonus, embed sin campo de mascota) +
+`/pet` confirmado fuera del registro global de comandos verificando directo contra la
+API de Discord (`GET /applications/{id}/commands` → 95 comandos, sin `pet`, contra los
+96 de antes) tras correr `node src/deploy-commands.js`. 565/565 tests en verde (línea
+base 554 → −3 del bloque de test de `/pet alimentar` en
+`inventoryErrorHandling.test.js` → +14 nuevos: `work.test.js`, `crime.test.js`,
+`perfil.test.js`, `shopItems.test.js`, `startup.test.js` — este último reproduce el
+`import()` dinámico real de `src/index.js`/`deploy-commands.js` sobre TODOS los
+comandos y eventos, la forma más fiel de probar "arranca sin Pets" sin levantar el bot
+contra producción — + 1 en `achievements.test.js`).
 
 **Verificación de datos ANTES de tocar código** (lectura pura contra Supabase de
 producción, sin modificar nada): `economy.inventory` tenía una sola fila con la clave
@@ -1222,12 +1252,17 @@ devolviendo lo que haya en la tabla) ni `/perfil` (solo muestra
 `achievements.size/ACHIEVEMENTS.length`, un conteo). Esas filas quedan como historial
 inerte — no se tocan en esta fase.
 
-**Migración `migration_2026_09_01_remove_pets.sql` preparada, NO ejecutada.** Mismo
-criterio que toda migración de este proyecto: primero el código deja de usar la tabla,
-se despliega y se confirma estable en producción, y RECIÉN AHÍ se corre el `drop table`
-— nunca al revés. `schema.sql` (estado actual deseado) ya no declara `pets` ni sus 6
-CHECK constraints; las migraciones históricas (`migration_2026_08_31_fase2a.sql`, que
-las agregó) no se reescriben — son historial, no el estado deseado.
+**Migración `migration_2026_09_01_remove_pets.sql` — corrida fuera del orden previsto,
+verificada y ya sin efecto negativo.** El criterio del proyecto es código desplegado y
+confirmado estable ANTES del `drop table`, nunca al revés — acá se corrió apenas se
+mostró la migración, antes de commitear/pushear el código que dejaba de usar `pets` (ver
+el gotcha nuevo más arriba, "Correr un DROP TABLE... antes de que el código esté
+desplegado"). Verificado por API al toque (`PGRST205: Could not find the table
+'public.pets'`), y remediado en la misma sesión commiteando y pusheando el código ya
+listo — la ventana real de `/work`/`/crime` rotos en producción duró lo que tardó ese
+commit+push+deploy, no más. `schema.sql` (estado actual deseado) ya no declara `pets`
+ni sus 6 CHECK constraints; las migraciones históricas (`migration_2026_08_31_fase2a.sql`,
+que las agregó) no se reescriben — son historial, no el estado deseado.
 
 ## Stack
 
