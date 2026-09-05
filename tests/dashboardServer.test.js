@@ -122,6 +122,33 @@ describe('GET /guild/:guildId — CASO C: sesión válida, CON acceso', () => {
   });
 });
 
+// Regresión (2026-09-05): fetchGuildConfigSummary (dashboard/queries.js) empezó a pedir
+// una columna (report_channel_id) que en ese momento todavía no existía en la base real
+// — Supabase respondía 42703 "column ... does not exist", loadGuildDashboardData lo
+// propagaba, y el usuario veía "No se pudo cargar la información de este servidor.".
+// Ninguno de los tests de dashboardQueries.test.js lo detectó porque esos mockean
+// supabase-js entero (nunca validan contra un schema real) — este test no reproduce ESE
+// bug puntual (loadGuildDashboardData está mockeado acá, como el resto del archivo), pero
+// sí fija el contrato real: CUALQUIER falla de loadGuildDashboardData (columna
+// inexistente, tabla caída, lo que sea) tiene que dar un 500 controlado, con un mensaje
+// genérico — nunca un stack trace ni un mensaje de Postgres crudo expuesto al usuario.
+describe('GET /guild/:guildId — CASO D: falla la carga de datos (ej. columna/tabla inexistente en Supabase)', () => {
+  it('devuelve 500 genérico, sin exponer el error interno de Postgres/Supabase', async () => {
+    checkGuildAccess.mockResolvedValue({ guild: { id: REAL_GUILD_ID, name: 'Servidor de Prueba', approximate_member_count: 42 } });
+    loadGuildDashboardData.mockRejectedValue(
+      Object.assign(new Error('column guild_config.report_channel_id does not exist'), { code: '42703' }),
+    );
+
+    const res = await get(`/guild/${REAL_GUILD_ID}`, { cookie: sessionCookieFor('user-con-acceso') });
+    const body = await res.text();
+
+    expect(res.status).toBe(500);
+    expect(body).toContain('No se pudo cargar la información de este servidor');
+    expect(body).not.toContain('42703');
+    expect(body).not.toContain('does not exist');
+  });
+});
+
 describe('GET /guild/:guildId — guildId con formato inválido', () => {
   it('un guildId que no es un snowflake válido se rechaza con 400 ANTES de tocar checkGuildAccess', async () => {
     const res = await get('/guild/0%2F..%2F..%2Fusers%2F@me', { cookie: sessionCookieFor('user-1') });
