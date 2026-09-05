@@ -9,7 +9,7 @@ import { vi, describe, it, expect } from 'vitest';
 const getGuildConfig = vi.fn();
 vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig }));
 
-const { isStaff, isStaffConfigured } = await import('../src/utils/permissions.js');
+const { isStaff, isStaffConfigured, isAdmin } = await import('../src/utils/permissions.js');
 
 function makeInteraction(guildId, roleIds) {
   return {
@@ -49,6 +49,49 @@ describe('isStaff — matriz de roles', () => {
     const interaction = makeInteraction('guild-1', ['role-admin', 'role-mod']);
 
     await expect(isStaff(interaction)).resolves.toBe(false);
+  });
+});
+
+// isAdmin — PERM-1, Fase 4B: a diferencia de isStaff() (OR puro entre los dos roles),
+// esto exige EXCLUSIVAMENTE admin_role_id. La fila que realmente prueba la separación
+// de tiers es "moderador puro (no admin) → false" — antes de este fix, isStaff() daba
+// true para ese mismo rol, así que un moderador podía usar /economia-staff/xp igual
+// que un admin.
+describe('isAdmin — tier separado de isStaff (PERM-1)', () => {
+  it('usuario con SOLO el rol de moderador (admin_role_id distinto) → false', async () => {
+    getGuildConfig.mockResolvedValue({ admin_role_id: 'role-admin', moderator_role_id: 'role-mod' });
+    const interaction = makeInteraction('guild-1', ['role-mod']);
+
+    await expect(isAdmin(interaction)).resolves.toBe(false);
+  });
+
+  it('usuario con el rol de administrador → true', async () => {
+    getGuildConfig.mockResolvedValue({ admin_role_id: 'role-admin', moderator_role_id: 'role-mod' });
+    const interaction = makeInteraction('guild-1', ['role-admin']);
+
+    await expect(isAdmin(interaction)).resolves.toBe(true);
+  });
+
+  it('usuario con AMBOS roles (admin y mod) → true', async () => {
+    getGuildConfig.mockResolvedValue({ admin_role_id: 'role-admin', moderator_role_id: 'role-mod' });
+    const interaction = makeInteraction('guild-1', ['role-admin', 'role-mod']);
+
+    await expect(isAdmin(interaction)).resolves.toBe(true);
+  });
+
+  it('admin_role_id sin configurar (null) → siempre false, sin importar los roles del usuario', async () => {
+    getGuildConfig.mockResolvedValue({ admin_role_id: null, moderator_role_id: 'role-mod' });
+    const interaction = makeInteraction('guild-1', ['role-mod', 'role-admin']);
+
+    await expect(isAdmin(interaction)).resolves.toBe(false);
+  });
+
+  it('backward compatibility — configuración antigua (admin_role_id === moderator_role_id, mismo rol de /setup): ese rol pasa isAdmin también', async () => {
+    getGuildConfig.mockResolvedValue({ admin_role_id: 'role-staff-unico', moderator_role_id: 'role-staff-unico' });
+    const interaction = makeInteraction('guild-1', ['role-staff-unico']);
+
+    await expect(isStaff(interaction)).resolves.toBe(true);
+    await expect(isAdmin(interaction)).resolves.toBe(true);
   });
 });
 

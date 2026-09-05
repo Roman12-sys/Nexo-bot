@@ -101,6 +101,39 @@ sesión de voz y no aportan nada al log de actividad. El sistema de salas tempor
 hacer `await`. `getModerationBlockReason()` sigue siendo síncrona — no depende de
 config, solo de jerarquía de roles de Discord.
 
+### Tres tiers, no dos (PERM-1, Fase 4B)
+
+Hasta Fase 4B, `guild_config` tenía dos columnas (`admin_role_id`/`moderator_role_id`)
+pero el código las trataba como intercambiables: `isStaff()` es un OR puro entre las
+dos, `/setup` las fijaba siempre al mismo rol, y `/config` no tenía forma de separarlas.
+En la práctica, cualquiera con el rol de Staff podía usar `/economia-staff`/`/xp` y
+acreditarse balance/XP sin límite — la auditoría 3.0 (PERM-1) marcó esto como riesgo real
+una vez que el bot se instala en servidores de terceros, no solo de gente de confianza.
+
+- **Tier 1 — Moderador** (`moderator_role_id`, `isStaff()` tal cual siempre existió):
+  moderación completa (`/warn`, `/ban`, `/kick`, `/timeout`, `/punish`, `/sanciones`,
+  `/voice`). Sin cambios de código en este tier.
+- **Tier 2 — Administrador** (`admin_role_id`, función nueva `isAdmin(interaction)` —
+  chequea EXCLUSIVAMENTE `admin_role_id`, sin OR con `moderator_role_id`): todo lo del
+  Tier 1, más `/economia-staff` y `/xp` (los únicos comandos que pueden acreditar
+  balance/XP sin límite). `isStaffFromRoleIds` sigue dando `true` para un usuario que
+  solo tiene `admin_role_id` — el Tier 2 automáticamente pasa el Tier 1 sin necesitar
+  asignarle también el rol de moderador a mano.
+- **Tier 3 — Dueño / Administrator nativo de Discord** (sin cambios): `/setup`, `/config`.
+
+**Backward-compatible por construcción, no por un caso especial.** `/setup` sigue
+fijando `admin_role_id == moderator_role_id` la primera vez (mismo rol de "Staff" de
+siempre) — un servidor que nunca corre `/config rol-admin` nunca separa los roles, así
+que `isAdmin()` sigue comparando contra el mismo rol de Staff de siempre y el
+comportamiento no cambia un bit. `/config rol-admin` (nuevo subcomando) es la única
+forma de separarlos, y a propósito el rol ahí es **obligatorio** (sin "vacío para
+desactivar" como `rol-castigo`/`rol-automatico`) — si se pudiera vaciar, alguien
+corriendo el comando de nuevo pensando en "resetear" dejaría a TODO el mundo sin acceso
+a `/economia-staff`/`/xp` (`admin_role_id` null nunca pasa `isAdmin()`), en vez de volver
+al comportamiento unificado. Tampoco pasa por `getDangerousRolePermission` — mismo
+criterio que `moderator_role_id` en `/setup`: este rol está pensado para tener
+privilegios reales.
+
 ## Gotcha real ya pisado: columnas de cooldown
 
 Las columnas tipo "última vez que pasó X" (`last_daily`, `last_work`, `last_xp_ts`,
@@ -267,6 +300,30 @@ Decisiones puntuales:
   momento se necesita escritura (ej. resolver un warn desde el panel), es una decisión
   aparte con su propio análisis de permisos — no asumir que se puede extender directo.
 
+**DASH-1, Fase 4B (2026-09-05) — de vitrina de métricas a algo que explica su propia
+configuración.** Antes de esto, `checkGuildAccess()` ya leía `admin_role_id`/
+`moderator_role_id` de `guild_config` para el chequeo de acceso pero los descartaba sin
+mostrarlos nunca — el dashboard tenía la data a mano y jamás la usaba. Tres cambios,
+todos de solo lectura sobre datos que ya existían:
+- **Tarjeta "Configuración actual"** en la página de un servidor (`fetchGuildConfigSummary`
+  en `queries.js`, un `select` explícito de columnas — no `select('*')`): roles admin/
+  moderador, los 3 canales de log, módulos (moderación/XP), extras de `/setup`
+  (bienvenida/confesiones/rol automático/rol de castigo). **"Economía" se muestra como
+  "Siempre activa", no como un toggle ✅/❌** — `features.economia` se sacó hace tiempo
+  porque nunca gateaba nada (ver el comentario de `setup.js`); mostrar un toggle falso
+  hubiera sido peor que ser honesto sobre que no existe.
+- **Aviso de "solo lectura" repetido en la página real del servidor**, no solo en el
+  login — antes alguien que entraba directo por un link guardado nunca lo veía.
+- **Invite link real** (`dashboard/html.js`, en el header de todas las páginas — login,
+  lista de servers, y la página de un server puntual), armado con `config.clientId`
+  (el mismo que usa `src/deploy-commands.js`). **A propósito sin bitmask de permisos en
+  la URL** — en vez de adivinar qué permisos hacen falta (fácil de sub o sobre-estimar),
+  se deja que la propia pantalla de consentimiento de Discord los pida al instalar.
+- **Contacto de soporte** (`config.supportContact`, env var `SUPPORT_CONTACT`) en el
+  mismo header, condicional — sin la variable seteada no se muestra nada, nunca un link
+  inventado. Mismo campo se muestra en `/help`. **Sin valor real todavía** — es
+  infraestructura lista, no un canal de soporte configurado de verdad.
+
 ## Qué se dejó afuera a propósito
 
 - **Sistema de "presence" rotativo** (`utils/presence.js`/`botStatus.js` en gNoX) —
@@ -415,6 +472,48 @@ cambia nada de lo que el bot/dashboard hacen. No es una vulnerabilidad activa; e
 seguro barato para el día que algo use el `anon key`. Migración (`enable row level
 security` en las 18 tablas, sin políticas) preparada pero sin ejecutar — decisión
 pendiente del usuario.
+
+## Observabilidad — alertas operativas (`src/utils/errorReporter.js`, COM-1, Fase 4B)
+
+Antes de esto, una falla real en un cliente (una excepción no capturada, un comando que
+tira, un loop periódico que falla) solo dejaba rastro en `console.error` → logs de
+Railway — nadie se enteraba salvo que alguien estuviera mirando los logs en vivo o el
+cliente se quejara directamente. `reportCriticalError(client, context, error)` es la
+única pieza nueva: manda un embed a un canal fijo de un servidor **propio de operación**
+(nunca `guild_config` — esto es infraestructura interna, no una feature de cliente,
+mismo criterio que tenía originalmente `lolPatchEngine.js`), configurado por la variable
+de entorno opcional `OPERATOR_ALERT_CHANNEL_ID`. Sin esa variable, la función es un no-op
+silencioso — no es un requisito de boot.
+
+**Por qué REST directo y no `client.channels.fetch().send()`.** El bot (`src/index.js`)
+y el dashboard (`dashboard/server.js`) son dos procesos separados — el dashboard no tiene
+conexión de gateway. `reportCriticalError` manda el mensaje con un `fetch` plano a
+`discord.com/api` (`Authorization: Bot <token>`, mismo token que ya usa
+`dashboard/discordApi.js` para sus propias llamadas REST) para poder llamarse igual desde
+los dos procesos — el parámetro `client` queda en la firma para los call-sites del bot
+que ya tienen uno a mano, pero la función nunca lo usa; desde el dashboard se llama con
+`null` sin ninguna diferencia de comportamiento.
+
+**Throttle por huella, no por ocurrencia.** Un `Map` en memoria (mismo patrón
+autolimpiante que `userUpdate.js`) evita que un error que se repite 500 veces mande 500
+alertas — como mucho una alerta por combinación de `context`+`error.message`/`error.name`
+cada 10 minutos. La huella incluye el `context` a propósito: el mismo tipo de error en
+dos lugares distintos del código sí genera dos alertas separadas.
+
+**Qué nunca incluye.** `redactSecretsInText` (`src/utils/secretDetector.js`, el mismo
+detector que ya protegía el chat) se aplica al contexto, al mensaje y al stack antes de
+mandarlos — si un error trae un token/secreto filtrado en su mensaje, llega redactado, no
+crudo. No se manda ningún dato de usuario más allá de lo que el propio `context` decida
+incluir (hoy: nombre de comando + guild ID, nunca username/tag/contenido de mensajes).
+
+**Dónde está conectada:** `uncaughtException`/`unhandledRejection` (bot y dashboard, en
+ambos casos esperando el intento de alerta antes de `process.exit(1)` — si no se espera,
+el proceso corta la conexión de red a mitad de camino), el catch-all de comandos e
+interacciones (`interactionCreate.js`), los 5 loops periódicos con estado propio
+(`giveawayEngine`, `reminderEngine`, `punishEngine`, `voiceXpEngine`, `lolPatchEngine`) y
+las 3 rutas del dashboard con try/catch propio (`/`, `/auth/callback`, `/guild/:id`).
+Verificado en vivo contra un canal de prueba real (Fase 4B): el envío llega, el throttle
+absorbe un segundo disparo idéntico, y un error distinto sí pasa.
 
 ## Event Engine (`src/utils/eventBus.js`)
 
@@ -1312,6 +1411,151 @@ sigue existiendo en producción hasta que se ejecute esa migración a mano, desp
 deploy. `src/events/guildDelete.js` nunca la tuvo en `GUILD_SCOPED_TABLES` (fila única a
 nivel bot, sin `guild_id` — mismo criterio que `lol_patch_state`), así que no necesitó
 ningún cambio.
+
+## Auditoría 3.0 + Fase 4A + Fase 4B (2026-09-04/05)
+
+Con Pets y Música/Spotify ya confirmados afuera (Fase 3B/3C arriba), se corrió una
+auditoría completa nueva desde cero ("Auditoría 3.0", mismo criterio de 8 agentes en
+paralelo que las rondas anteriores) asumiendo esa base limpia — encontró 53 hallazgos
+(2 P0, 15 P1, 27 P2, 9 P3), veredicto ALMOST READY. A diferencia de rondas anteriores,
+acá el trabajo se partió en fases chicas y deliberadas en vez de "arreglar todo":
+
+**Fase 4A — cerró los 2 P0.** `SEC-1`/`SEC-2`: `/warn` y el panel compartido de
+confirmación (`confirmations.js`, usado por `/ban`/`/clear`/`/unwarn`/`/prestigio`)
+interpolaban el `motivo` de staff en un `content` público sin `allowedMentions` — un
+motivo con `@everyone` pingeaba al servidor entero. Fix: `allowedMentions: { parse:
+['users'] }` en los dos puntos (preserva la mención real del usuario objetivo, bloquea
+everyone/here/roles sin importar el texto). `DATA-1` (contradicción sobre si
+`migration_2026_09_01_fase2c.sql` había corrido) se cerró **verificando en vivo contra
+Supabase real** — las dos RPC existen y funcionan, la nota de la sección de Fase 2C de
+arriba ya está corregida. 11 tests nuevos (433→444). Commit `56951b3`, **sin pushear**.
+
+**Fase 4B — 9 de los 15 P1, elegidos a mano, no todos.** El resto (reaction-roles,
+`/report`, tuning de economía por servidor, PERF-1, revisión legal) se evaluaron y se
+dejaron para más adelante a propósito — ver el criterio de priorización en el informe de
+la sesión si hace falta retomarlos. Lo que sí se implementó: el modelo de permisos de 3
+tiers (`isAdmin()`, ver sección "Permisos" arriba) y la alerta operativa
+(`reportCriticalError`, ver sección "Observabilidad" arriba) — las dos piezas grandes,
+ya documentadas en detalle en sus propias secciones — más: cooldown en `/confession` y
+`/give` (mismo patrón que `/encuesta`, 2 min por guild+usuario), el dashboard mostrando
+configuración real + link de invite + contacto de soporte (ver "Dashboard web" abajo), y
+las dos coberturas de test que faltaban de dinero/acceso (`casinoHelpers.js`, y el
+primer test HTTP real de `dashboard/server.js`, con servidor `node:http` real y cookies
+de sesión reales — el `app` exportado existía desde Fase 1 para esto exacto pero nadie
+lo había usado). 66 tests nuevos (444→510). **Sin commitear** — working tree completo
+pendiente de revisión del usuario antes de cualquier commit.
+
+**Corrección de documentación:** la nota de Fase 2C sobre `migration_2026_09_01_fase2c.sql`
+decía "preparada, no ejecutada" — era información vieja. Ya corregida (ver esa sección).
+
+## Fase 4C-1 — product foundation: onboarding, reportes, permisos, posicionamiento (2026-09-05)
+
+Distinta de las fases anteriores: la auditoría de Fase 4C (producto, no código) encontró
+que NEXO es técnicamente sólido pero el cuello de botella real para un primer cliente es
+"instalo el bot → no sé qué hacer" — nada de esto es un bug. Alcance deliberadamente
+chico y quirúrgico (4 mejoras puntuales, nada de IA/Premium/monetización/sharding/
+reescrituras): `/report`, onboarding posterior a `/setup`, guía + detección de permisos,
+y posicionamiento del producto. **Sin commitear todavía** al momento de escribir esto.
+
+**`/report` — reutiliza infraestructura existente, no un sistema paralelo.** Cualquier
+miembro puede reportar un usuario, un mensaje (link completo o ID de este canal) o una
+situación (con solo el motivo, los otros dos campos son opcionales). Cooldown de 60s por
+guild+usuario, mismo patrón de `Map` autolimpiante que `POLL_COOLDOWN_MS` de
+`encuesta.js` — más corto que los 2 min de encuesta porque `/report` es ephemeral (no
+genera contenido público que pueda llenar un canal), pero sigue necesitando un piso.
+`getGuildLogChannel(client, guildId, 'report')` (columna nueva `report_channel_id`,
+sumada a `CATEGORY_COLUMN` de `guildLogChannels.js` junto a `moderation`/`activity`/
+`economy`) resuelve el canal; si el servidor no lo configuró, cae a `'moderation'` — el
+canal de logs de moderación YA existe en casi cualquier server que corrió `/setup`, así
+que `/report` funciona de entrada sin exigir una segunda configuración antes de que el
+staff pueda recibir algo. Si ninguno de los dos existe, se lo dice claro al usuario
+(nunca un falso "reporte enviado" sobre algo que no llegó a ningún lado). Un link de
+mensaje de OTRO servidor se rechaza (comparación de guildId) — nunca se resuelve un
+mensaje fuera de este guild. Mensaje borrado/inaccesible: el reporte sigue igual, solo
+sin poder mostrarle el contenido al staff (el link queda igual). Quién reporta es
+SIEMPRE `interaction.user` — no hay ningún campo que un usuario pueda completar para
+falsificar el origen, Discord ya autenticó la interacción.
+
+**`report_channel_id` — campo nuevo, no reuso forzado.** Se evaluó reusar
+`log_channel_moderation_id` como ÚNICO destino (ya es staff-only y ya existe) en vez de
+sumar una columna — se descartó porque mezclar el audit trail automático (bans/warns ya
+aplicados) con reportes pendientes de revisar los enterraría entre logs de acciones ya
+resueltas, exactamente lo que la propia auditoría pedía evitar ("que llegue de forma
+clara"). El campo es opt-in con fallback (no exige reconfigurar nada) — mismo criterio
+que `lol_announce_channel_id`. Migración manual pendiente documentada en `schema.sql`
+(`alter table guild_config add column if not exists report_channel_id text;`) — sin
+correr todavía, a propósito (ver el gotcha "código antes que el DROP/ALTER", más abajo en
+este archivo — acá aplica en la dirección de ALTER ADD COLUMN, mismo criterio de orden).
+`/setup` ganó un 5to extra opt-in ("Canal de reportes", crea `#reportes` staff-only,
+apagado por defecto como los otros 4) y `/config canal-reportes` apunta a uno ya
+existente — mismos dos caminos que ya tenían bienvenida/confesiones/castigo/autoRol.
+Dashboard: se agregó a la tarjeta "Configuración actual" (`fetchGuildConfigSummary` +
+`configCard` en `views.js`), mismo patrón que el resto de los canales — el dashboard
+sigue siendo 100% solo lectura, esto no le agrega ninguna escritura.
+
+**Onboarding de `/setup` — mismo embed final, más contenido, no más comandos.** El título
+pasa de "✅ Nexo Bot configurado" a "✅ NEXO está listo" (test `setupRoleSafety.test.js`
+actualizado — no es el foco de ese test, que valida que el flujo no queda a mitad de
+camino). Se suma UN campo nuevo, "🚀 Próximos pasos", con comandos que existen de
+verdad y condicionales al estado real elegido en el panel (`/nivel` solo si `state.xp`,
+`/report` solo si `state.moderacion || state.reportes` (cualquiera de los dos le da un
+destino real al reporte) — no tiene sentido recomendar probar algo que el propio admin
+acaba de dejar apagado). El link al dashboard (`/guild/:id`, la ruta real de
+`dashboard/server.js`) solo aparece si `config.dashboardUrl` está seteado — nunca una URL
+inventada. Sigue siendo un solo embed, no una segunda pantalla.
+
+**`config.dashboardUrl` — mismo nombre de variable en dos servicios, a propósito.**
+`dashboard/config.js` ya EXIGE `DASHBOARD_BASE_URL` para arrancar ese proceso; el bot
+(`src/config.js`) ahora también la lee, pero opcional (`|| null`, mismo criterio que
+`supportContact`) — el bot no la necesita para nada más que mostrarle el link al admin en
+el onboarding. Se reusó el mismo nombre de variable en vez de inventar uno nuevo para el
+mismo valor conceptual — hay que configurarla en AMBOS servicios de Railway (son
+procesos separados con sus propias variables, ver "Railway topology"), documentado en
+`.env.example`.
+
+**Guía y detección de permisos — `src/utils/botPermissions.js`, un solo archivo chico.**
+`ESSENTIAL_BOT_PERMISSIONS` es la lista curada (12 permisos) verificada contra el código
+REAL de este repo, no inventada: `ManageChannels`/`ManageRoles` los ejerce `/setup` al
+crear canales/roles, `ManageMessages` lo usan `/clear`/`/lock`/el filtro de sancionados/
+la detección de secretos, `KickMembers`/`BanMembers`/`ModerateMembers` son `/kick`/
+`/ban`+`/unban`/`/timeout`, `MoveMembers` ya lo chequeaba `voice.js` a mano para las
+salas de voz temporales (mismo patrón, generalizado — `voice.js` no se tocó, sigue con
+su propio chequeo ad-hoc), `AttachFiles` las tarjetas de bienvenida/nivel.
+Deliberadamente AFUERA: `ViewAuditLog` y `MentionEveryone` (ya degradan solo sin romper
+nada, ver comentario del archivo). Tres puntos de uso de la MISMA lista, ninguno
+duplicado:
+1. `/setup`, al final del panel — si falta algo esencial, un campo "⚠️ Permisos
+   faltantes" en el mismo embed de onboarding.
+2. `/estado` — mismo chequeo disponible en cualquier momento (ej. un permiso sacado por
+   accidente reordenando roles DESPUÉS de `/setup`, que antes no tenía ninguna forma de
+   notarse hasta que algo fallaba solo en producción).
+3. El link de invite del dashboard (`dashboard/html.js`) ahora lleva
+   `permissions=essentialPermissionsBitfield()` — antes no llevaba NINGÚN permiso
+   pre-tildado a propósito ("que la pantalla de consentimiento de Discord decida"); la
+   auditoría de producto encontró que eso es justo lo que hacía fácil destildar sin
+   querer algo que el bot necesita. Discord igual deja desmarcar cualquiera ahí, esto solo
+   mejora el default — no se volvió obligatorio ni se le pidió más scope de OAuth al
+   dashboard.
+`/helpstaff` → "🩺 Bot" lista los 12 permisos por nombre + referencia a `/estado`. No se
+tocó el dashboard para detectar permisos del lado del panel — requeriría calcular el
+permiso efectivo del bot vía REST (roles + overwrites) sin un `Client` de discord.js a
+mano, más trabajo del que vale para esta fase ("pequeño, reutilizable y mantenible", no
+un sistema de diagnóstico grande); `/estado` y `/setup` ya cubren esto gratis porque
+discord.js calcula `guild.members.me.permissions` solo.
+
+**Posicionamiento — mismo patrón de texto en 3 lugares, ninguno inventa una feature
+nueva.** "NEXO es la plataforma para administrar y hacer crecer tu comunidad de Discord —
+moderación, economía, progresión y herramientas de gestión, todo en un solo lugar" se
+repite (con la misma redacción, no reinventada cada vez) en: la descripción de
+`buildMainMenuEmbed` de `/help` (lo primero que ve cualquier miembro), la del selector de
+plantilla de `/setup` (lo primero que ve un admin instalando) y la intro de `README.md`.
+`package.json` (`description`) se actualizó en la misma línea. Deliberadamente NO
+tocado: `dashboard/views.js` (`renderLoginPage`) — su subtítulo actual ("Solo lectura:
+actividad, economía y moderación...") describe con precisión el alcance REAL del
+dashboard (que sigue siendo 100% solo lectura); reescribirlo con el lenguaje de
+"plataforma integral" ahí exageraría lo que esa pantalla puntual hace. `helpstaff.js`
+tampoco — el staff ya conoce el producto, ese texto es de navegación, no de
+presentación.
 
 ## Stack
 

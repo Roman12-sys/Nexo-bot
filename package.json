@@ -1,7 +1,7 @@
 {
   "name": "nexo-bot",
   "version": "0.1.0",
-  "description": "Bot de Discord multi-servidor para comunidades",
+  "description": "Plataforma multi-servidor para administrar y hacer crecer comunidades de Discord",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

@@ -4,6 +4,7 @@ import { registerButtonPrefix } from '../../components/buttons.js';
 import { buildInfoEmbed as buildUserInfoEmbed } from './info.js';
 import { buildServerEmbed, buildServerRow } from './servidor.js';
 import { buildAvatarEmbed } from './avatar.js';
+import { config } from '../../config.js';
 
 export function getHelpButtonsRow() {
   return new ActionRowBuilder().addComponents(
@@ -13,13 +14,27 @@ export function getHelpButtonsRow() {
   );
 }
 
+// COM-3, Fase 4B: antes no había NINGÚN lugar donde un cliente supiera dónde pedir
+// ayuda con el bot en sí (no con moderación de SU server, sino con Nexo). Se muestra
+// solo si config.supportContact está configurado (env var SUPPORT_CONTACT) — nunca un
+// link inventado ni un campo vacío/roto.
 export function buildMainMenuEmbed() {
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle(`📖 Centro de ayuda de ${BRAND_NAME}`)
-    .setDescription('Elegí una categoría tocando un botón de abajo para ver sus comandos.')
+    .setDescription(
+      `**${BRAND_NAME}** es la plataforma para administrar y hacer crecer tu comunidad de Discord — moderación, ` +
+        'economía, progresión (XP/niveles) y herramientas de gestión, todo en un solo lugar.\n\n' +
+        'Elegí una categoría tocando un botón de abajo para ver sus comandos.',
+    )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
+
+  if (config.supportContact) {
+    embed.addFields({ name: '🆘 ¿Necesitás ayuda con el bot?', value: config.supportContact });
+  }
+
+  return embed;
 }
 
 // Devuelve un ARRAY de filas (no una sola) — los call sites spreadean esto directo en
@@ -95,7 +110,7 @@ export function buildCasinoEmbed() {
       { name: '/coinflip <apuesta> <cara/cruz>', value: 'Cara o cruz. 50/50, sin ventaja de la casa.' },
       { name: '/dado <apuesta>', value: 'Duelo de dados contra el bot (1-100). Empate devuelve la apuesta.' },
       { name: '/slots <apuesta>', value: 'Tragamonedas: 3 iguales pagan según el símbolo, 2 iguales devuelve la apuesta.' },
-      { name: '/ruleta <apuesta> <color>', value: 'Rojo/negro pagan x2, verde (el 0) paga x14.' },
+      { name: '/ruleta <apuesta> <color>', value: 'Rojo/negro pagan x2, verde (el 0) paga x30.' },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -105,7 +120,7 @@ export function buildDiversionEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🎲 Diversión')
-    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/confession` `/encuesta` `/afk` `/recordatorio`')
+    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/confession` `/encuesta` `/afk` `/recordatorio` `/report`')
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }

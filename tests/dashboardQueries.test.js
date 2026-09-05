@@ -144,6 +144,51 @@ describe('loadGuildDashboardData — punishedMembers acotado (sección 2)', () =
   });
 });
 
+describe('loadGuildDashboardData — configuración actual (DASH-1, Fase 4B)', () => {
+  it('devuelve guildConfig con los campos reales de guild_config (roles, logs, features)', async () => {
+    mockLoadGuildDashboardDeps();
+    supabaseMock.getBuilder('guild_config').__setResult({
+      data: {
+        admin_role_id: 'role-admin-1',
+        moderator_role_id: 'role-mod-1',
+        log_channel_moderation_id: 'chan-mod-1',
+        log_channel_activity_id: 'chan-act-1',
+        log_channel_economy_id: 'chan-eco-1',
+        features: { moderacion: true, xp: true },
+        punish_role_id: 'role-sancionado',
+        auto_role_id: null,
+        welcome_channel_id: null,
+        confession_channel_id: null,
+      },
+      error: null,
+    });
+
+    const data = await loadGuildDashboardData('guild-1');
+
+    expect(data.guildConfig).toEqual({
+      admin_role_id: 'role-admin-1',
+      moderator_role_id: 'role-mod-1',
+      log_channel_moderation_id: 'chan-mod-1',
+      log_channel_activity_id: 'chan-act-1',
+      log_channel_economy_id: 'chan-eco-1',
+      features: { moderacion: true, xp: true },
+      punish_role_id: 'role-sancionado',
+      auto_role_id: null,
+      welcome_channel_id: null,
+      confession_channel_id: null,
+    });
+  });
+
+  it('un servidor sin fila en guild_config (recién agregado): guildConfig es un objeto vacío, no rechaza', async () => {
+    mockLoadGuildDashboardDeps();
+    supabaseMock.getBuilder('guild_config').__setResult({ data: null, error: null });
+
+    const data = await loadGuildDashboardData('guild-1');
+
+    expect(data.guildConfig).toEqual({});
+  });
+});
+
 describe('loadGuildDashboardData — agregaciones en Postgres, no en JS (sección 3)', () => {
   it('totalCoins viene de la RPC sum_guild_balances, no de sumar filas en JS', async () => {
     mockLoadGuildDashboardDeps();
@@ -170,9 +215,10 @@ describe('loadGuildDashboardData — concurrencia acotada (sección 4)', () => {
 
     let inFlight = 0;
     let maxInFlight = 0;
-    // Instrumentamos las 11 fuentes fáciles de demorar artificialmente (las otras 7 son
-    // funciones de este mismo archivo, no mocks) para forzar solapamiento real y medirlo,
-    // en vez de solo confiar en que Promise.all lo haría de cualquier forma.
+    // Instrumentamos las 11 fuentes fáciles de demorar artificialmente (las otras son
+    // funciones de este mismo archivo, no mocks — incluida fetchGuildConfigSummary,
+    // sumada en DASH-1/Fase 4B) para forzar solapamiento real y medirlo, en vez de solo
+    // confiar en que Promise.all lo haría de cualquier forma.
     getTopCommands.mockImplementation(async () => { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight); await new Promise((r) => setTimeout(r, 5)); inFlight -= 1; return []; });
     getTotalUsage.mockImplementation(async () => { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight); await new Promise((r) => setTimeout(r, 5)); inFlight -= 1; return 0; });
     getUnlockedGuildAchievementIds.mockImplementation(async () => { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight); await new Promise((r) => setTimeout(r, 5)); inFlight -= 1; return new Set(); });

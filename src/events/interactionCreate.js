@@ -5,6 +5,7 @@ import { routeSelect } from '../components/selects.js';
 import { checkRateLimit } from '../utils/rateLimiter.js';
 import { trackCommandUsage, getTotalUsage } from '../utils/commandUsageStore.js';
 import { checkCommandUsageAchievements } from '../utils/guildAchievements.js';
+import { reportCriticalError } from '../utils/errorReporter.js';
 
 export const name = 'interactionCreate';
 export const once = false;
@@ -56,6 +57,7 @@ export async function execute(interaction, client) {
       trackUsageAndCheckAchievements(interaction.guildId, interaction.commandName, client);
     } catch (error) {
       console.error(`Error ejecutando /${interaction.commandName}:`, error);
+      reportCriticalError(client, `/${interaction.commandName} (guild ${interaction.guildId ?? 'DM'})`, error);
       const payload = { content: 'Hubo un error ejecutando este comando.', flags: MessageFlags.Ephemeral };
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp(payload).catch(() => {});
@@ -88,6 +90,7 @@ export async function execute(interaction, client) {
       }
     } catch (error) {
       console.error(`Error procesando interacción ${interaction.customId}:`, error);
+      reportCriticalError(client, `interacción ${interaction.customId} (guild ${interaction.guildId ?? 'DM'})`, error);
       const payload = { content: 'Hubo un error procesando esto.', flags: MessageFlags.Ephemeral };
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp(payload).catch(() => {});

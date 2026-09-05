@@ -12,6 +12,7 @@ import {
 } from 'discord.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
+import { ESSENTIAL_BOT_PERMISSIONS } from '../../utils/botPermissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerModalPrefix } from '../../components/modals.js';
 import { runClear } from '../moderacion/clear.js';
@@ -89,7 +90,12 @@ export function buildAdministracionEmbed() {
       },
       { name: '/config ver', value: 'Resumen completo de la configuración actual (todo lo que dejó armado /setup, más lo que se haya tocado después).' },
       {
-        name: '/config rol-castigo / rol-automatico / canal-bienvenida / canal-confesiones / ...',
+        name: '/config rol-admin',
+        value:
+          'Separa el rol de Administrador del de Moderador (por defecto son el mismo). Solo el rol de Administrador puede usar /economia-staff y /xp — el de Moderador conserva toda la moderación normal.',
+      },
+      {
+        name: '/config rol-castigo / rol-automatico / canal-bienvenida / canal-confesiones / canal-reportes / ...',
         value: 'Apuntá a un rol/canal que YA existe en el server en vez de crear uno nuevo con /setup.',
       },
       {
@@ -98,6 +104,10 @@ export function buildAdministracionEmbed() {
       },
       { name: '/config confesiones-revision / confesion-bloquear / confesion-desbloquear', value: 'Controles del sistema de confesiones anónimas.' },
       { name: '/config exportar', value: 'Descarga un JSON de respaldo de toda la configuración (solo lectura, no cambia nada).' },
+      {
+        name: '🚨 Reportes de miembros (/report)',
+        value: 'Cualquier miembro puede reportar un usuario, un mensaje o una situación con `/report`. Llega al canal de `/config canal-reportes` — si no lo configuraste, cae al log de moderación.',
+      },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -210,6 +220,10 @@ export function buildBotEmbed() {
       {
         name: '🎮 Patch notes de League of Legends (opcional)',
         value: 'Activalo con `/config canal-lol` — el bot avisa solo en ese canal cada vez que sale un patch nuevo, con un monitor aparte que detecta si el scraper se rompió. Apagado por defecto, no afecta a servidores que no lo usen.',
+      },
+      {
+        name: '🔐 Permisos esenciales del bot',
+        value: `${ESSENTIAL_BOT_PERMISSIONS.map((p) => p.label).join(', ')}.\n\`/estado\` avisa si al bot le falta alguno de estos — corregilo en *Ajustes del servidor → Roles* → el rol de Nexo Bot.`,
       },
     )
     .setFooter({ text: BRAND_NAME })

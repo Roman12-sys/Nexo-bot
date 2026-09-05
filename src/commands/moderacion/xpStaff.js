@@ -3,7 +3,7 @@ import { getUserXp, addXp, setXp, totalXpForLevel } from '../../utils/xpStore.js
 import { processLevelUp } from '../../utils/xpEngine.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { createXpAdminLogEmbed } from '../../utils/logEmbeds.js';
-import { isStaff } from '../../utils/permissions.js';
+import { isAdmin } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { describeError } from '../../utils/errorMessages.js';
 
@@ -193,7 +193,7 @@ export const data = new SlashCommandBuilder()
   .setDMPermission(false);
 
 export async function execute(interaction) {
-  if (!(await isStaff(interaction))) {
+  if (!(await isAdmin(interaction))) {
     await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
     return;
   }

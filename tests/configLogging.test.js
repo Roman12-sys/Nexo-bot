@@ -126,6 +126,27 @@ describe('/config deja rastro en el log de actividad', () => {
     expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { level_roles_mode: 'replace' });
   });
 
+  // Fase 4C-1 — /config canal-reportes: mismo patrón que canal-bienvenida (channel
+  // opcional, vacío = desactivar), pero apuntando a report_channel_id (destino de /report).
+  it('/config canal-reportes configura report_channel_id', async () => {
+    const interaction = makeInteraction({ subcommand: 'canal-reportes', channel: { id: 'chan-reportes', toString: () => '<#chan-reportes>' } });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { report_channel_id: 'chan-reportes' });
+    const embed = logChannel.send.mock.calls[0][0].embeds[0];
+    expect(embed.data.fields.some((f) => f.value.includes('Canal de reportes'))).toBe(true);
+  });
+
+  it('/config canal-reportes vacío desactiva el canal dedicado (vuelve al fallback de moderación)', async () => {
+    const interaction = makeInteraction({ subcommand: 'canal-reportes', channel: null });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { report_channel_id: null });
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('log de moderación') }));
+  });
+
   it('/config canal-anuncio-nivel configura xp_announce_channel_id', async () => {
     const interaction = makeInteraction({ subcommand: 'canal-anuncio-nivel', channel: { id: 'chan-xp', toString: () => '<#chan-xp>' } });
 

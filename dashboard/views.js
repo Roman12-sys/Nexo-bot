@@ -1,5 +1,6 @@
 import { escapeHtml } from './html.js';
 import { GUILD_ACHIEVEMENTS } from '../src/utils/guildAchievements.js';
+import { config } from '../src/config.js';
 
 export function renderLoginPage() {
   return `
@@ -117,6 +118,55 @@ export function renderGuildDashboard(guild, data, usersById) {
     ? `<p class="muted">📨 Mensajes esta semana: <strong>${data.messagesDelta.current.toLocaleString('es-ES')}</strong> (${data.messagesDelta.deltaPct >= 0 ? '+' : ''}${data.messagesDelta.deltaPct}% vs. semana anterior)</p>`
     : '';
 
+  // DASH-1, Fase 4B: antes "solo lectura" aparecía UNA vez, en letra chica, solo en el
+  // login — quien entraba directo a /guild/:id (link guardado) nunca lo veía. Se repite
+  // acá, en la página real, con el mismo mensaje accionable (dónde SÍ se cambian las
+  // cosas) en vez de un simple "esto es de solo lectura".
+  const readOnlyBanner = `
+    <div class="card">
+      <p class="muted" style="margin:0;">👁️ Este panel es <strong>solo lectura</strong>. Para cambiar cualquier cosa (roles, canales, módulos) usá <code>/setup</code> o <code>/config</code> directamente en Discord.</p>
+    </div>`;
+
+  const role = (id) => (id ? `<code>&lt;@&amp;${escapeHtml(id)}&gt;</code>` : '<span class="muted">— sin configurar</span>');
+  const channel = (id) => (id ? `<code>#${escapeHtml(id)}</code>` : '<span class="muted">— sin configurar</span>');
+  const toggle = (on) => (on ? '✅ Activo' : '❌ Apagado');
+  const cfg = data.guildConfig || {};
+  const features = cfg.features || {};
+
+  // "Economía" no tiene un toggle real (features.economia se eliminó — nunca gateó
+  // ningún comando, ver setup.js) — se muestra como "Siempre activa" en vez de
+  // inventar un estado on/off que el código no tiene.
+  const configCard = `
+    <div class="card">
+      <h2>⚙️ Configuración actual</h2>
+      <p class="muted" style="margin-top:-0.5rem;">Datos reales de este servidor — para cambiar algo de acá, usá <code>/setup</code> o <code>/config</code>.</p>
+      <div class="stat-row" style="margin-top:0.75rem;">
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Rol de administrador</div>${role(cfg.admin_role_id)}</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Rol de moderador</div>${role(cfg.moderator_role_id)}</div>
+      </div>
+      <div class="stat-row" style="margin-top:0.75rem;">
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Log de moderación</div>${channel(cfg.log_channel_moderation_id)}</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Log de actividad</div>${channel(cfg.log_channel_activity_id)}</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Log de economía</div>${channel(cfg.log_channel_economy_id)}</div>
+      </div>
+      <div class="stat-row" style="margin-top:0.75rem;">
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Moderación</div>${toggle(features.moderacion)}</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">XP</div>${toggle(features.xp)}</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Economía</div>💰 Siempre activa</div>
+      </div>
+      <div class="stat-row" style="margin-top:0.75rem;">
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Canal de bienvenida</div>${channel(cfg.welcome_channel_id)}</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Canal de confesiones</div>${channel(cfg.confession_channel_id)}</div>
+      </div>
+      <div class="stat-row" style="margin-top:0.75rem;">
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Rol automático</div>${role(cfg.auto_role_id)}</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Rol de castigo</div>${role(cfg.punish_role_id)}</div>
+      </div>
+      <div class="stat-row" style="margin-top:0.75rem;">
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Canal de reportes</div>${cfg.report_channel_id ? channel(cfg.report_channel_id) : '<span class="muted">— usa el log de moderación</span>'}</div>
+      </div>
+    </div>`;
+
   const lolCard = data.lolChannelId
     ? `<div class="card">
         <h2>🎮 League of Legends</h2>
@@ -132,6 +182,8 @@ export function renderGuildDashboard(guild, data, usersById) {
   return `
     <a class="muted" href="/">&larr; Tus servidores</a>
     <h1>${escapeHtml(guild.name)}</h1>
+    ${readOnlyBanner}
+    ${configCard}
 
     <div class="card">
       <h2>📊 Actividad</h2>

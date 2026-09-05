@@ -14,6 +14,7 @@ import { getGuildLogChannel } from './guildLogChannels.js';
 import { createPunishLogEmbed } from './logEmbeds.js';
 import { recordModerationAction } from './moderationActionsStore.js';
 import { getAllActivePunishments, deleteActivePunishment } from './punishStore.js';
+import { reportCriticalError } from './errorReporter.js';
 
 // Handle del setTimeout activo por restricción — sin esto, /unpunish manual solo podía
 // borrar la fila de Supabase, pero el timer en memoria seguía vivo e intentaba quitar
@@ -74,12 +75,18 @@ export function schedulePunishExpiry(client, { guildId, userId, roleId, expiresA
 
   if (delay <= 0) {
     activeTimeouts.delete(key(guildId, userId));
-    expirePunishment(client, { guildId, userId, roleId }).catch((error) => console.error('❌ Error expirando restricción:', error));
+    expirePunishment(client, { guildId, userId, roleId }).catch((error) => {
+      console.error('❌ Error expirando restricción:', error);
+      reportCriticalError(client, 'punishEngine: expiración de restricción', error);
+    });
     return;
   }
 
   const handle = setTimeout(() => {
-    expirePunishment(client, { guildId, userId, roleId }).catch((error) => console.error('❌ Error expirando restricción:', error));
+    expirePunishment(client, { guildId, userId, roleId }).catch((error) => {
+      console.error('❌ Error expirando restricción:', error);
+      reportCriticalError(client, 'punishEngine: expiración de restricción', error);
+    });
   }, delay).unref();
   activeTimeouts.set(key(guildId, userId), handle);
 }

@@ -5,6 +5,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { getAllReminders, deleteReminder, rescheduleReminder } from './remindersStore.js';
 import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
+import { reportCriticalError } from './errorReporter.js';
 
 const MAX_DELAY_MS = 2_147_483_647; // límite de setTimeout en Node (~24.8 días) — ver scheduleReminder
 
@@ -61,7 +62,10 @@ export function scheduleReminder(client, reminder) {
 
   if (delay <= 0) {
     activeTimeouts.delete(reminder.id);
-    fireReminder(client, reminder).catch((error) => console.error('❌ Error disparando recordatorio:', error));
+    fireReminder(client, reminder).catch((error) => {
+      console.error('❌ Error disparando recordatorio:', error);
+      reportCriticalError(client, 'reminderEngine: disparo de recordatorio', error);
+    });
     return;
   }
 
@@ -72,7 +76,10 @@ export function scheduleReminder(client, reminder) {
   }
 
   const handle = setTimeout(() => {
-    fireReminder(client, reminder).catch((error) => console.error('❌ Error disparando recordatorio:', error));
+    fireReminder(client, reminder).catch((error) => {
+      console.error('❌ Error disparando recordatorio:', error);
+      reportCriticalError(client, 'reminderEngine: disparo de recordatorio', error);
+    });
   }, delay).unref();
   activeTimeouts.set(reminder.id, handle);
 }

@@ -172,6 +172,7 @@ export async function loadGuildDashboardData(guildId) {
     lolMonitorState,
     dailyStats,
     missionSummary,
+    guildConfig,
   ] = await allWithConcurrency(
     [
       () => getTopCommands(guildId, 5),
@@ -196,6 +197,10 @@ export async function loadGuildDashboardData(guildId) {
       // select con un `days` más grande.
       () => getGuildDailyStats(guildId, 14),
       () => getGuildMissionCompletionSummary(guildId),
+      // DASH-1, Fase 4B: antes checkGuildAccess() ya leía admin_role_id/moderator_role_id
+      // para el gate de acceso pero los descartaba sin mostrarlos nunca — el dashboard
+      // tenía la data a mano y jamás la usaba. Ver fetchGuildConfigSummary más abajo.
+      () => fetchGuildConfigSummary(guildId),
     ],
     6,
   );
@@ -227,7 +232,25 @@ export async function loadGuildDashboardData(guildId) {
     dailyStats: dailyStats.slice(-7),
     messagesDelta,
     missionSummary,
+    guildConfig,
   };
+}
+
+// DASH-1, Fase 4B: única fuente de la tarjeta "Configuración actual" — antes el
+// dashboard no mostraba NADA de guild_config más allá de lo que usaba internamente
+// para el gate de acceso. Selecciona exactamente las columnas que la tarjeta necesita
+// (permisos, logs, módulos, extras de /setup) — no un `select('*')`, mismo criterio que
+// el resto de este archivo (nunca traer más de lo que se va a usar).
+async function fetchGuildConfigSummary(guildId) {
+  const { data, error } = await supabase
+    .from('guild_config')
+    .select(
+      'admin_role_id, moderator_role_id, log_channel_moderation_id, log_channel_activity_id, log_channel_economy_id, features, punish_role_id, auto_role_id, welcome_channel_id, confession_channel_id, report_channel_id',
+    )
+    .eq('guild_id', guildId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ?? {};
 }
 
 // Fase A, segunda auditoría 2026-08-30 (Parte 12: "convertir analítica en información

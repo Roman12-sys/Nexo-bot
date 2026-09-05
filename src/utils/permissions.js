@@ -28,6 +28,27 @@ export async function isStaff(interaction) {
   return isStaffFromRoleIds(cfg, [...interaction.member.roles.cache.keys()]);
 }
 
+// Tier 2 (PERM-1, Fase 4B): a diferencia de isStaff() — que trata admin_role_id y
+// moderator_role_id como intercambiables (un OR puro) — esto chequea EXCLUSIVAMENTE
+// admin_role_id. Gatea /economia-staff y /xp (pueden acreditar balance/XP sin límite)
+// detrás de un tier separado del de moderación día a día, en vez de dejarlos abiertos a
+// cualquiera con el rol de Staff.
+//
+// Backward-compatible por construcción, no por un caso especial: /setup sigue fijando
+// admin_role_id == moderator_role_id la primera vez (ver setup.js) — un servidor que
+// nunca corre /config rol-admin nunca separa los roles, así que isAdminFromRoleIds()
+// sigue comparando contra el MISMO rol de Staff de siempre y el comportamiento no
+// cambia un bit para nadie que no haya optado por separarlos.
+export function isAdminFromRoleIds(cfg, roleIds) {
+  if (!cfg || !roleIds) return false;
+  return Boolean(cfg.admin_role_id && roleIds.includes(cfg.admin_role_id));
+}
+
+export async function isAdmin(interaction) {
+  const cfg = await getGuildConfig(interaction.guildId);
+  return isAdminFromRoleIds(cfg, [...interaction.member.roles.cache.keys()]);
+}
+
 // "¿Hay algún rol de staff configurado en absoluto?" — distinto de isStaff()
 // (que chequea si ESTE usuario tiene uno de esos roles). Sirve para diferenciar
 // "todavía no corriste /setup" de "no tenés el rol".

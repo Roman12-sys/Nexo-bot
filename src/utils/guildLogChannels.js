@@ -5,10 +5,11 @@ const CATEGORY_COLUMN = {
   moderation: 'log_channel_moderation_id',
   activity: 'log_channel_activity_id',
   economy: 'log_channel_economy_id',
+  report: 'report_channel_id', // /report (Fase 4C-1) — el caller decide el fallback a 'moderation' si esto da null
 };
 
 // Resuelve y valida el canal de logs de una categoría para un servidor.
-// category: 'moderation' | 'activity' | 'economy'. Devuelve null si el servidor
+// category: 'moderation' | 'activity' | 'economy' | 'report'. Devuelve null si el servidor
 // no lo configuró (todavía no corrió /setup para esa sección) o el canal ya no existe.
 export async function getGuildLogChannel(client, guildId, category) {
   const column = CATEGORY_COLUMN[category];

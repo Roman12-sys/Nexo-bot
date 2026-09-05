@@ -27,6 +27,23 @@ function buildConfessionModal() {
 const pendingConfessions = new Map(); // `${guildId}:${number}` -> { authorId, message, timeoutHandle }
 const PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 
+// Cooldown contra spam — MOD-4, Fase 4B: antes no existía ningún límite (a diferencia de
+// /encuesta, que ya tenía este mismo fix aplicado desde Fase 2B). El vector es peor acá
+// que en /encuesta: contenido anónimo público, así que "quién lo mandó" no sirve de
+// disuasivo social. Mismo patrón exacto (Map en memoria por guild+usuario, ventana de 2
+// min, barrido cada 10 min) — se chequea y consume en execute() (antes de mostrar el
+// modal), no en el submit: así un usuario en cooldown ni siquiera pierde tiempo
+// escribiendo una confesión que después no se va a publicar.
+const CONFESSION_COOLDOWN_MS = 2 * 60 * 1000;
+const lastConfessionAt = new Map(); // `${guildId}:${userId}` -> timestamp del último /confession
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of lastConfessionAt) {
+    if (now - ts >= CONFESSION_COOLDOWN_MS) lastConfessionAt.delete(key);
+  }
+}, 10 * 60 * 1000).unref();
+
 export const data = new SlashCommandBuilder()
   .setName('confession')
   .setDescription('Enviá una confesión anónima al canal de confesiones.')
@@ -38,6 +55,19 @@ export async function execute(interaction) {
     await interaction.reply({ content: '❌ No podés usar /confession en este servidor.', flags: MessageFlags.Ephemeral });
     return;
   }
+
+  const cooldownKey = `${interaction.guildId}:${interaction.user.id}`;
+  const lastConfession = lastConfessionAt.get(cooldownKey) || 0;
+  const elapsed = Date.now() - lastConfession;
+  if (elapsed < CONFESSION_COOLDOWN_MS) {
+    const retryAt = Math.floor((lastConfession + CONFESSION_COOLDOWN_MS) / 1000);
+    await interaction.reply({ content: `⏳ Ya mandaste una confesión hace poco. Podés mandar otra <t:${retryAt}:R>.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  // Recién acá se consume el cooldown — un intento bloqueado por confession_blocked_ids
+  // (arriba) ya cortó antes de llegar, así que no hace falta un caso especial para eso.
+  lastConfessionAt.set(cooldownKey, Date.now());
 
   await interaction.showModal(buildConfessionModal());
 }

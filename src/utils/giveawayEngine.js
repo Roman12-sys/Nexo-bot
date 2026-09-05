@@ -2,6 +2,7 @@ import { getActiveGiveaways, getGiveaway, updateGiveaway, getGiveawaysPendingAnn
 import { createGiveawayEmbed } from './embeds.js';
 import { withLock } from './asyncLock.js';
 import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
+import { reportCriticalError } from './errorReporter.js';
 
 // Elige "count" ganadores al azar de la lista de participantes, sin repetir a nadie
 export function pickWinners(participants, count) {
@@ -242,8 +243,9 @@ export function startGiveawayReconcileLoop(client) {
   // mata este timer junto con todo lo demás sin necesitar un clearInterval explícito —
   // ningún otro loop del proyecto lo hace tampoco.
   setInterval(() => {
-    reconcilePendingGiveawayAnnouncements(client).catch((error) =>
-      console.error('❌ [sorteos] Error en el barrido periódico de anuncios pendientes:', error),
-    );
+    reconcilePendingGiveawayAnnouncements(client).catch((error) => {
+      console.error('❌ [sorteos] Error en el barrido periódico de anuncios pendientes:', error);
+      reportCriticalError(client, 'giveawayEngine: barrido periódico de anuncios pendientes', error);
+    });
   }, RECONCILE_TICK_MS).unref();
 }

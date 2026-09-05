@@ -17,12 +17,16 @@ vi.mock('../src/utils/tempVoiceStore.js', () => ({ getAllTempChannels }));
 
 const { execute } = await import('../src/commands/admin/estado.js');
 
-function makeInteraction({ isStaffMember = true } = {}) {
+// botHasAllPermissions=true por defecto (mismo comportamiento que antes de Fase 4C-1
+// para el resto de los tests de este archivo, que no les interesa el campo nuevo) —
+// las pruebas de "🔐 Permisos del bot" de más abajo lo overridean explícitamente.
+function makeInteraction({ isStaffMember = true, botHasAllPermissions = true } = {}) {
   return {
     guildId: 'guild-1',
     // Map real, no un objeto ad-hoc con solo .has(): /estado usa isStaff(), que hace
     // [...roles.cache.keys()] — igual que la Collection real de discord.js.
     member: { roles: { cache: new Map(isStaffMember ? [['role-admin', { id: 'role-admin' }]] : []) } },
+    guild: { members: { me: { permissions: { has: () => botHasAllPermissions } } } },
     client: {
       ws: { ping: 42 },
       uptime: 3_600_000,
@@ -105,5 +109,41 @@ describe('/estado', () => {
     const field = (name) => embed.data.fields.find((f) => f.name === name)?.value;
     expect(field('📡 Latencia (gateway)')).not.toContain('-1ms');
     expect(field('📡 Latencia (gateway)')).toMatch(/Reconectando/);
+  });
+
+  // Fase 4C-1 (guía de permisos) — mismo chequeo que /setup, pero disponible en
+  // cualquier momento (ej. un permiso sacado por accidente reordenando roles DESPUÉS de
+  // /setup, que antes no tenía ninguna forma de notarse hasta que algo fallaba solo).
+  describe('🔐 Permisos del bot', () => {
+    it('con todos los permisos esenciales: "✅ Todo OK", sin listar nada', async () => {
+      const interaction = makeInteraction({ botHasAllPermissions: true });
+
+      await execute(interaction);
+
+      const embed = interaction.editReply.mock.calls[0][0].embeds[0];
+      const field = (name) => embed.data.fields.find((f) => f.name === name)?.value;
+      expect(field('🔐 Permisos del bot')).toBe('✅ Todo OK');
+    });
+
+    it('con permisos esenciales faltantes: los lista con la función afectada', async () => {
+      const interaction = makeInteraction({ botHasAllPermissions: false });
+
+      await execute(interaction);
+
+      const embed = interaction.editReply.mock.calls[0][0].embeds[0];
+      const field = (name) => embed.data.fields.find((f) => f.name === name)?.value;
+      expect(field('🔐 Permisos del bot')).toContain('⚠️');
+      expect(field('🔐 Permisos del bot')).toMatch(/afecta:/);
+    });
+
+    it('sin interaction.guild (nunca debería pasar, pero no debe reventar /estado)', async () => {
+      const interaction = makeInteraction();
+      delete interaction.guild;
+
+      await expect(execute(interaction)).resolves.not.toThrow();
+      const embed = interaction.editReply.mock.calls[0][0].embeds[0];
+      const field = (name) => embed.data.fields.find((f) => f.name === name)?.value;
+      expect(field('🔐 Permisos del bot')).toBe('✅ Todo OK');
+    });
   });
 });

@@ -27,6 +27,12 @@ export const data = new SlashCommandBuilder()
   .setDescription('Configura piezas sueltas del bot (rol de castigo, rol automático, canales especiales).')
   .addSubcommand((sub) =>
     sub
+      .setName('rol-admin')
+      .setDescription('Separa el rol de Administrador (economía/XP staff) del rol de Moderador — PERM-1.')
+      .addRoleOption((o) => o.setName('rol').setDescription('Rol que va a poder usar /economia-staff y /xp').setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub
       .setName('rol-castigo')
       .setDescription('Rol que usan /punish y /unpunish para restringir imágenes/enlaces.')
       .addRoleOption((o) => o.setName('rol').setDescription('Rol a usar (dejalo vacío para desactivar)').setRequired(false)),
@@ -112,6 +118,12 @@ export const data = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
+      .setName('canal-reportes')
+      .setDescription('Canal donde llegan los reportes de /report. Si no lo configurás, se usa el log de moderación.')
+      .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para volver al log de moderación)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
+  )
+  .addSubcommand((sub) =>
+    sub
       .setName('canal-lol')
       .setDescription('Canal donde se avisan los patch notes de League of Legends (opcional, apagado por defecto).')
       .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para desactivar)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
@@ -136,6 +148,25 @@ export async function execute(interaction) {
   // acción con consecuencia visible sobre un usuario puntual (a diferencia de /ban, /warn,
   // /punish, etc., que sí son públicas a propósito para dar transparencia). Mismo criterio
   // que ya usa /setup, que trabaja sobre estos mismos campos de guild_config.
+  // PERM-1, Fase 4B: a diferencia de rol-castigo/rol-automatico, acá el rol es
+  // OBLIGATORIO (sin opción de "vacío para desactivar") — admin_role_id no es un
+  // feature opt-in, es un gate de permisos: si se pudiera vaciar, un admin corriendo
+  // esto de nuevo pensando en "resetear" dejaría a TODO el mundo sin acceso a
+  // /economia-staff/xp (isAdmin() nunca pasa con admin_role_id null), en vez de volver
+  // al comportamiento unificado de antes. Para volver a lo de antes, hay que apuntar
+  // rol-admin al mismo rol que ya tiene moderator_role_id — una acción explícita, no un
+  // vacío ambiguo. No lleva chequeo de rol peligroso (getDangerousRolePermission):
+  // mismo criterio que moderator_role_id en /setup — este rol está pensado para tener
+  // privilegios reales, a diferencia de rol-castigo/rol-automatico (que el bot asigna
+  // solo, sin revisión humana caso por caso).
+  if (sub === 'rol-admin') {
+    const rol = interaction.options.getRole('rol');
+    await setGuildConfig(guildId, { admin_role_id: rol.id });
+    await interaction.reply({ content: `✅ Rol de administrador configurado: ${rol}. Ahora solo ese rol puede usar /economia-staff y /xp.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `👮 Rol de administrador → ${rol}`);
+    return;
+  }
+
   if (sub === 'rol-castigo') {
     const rol = interaction.options.getRole('rol');
     if (rol) {
@@ -283,6 +314,17 @@ export async function execute(interaction) {
     return;
   }
 
+  if (sub === 'canal-reportes') {
+    const canal = interaction.options.getChannel('canal');
+    await setGuildConfig(guildId, { report_channel_id: canal?.id ?? null });
+    await interaction.reply({
+      content: canal ? `✅ Canal de reportes configurado: ${canal}.` : '✅ Canal de reportes desactivado — /report vuelve a usar el log de moderación.',
+      flags: MessageFlags.Ephemeral,
+    });
+    await logConfigChange(interaction, canal ? `🚨 Canal de reportes → ${canal}` : '🚨 Canal de reportes desactivado (vuelve al log de moderación)');
+    return;
+  }
+
   if (sub === 'canal-lol') {
     const canal = interaction.options.getChannel('canal');
     await setGuildConfig(guildId, { lol_announce_channel_id: canal?.id ?? null });
@@ -340,6 +382,7 @@ export async function buildConfigSummaryEmbed(guildId) {
       { name: '🎫 Rol automático', value: role(cfg.auto_role_id), inline: true },
       { name: '🎉 Canal de bienvenida', value: channel(cfg.welcome_channel_id), inline: true },
       { name: '🤫 Canal de confesiones', value: channel(cfg.confession_channel_id), inline: true },
+      { name: '🚨 Canal de reportes', value: cfg.report_channel_id ? channel(cfg.report_channel_id) : '— usa el log de moderación', inline: true },
       { name: '🕵️ Revisión previa de confesiones', value: toggle(cfg.confession_require_approval), inline: true },
       { name: '🚷 Usuarios bloqueados de /confession', value: `${(cfg.confession_blocked_ids || []).length}`, inline: true },
       { name: '🎮 Canal de patch notes de LoL', value: channel(cfg.lol_announce_channel_id), inline: true },

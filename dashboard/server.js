@@ -13,6 +13,7 @@ import { layout } from './html.js';
 import { renderLoginPage, renderGuildList, renderGuildDashboard } from './views.js';
 import { rateLimitMiddleware } from './rateLimiter.js';
 import { registerShutdown } from '../src/utils/shutdown.js';
+import { reportCriticalError } from '../src/utils/errorReporter.js';
 
 // Red de seguridad general (mismo criterio que src/index.js, no copiado a ciegas: se
 // evaluó qué puede fallar acá). Cada ruta de este archivo ya tiene su propio try/catch
@@ -25,10 +26,16 @@ import { registerShutdown } from '../src/utils/shutdown.js';
 // curso terminen): tras una excepción no capturada no se sabe en qué estado quedó el
 // proceso, así que esperar es más arriesgado que reiniciar ya.
 // MOTIVO: auditoría Fase 2C, sección 5.
-process.on('unhandledRejection', (reason) => console.error('❌ Promesa rechazada sin manejar (dashboard):', reason));
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Promesa rechazada sin manejar (dashboard):', reason);
+  reportCriticalError(null, 'dashboard: unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
+});
 process.on('uncaughtException', (error) => {
   console.error('❌ Excepción no capturada (dashboard), reiniciando el proceso:', error);
-  process.exit(1);
+  // Mismo criterio que src/index.js: esperar el intento de alerta (REST puro, no
+  // depende de ninguna conexión de gateway) antes de salir, para no cortarla a mitad
+  // de camino con el process.exit.
+  reportCriticalError(null, 'dashboard: uncaughtException', error).finally(() => process.exit(1));
 });
 
 const app = express();
@@ -65,6 +72,7 @@ app.get('/auth/callback', async (req, res) => {
     res.redirect('/');
   } catch (error) {
     console.error('❌ Error en el callback de OAuth del dashboard:', error);
+    reportCriticalError(null, 'dashboard: /auth/callback', error);
     res.status(500).send(layout({ title: 'Error', body: '<div class="card"><p>No se pudo completar el login con Discord.</p></div>' }));
   }
 });
@@ -86,6 +94,7 @@ app.get('/', async (req, res) => {
     res.send(layout({ title: 'Tus servidores', body: renderGuildList(guilds), loggedIn: true }));
   } catch (error) {
     console.error('❌ Error listando servidores del dashboard:', error);
+    reportCriticalError(null, 'dashboard: GET /', error);
     res.status(500).send(layout({ title: 'Error', body: '<div class="card"><p>No se pudieron cargar tus servidores.</p></div>', loggedIn: true }));
   }
 });
@@ -125,6 +134,7 @@ app.get('/guild/:guildId', async (req, res) => {
     res.send(layout({ title: access.guild.name, body: renderGuildDashboard(access.guild, data, usersById), loggedIn: true }));
   } catch (error) {
     console.error('❌ Error cargando el dashboard de un servidor:', error);
+    reportCriticalError(null, `dashboard: GET /guild/${req.params.guildId}`, error);
     res.status(500).send(layout({ title: 'Error', body: '<div class="card"><p>No se pudo cargar la información de este servidor.</p></div>', loggedIn: true }));
   }
 });

@@ -5,6 +5,25 @@ import { createGiveSuspiciousLogEmbed } from '../../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { recordGive } from '../../utils/giveTracker.js';
 
+// Cooldown contra ejecuciones rápidas/doble click — ECO-2, Fase 4B: antes no existía
+// ningún límite propio de /give (giveTracker.js solo detecta y loguea DESPUÉS del
+// hecho, nunca bloquea nada). Mismo patrón y misma ventana que /encuesta/`/confession`
+// (Map en memoria por guild+emisor, 2 min, barrido cada 10 min) — no reemplaza a
+// giveTracker (sigue existiendo tal cual), solo sube el costo de un farmeo rápido de
+// alts (N cuentas corriendo /daily+/work y volcando todo a una cuenta principal en
+// ráfaga). No es un rediseño de la economía (comisión/antigüedad mínima quedan afuera
+// a propósito, ver Fase 4B triage) — es el mínimo quirúrgico que cierra la ejecución en
+// ráfaga sin tocar cómo se mueve la plata.
+const GIVE_COOLDOWN_MS = 2 * 60 * 1000;
+const lastGiveAt = new Map(); // `${guildId}:${senderId}` -> timestamp del último /give
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of lastGiveAt) {
+    if (now - ts >= GIVE_COOLDOWN_MS) lastGiveAt.delete(key);
+  }
+}, 10 * 60 * 1000).unref();
+
 export const data = new SlashCommandBuilder()
   .setName('give')
   .setDescription('Transferí monedas a otro usuario.')
@@ -15,6 +34,16 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction) {
   const targetUser = interaction.options.getUser('usuario');
   const cantidad = interaction.options.getInteger('cantidad');
+  const guildId = interaction.guild.id;
+
+  const cooldownKey = `${guildId}:${interaction.user.id}`;
+  const lastGive = lastGiveAt.get(cooldownKey) || 0;
+  const elapsed = Date.now() - lastGive;
+  if (elapsed < GIVE_COOLDOWN_MS) {
+    const retryAt = Math.floor((lastGive + GIVE_COOLDOWN_MS) / 1000);
+    await interaction.reply({ content: `⏳ Ya transferiste monedas hace poco. Podés volver a usar /give <t:${retryAt}:R>.`, flags: MessageFlags.Ephemeral });
+    return;
+  }
 
   if (targetUser.id === interaction.user.id) {
     await interaction.reply({ content: '❌ No podés transferirte monedas a vos mismo.', flags: MessageFlags.Ephemeral });
@@ -25,8 +54,6 @@ export async function execute(interaction) {
     return;
   }
 
-  const guildId = interaction.guild.id;
-
   // Chequeo previo ANTES de deferir: así el error de "no te alcanza" puede responderse
   // ephemeral (una vez deferido en público, ya no se puede cambiar). transferBalance
   // sigue siendo la autoridad atómica real — esto es solo para elegir cómo responder.
@@ -35,6 +62,10 @@ export async function execute(interaction) {
     await interaction.reply({ content: '❌ No tenés suficientes monedas para esa transferencia.', flags: MessageFlags.Ephemeral });
     return;
   }
+
+  // Recién acá se consume el cooldown — un intento rechazado (a uno mismo, a un bot, o
+  // sin fondos) no debería gastarle el turno a un uso legítimo posterior.
+  lastGiveAt.set(cooldownKey, Date.now());
 
   await interaction.deferReply();
 

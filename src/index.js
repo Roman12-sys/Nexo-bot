@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client, Collection, GatewayIntentBits, Partials } from 'discord.js';
 import { config } from './config.js';
 import { registerShutdown } from './utils/shutdown.js';
+import { reportCriticalError } from './utils/errorReporter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,10 +29,17 @@ client.on('shardError', (error) => console.error('❌ Error de conexión con el 
 // tirar el proceso en silencio. Se loguea siempre; en uncaughtException además se sale con
 // código 1 para que el "restart policy" de Railway levante un proceso limpio en vez de
 // seguir corriendo en un estado posiblemente corrupto.
-process.on('unhandledRejection', (reason) => console.error('❌ Promesa rechazada sin manejar:', reason));
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ Promesa rechazada sin manejar:', reason);
+  reportCriticalError(client, 'unhandledRejection', reason instanceof Error ? reason : new Error(String(reason)));
+});
 process.on('uncaughtException', (error) => {
   console.error('❌ Excepción no capturada, reiniciando el proceso:', error);
-  process.exit(1);
+  // Se espera el intento de alerta (con su propio try/catch interno, nunca puede
+  // colgar el proceso más que el tiempo real de un request a Discord) antes de salir —
+  // si se llamara sin await, process.exit(1) casi seguro corta la conexión de red a
+  // mitad de camino y la alerta nunca sale.
+  reportCriticalError(client, 'uncaughtException', error).finally(() => process.exit(1));
 });
 
 client.commands = new Collection();

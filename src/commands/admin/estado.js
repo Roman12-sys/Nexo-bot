@@ -6,6 +6,7 @@ import { isStaff } from '../../utils/permissions.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
 import { getAllTempChannels } from '../../utils/tempVoiceStore.js';
+import { getMissingBotPermissions } from '../../utils/botPermissions.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
@@ -59,6 +60,19 @@ export async function execute(interaction) {
     )
     .setFooter({ text: `${BRAND_NAME} • Usá /metricas para ver los comandos más usados` })
     .setTimestamp();
+
+  // Fase 4C-1 (guía de permisos) — mismo chequeo que usa /setup al final de la
+  // configuración, pero acá disponible en cualquier momento: un permiso sacado por
+  // accidente DESPUÉS de /setup (ej. reordenando roles) no se notaba hasta que una
+  // feature fallaba en producción sin explicación.
+  const missingPermissions = getMissingBotPermissions(interaction.guild);
+  embed.addFields({
+    name: '🔐 Permisos del bot',
+    value:
+      missingPermissions.length === 0
+        ? '✅ Todo OK'
+        : missingPermissions.map((p) => `⚠️ **${p.label}** — afecta: ${p.feature}`).join('\n').slice(0, 1000),
+  });
 
   await interaction.editReply({ embeds: [embed] });
 }

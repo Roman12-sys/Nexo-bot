@@ -63,6 +63,16 @@
 --
 --   alter table economy_transactions add column if not exists delivered boolean not null default false;
 -- =========================================================
+--
+-- MIGRACIÓN MANUAL PENDIENTE (Fase 4C-1, /report) — canal dedicado para los reportes de
+-- miembros (/report). Si no está configurado, /report cae al canal de logs de moderación
+-- (log_channel_moderation_id, ya existente) — ver src/commands/utilidad/report.js y
+-- src/utils/guildLogChannels.js. Correr DESPUÉS de que el código de esta fase esté
+-- desplegado (ver CLAUDE.md, gotcha "Correr un DROP/ALTER antes de que el código nuevo
+-- esté desplegado"), y verificar por API tras correrla, no confiar solo en "Success":
+--
+--   alter table guild_config add column if not exists report_channel_id text;
+-- =========================================================
 
 -- =========================================================
 -- guild_config: configuración por servidor (reemplaza .env)
@@ -84,6 +94,7 @@ create table if not exists guild_config (
   confession_channel_id text,
   xp_announce_channel_id text,
   lol_announce_channel_id text, -- opt-in: patch notes de LoL para ESTE servidor (ver lolPatchEngine.js)
+  report_channel_id text, -- opt-in: destino de /report. Si es null, se usa log_channel_moderation_id (ver guildLogChannels.js) — nunca se agrega un segundo canal obligatorio.
 
   -- niveles
   level_roles jsonb not null default '{}',

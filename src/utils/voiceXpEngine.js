@@ -6,6 +6,7 @@
 import { getGuildConfig } from './guildConfigStore.js';
 import { addXp, getUserXp, XP_BOOST_MULTIPLIER } from './xpStore.js';
 import { processLevelUp, getGuildXpMultiplier } from './xpEngine.js';
+import { reportCriticalError } from './errorReporter.js';
 
 const TICK_MS = 5 * 60 * 1000; // 5 minutos
 const XP_MIN = 10;
@@ -110,7 +111,10 @@ export function startVoiceXpLoop(client) {
     }
     tickRunning = true;
     grantVoiceXpTick(client)
-      .catch((error) => console.error('❌ [XP voz] Error en el barrido de XP por voz:', error))
+      .catch((error) => {
+        console.error('❌ [XP voz] Error en el barrido de XP por voz:', error);
+        reportCriticalError(client, 'voiceXpEngine: barrido periódico de XP por voz', error);
+      })
       .finally(() => {
         tickRunning = false;
       });

@@ -3,7 +3,7 @@ import { getGuildShopItems } from '../../utils/shopStore.js';
 import { getUserEconomy, addBalance, setBalance, getUserTransactions, getGuildPurchasesByReason, markPurchaseDelivered } from '../../utils/economyStore.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { createEconomyAdminLogEmbed } from '../../utils/logEmbeds.js';
-import { isStaff } from '../../utils/permissions.js';
+import { isAdmin } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { buildCsvAttachment } from '../../utils/csvExport.js';
 import { describeError } from '../../utils/errorMessages.js';
@@ -225,7 +225,7 @@ async function handleHistorial(interaction) {
 }
 
 registerButtonPrefix('ecostaff_hist_page_', async (i) => {
-  if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+  if (!(await isAdmin(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
 
   // deferUpdate() apenas se confirma el permiso — antes el único ack (i.update) llegaba
   // recién después de 2 awaits (users.fetch + getUserTransactions), lo que arriesgaba
@@ -328,7 +328,7 @@ async function handlePendientes(interaction) {
 }
 
 registerSelectPrefix('ecostaff_pendiente_entregada', async (i) => {
-  if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+  if (!(await isAdmin(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
 
   // deferUpdate() apenas se confirma el permiso — antes el único ack (i.update) llegaba
   // recién después de markPurchaseDelivered + buildPendientesPayload (2 llamadas a
@@ -392,7 +392,7 @@ export const data = new SlashCommandBuilder()
   .setDMPermission(false);
 
 export async function execute(interaction) {
-  if (!(await isStaff(interaction))) {
+  if (!(await isAdmin(interaction))) {
     await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
     return;
   }

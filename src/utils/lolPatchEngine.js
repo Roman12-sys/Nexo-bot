@@ -16,6 +16,7 @@
 import { EmbedBuilder } from 'discord.js';
 import { getLastAnnouncedPatchUrl, setLastAnnouncedPatchUrl } from './lolPatchStore.js';
 import { getGuildsWithLolAnnounceChannel } from './guildConfigStore.js';
+import { reportCriticalError } from './errorReporter.js';
 
 const PATCH_NOTES_TAG_URL = 'https://www.leagueoflegends.com/en-us/news/tags/patch-notes/';
 const SITE_ORIGIN = 'https://www.leagueoflegends.com';
@@ -112,6 +113,9 @@ async function checkForNewPatch(client) {
 export function startLolPatchLoop(client) {
   checkForNewPatch(client).catch((error) => console.error('❌ [patch notes LoL] Error en el chequeo inicial:', error));
   setInterval(() => {
-    checkForNewPatch(client).catch((error) => console.error('❌ [patch notes LoL] Error en el barrido:', error));
+    checkForNewPatch(client).catch((error) => {
+      console.error('❌ [patch notes LoL] Error en el barrido:', error);
+      reportCriticalError(client, 'lolPatchEngine: barrido periódico', error);
+    });
   }, TICK_MS).unref();
 }

@@ -3,8 +3,12 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 // economia-staff.js — Fase 2B, sección 3: los dos handlers con componentes (paginado de
 // historial, marcar compra pendiente como entregada) pasaron de un solo i.update() tras
 // 1-2 awaits a i.deferUpdate() + i.editReply(), mismo motivo que sanciones.js.
-const isStaff = vi.fn().mockResolvedValue(true);
-vi.mock('../src/utils/permissions.js', () => ({ isStaff }));
+// QUÉ CAMBIÓ (PERM-1, Fase 4B): los 3 gates de economia-staff.js pasaron de isStaff() a
+// isAdmin() (tier separado, solo admin_role_id) — ver economiaStaffPermissions.test.js
+// para la cobertura de la matriz de permisos en sí; acá solo hace falta que el mock
+// exponga isAdmin para que el módulo real pueda importarlo.
+const isAdmin = vi.fn().mockResolvedValue(true);
+vi.mock('../src/utils/permissions.js', () => ({ isAdmin }));
 
 const getUserTransactions = vi.fn().mockResolvedValue([]);
 const getGuildShopItems = vi.fn().mockResolvedValue([]);
@@ -41,7 +45,7 @@ function makeInteraction(overrides = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  isStaff.mockResolvedValue(true);
+  isAdmin.mockResolvedValue(true);
 });
 
 describe('ecostaff_hist_page_', () => {

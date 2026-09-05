@@ -189,8 +189,12 @@ describe('/setup — configuración final coherente (sin estados parciales)', ()
     // El flujo completa igual (no queda a mitad de camino): setup_completed_at se llega
     // a guardar, señal de que runSetup terminó sin tirar.
     expect(setGuildConfig.mock.calls.some((c) => 'setup_completed_at' in c[1])).toBe(true);
+    // QUÉ CAMBIÓ: título del embed final ahora es "✅ NEXO está listo" (Fase 4C-1,
+    // onboarding) — antes era "✅ Nexo Bot configurado". No es el foco de este test (que
+    // valida que el flujo termina sin quedar a mitad de camino), solo se actualiza el
+    // string esperado.
     expect(interaction.editReply).toHaveBeenCalledWith(
-      expect.objectContaining({ embeds: [expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('configurado') }) })] }),
+      expect.objectContaining({ embeds: [expect.objectContaining({ data: expect.objectContaining({ title: expect.stringContaining('listo') }) })] }),
     );
   });
 
