@@ -30,6 +30,9 @@ function baseData(overrides = {}) {
     messagesDelta: null,
     missionSummary: { dailyCompletedUsers: 0, weeklyCompletedUsers: 0 },
     guildConfig: {},
+    voiceConfig: null,
+    systemsStatus: [],
+    configIssues: [],
     ...overrides,
   };
 }
@@ -115,5 +118,100 @@ describe('renderGuildDashboard — tarjeta de configuración actual (DASH-1)', (
     // La tarjeta menciona economía como "siempre activa", nunca con el mismo
     // toggle ✅/❌ que moderación/XP (features.economia no existe en el código real).
     expect(html).toContain('💰 Siempre activa');
+  });
+});
+
+// Dashboard 2.0 (MEJORA 1/2, CICLO 1) — Resumen (stats + accesos rápidos + actividad
+// reciente), estado de sistemas y problemas de configuración.
+describe('renderGuildDashboard — Resumen (Dashboard 2.0)', () => {
+  it('muestra miembros, sistemas activos y cantidad de problemas', () => {
+    const data = baseData({
+      systemsStatus: [
+        { key: 'economia', label: 'Economía', status: 'ok', detail: 'Siempre activa' },
+        { key: 'xp', label: 'XP', status: 'off', detail: 'Apagado' },
+      ],
+      configIssues: [{ severity: 'warning', title: 'Moderación', detail: 'Sin canal de logs.' }],
+    });
+
+    const html = renderGuildDashboard(guild, data, new Map());
+
+    expect(html).toContain('📋 Resumen');
+    expect(html).toContain('1/2'); // sistemas activos (solo economía es 'ok')
+    expect(html).toContain('Problema detectado'); // singular con 1 solo issue
+  });
+
+  it('incluye accesos rápidos que anclan a secciones que existen en la misma página', () => {
+    const html = renderGuildDashboard(guild, baseData(), new Map());
+
+    for (const anchorId of ['config', 'moderacion', 'economia', 'xp', 'giveaways', 'tempvoice']) {
+      expect(html).toContain(`href="#${anchorId}"`);
+      expect(html).toContain(`id="${anchorId}"`);
+    }
+  });
+
+  it('"Ayuda" solo aparece si config.supportContact está configurado (nunca un link inventado)', () => {
+    const html = renderGuildDashboard(guild, baseData(), new Map());
+    expect(html).not.toContain('🆘 Ayuda');
+  });
+
+  it('muestra actividad reciente reusando recentWarns/activeGiveaways ya cargados (sin queries nuevas)', () => {
+    const data = baseData({
+      recentWarns: [{ user_id: 'user-1', reason: 'Spam', moderator_id: 'mod-1', created_at: new Date().toISOString() }],
+      activeGiveaways: [{ prize: 'Nitro', messageId: 'msg-1' }],
+    });
+
+    const html = renderGuildDashboard(guild, data, new Map());
+
+    expect(html).toContain('🕒 Actividad reciente');
+    expect(html).toContain('Spam');
+    expect(html).toContain('Nitro');
+  });
+
+  it('sin actividad reciente: mensaje claro, no una tabla vacía', () => {
+    const html = renderGuildDashboard(guild, baseData(), new Map());
+    expect(html).toContain('Sin actividad reciente registrada');
+  });
+});
+
+describe('renderGuildDashboard — problemas de configuración (Dashboard 2.0)', () => {
+  it('sin issues: no renderiza la tarjeta de problemas', () => {
+    const html = renderGuildDashboard(guild, baseData({ configIssues: [] }), new Map());
+    expect(html).not.toContain('Problemas de configuración');
+  });
+
+  it('con issues: los lista con severidad, título y detalle', () => {
+    const data = baseData({
+      configIssues: [
+        { severity: 'danger', title: 'Reportes', detail: 'El canal configurado ya no existe.' },
+        { severity: 'warning', title: 'Rol automático', detail: 'El rol configurado ya no existe.' },
+      ],
+    });
+
+    const html = renderGuildDashboard(guild, data, new Map());
+
+    expect(html).toContain('Problemas de configuración (2)');
+    expect(html).toContain('🔴 Urgente');
+    expect(html).toContain('🟡 Atención');
+    expect(html).toContain('Reportes');
+    expect(html).toContain('El canal configurado ya no existe.');
+  });
+});
+
+describe('renderGuildDashboard — estado de sistemas (Dashboard 2.0)', () => {
+  it('muestra cada sistema con su badge y detalle', () => {
+    const data = baseData({
+      systemsStatus: [
+        { key: 'economia', label: 'Economía', status: 'ok', detail: 'Siempre activa' },
+        { key: 'tempvoice', label: 'Salas de voz temporales', status: 'warning', detail: 'Configuración pendiente' },
+      ],
+    });
+
+    const html = renderGuildDashboard(guild, data, new Map());
+
+    expect(html).toContain('🧩 Sistemas');
+    expect(html).toContain('Salas de voz temporales');
+    expect(html).toContain('Configuración pendiente');
+    expect(html).toContain('badge-ok');
+    expect(html).toContain('badge-warning');
   });
 });

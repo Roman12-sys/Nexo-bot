@@ -41,6 +41,132 @@ function userLabel(usersById, userId) {
   return escapeHtml(user.global_name || user.username);
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard 2.0 (MEJORA 1/2, CICLO 1) — "Resumen" arriba de todo (stats + accesos
+// rápidos + actividad reciente), estado de sistemas, y problemas de configuración.
+// Todo sobre datos que loadGuildDashboardData ya calculaba o ya traía (ver
+// dashboard/queries.js: computeSystemsStatus/computeConfigIssues) — acá solo se
+// renderiza, no se decide nada nuevo.
+// ---------------------------------------------------------------------------
+
+const STATUS_BADGE = {
+  ok: '<span class="badge badge-ok">🟢</span>',
+  warning: '<span class="badge badge-warning">🟡</span>',
+  off: '<span class="badge badge-off">⚪</span>',
+};
+
+const SEVERITY_BADGE = {
+  danger: '<span class="badge badge-danger">🔴 Urgente</span>',
+  warning: '<span class="badge badge-warning">🟡 Atención</span>',
+};
+
+// Accesos rápidos: anclas a secciones que YA existen más abajo en esta misma página
+// (nunca un botón decorativo a algo que no existe) — mismo criterio pedido: si una
+// función solo se configura por comando de Discord, el link lleva a donde el dashboard
+// YA muestra esa configuración (la tarjeta "Configuración actual"), no a un /config
+// gigante nuevo. "Abrir servidor" y "Ayuda" son los únicos dos links externos, y
+// "Ayuda" solo aparece si config.supportContact está seteado (nunca un link inventado).
+function buildQuickActions(guild) {
+  const links = [
+    ['#config', '⚙️ Configuración'],
+    ['#moderacion', '🛡️ Moderación'],
+    ['#economia', '💰 Economía'],
+    ['#xp', '⭐ XP'],
+    ['#giveaways', '🎉 Giveaways'],
+    ['#tempvoice', '🔊 Temp Voice'],
+  ]
+    .map(([href, label]) => `<a href="${href}">${label}</a>`)
+    .join('');
+
+  const externalLinks = [
+    `<a href="https://discord.com/channels/${escapeHtml(guild.id)}" target="_blank" rel="noopener">🎮 Abrir servidor</a>`,
+    config.supportContact ? `<a href="${escapeHtml(config.supportContact)}" target="_blank" rel="noopener">🆘 Ayuda</a>` : '',
+  ].join('');
+
+  return `<div class="quick-actions">${links}${externalLinks}</div>`;
+}
+
+// Reusa recentWarns/activeGiveaways (ya cargados por loadGuildDashboardData para sus
+// propias tarjetas) — a propósito NO se agrega ninguna tabla/columna nueva de analytics
+// solo para esta lista.
+function buildRecentActivity(data, usersById) {
+  const items = [
+    ...data.recentWarns
+      .slice(0, 3)
+      .map(
+        (w) =>
+          `<li>⚠️ Advertencia a ${userLabel(usersById, w.user_id)} — ${escapeHtml(w.reason || 'sin motivo')} <span class="muted">${new Date(w.created_at).toLocaleDateString('es-ES')}</span></li>`,
+      ),
+    ...data.activeGiveaways.slice(0, 2).map((g) => `<li>🎉 Sorteo activo: <strong>${escapeHtml(g.prize)}</strong></li>`),
+  ];
+
+  if (items.length === 0) return '<p class="muted" style="margin:0.75rem 0 0;">Sin actividad reciente registrada.</p>';
+  return `<ul class="activity-list">${items.join('')}</ul>`;
+}
+
+function buildResumenCard(guild, data, usersById) {
+  const systemsStatus = data.systemsStatus || [];
+  const configIssues = data.configIssues || [];
+  const activeSystems = systemsStatus.filter((s) => s.status === 'ok').length;
+
+  return `
+    <div class="card">
+      <h2>📋 Resumen</h2>
+      <div class="stat-row">
+        <div class="stat"><div class="value">${guild.approximate_member_count ?? '—'}</div><div class="label">Miembros</div></div>
+        <div class="stat"><div class="value">${activeSystems}/${systemsStatus.length}</div><div class="label">Sistemas activos</div></div>
+        <div class="stat"><div class="value">${configIssues.length}</div><div class="label">${configIssues.length === 1 ? 'Problema detectado' : 'Problemas detectados'}</div></div>
+      </div>
+      ${buildQuickActions(guild)}
+      <h3 style="margin:1.25rem 0 0.25rem;font-size:0.95rem;">🕒 Actividad reciente</h3>
+      ${buildRecentActivity(data, usersById)}
+    </div>`;
+}
+
+// Solo se renderiza si hay al menos un problema real — el propio Resumen ya muestra
+// "0 problemas detectados" cuando no hay nada, no hace falta una segunda tarjeta vacía
+// para confirmarlo (menos información irrelevante).
+function buildIssuesCard(configIssues) {
+  if (!configIssues || configIssues.length === 0) return '';
+
+  const items = configIssues
+    .map(
+      (issue) => `
+      <div class="issue-item">
+        ${SEVERITY_BADGE[issue.severity] || SEVERITY_BADGE.warning}
+        <div class="issue-body">
+          <h4>${escapeHtml(issue.title)}</h4>
+          <p>${escapeHtml(issue.detail)}</p>
+        </div>
+      </div>`,
+    )
+    .join('');
+
+  return `
+    <div class="card">
+      <h2>⚠️ Problemas de configuración (${configIssues.length})</h2>
+      ${items}
+    </div>`;
+}
+
+function buildSystemsCard(systemsStatus) {
+  const items = (systemsStatus || [])
+    .map(
+      (s) => `
+      <div class="system-item">
+        <span>${escapeHtml(s.label)}</span>
+        <span>${STATUS_BADGE[s.status] || ''} <span class="muted">${escapeHtml(s.detail)}</span></span>
+      </div>`,
+    )
+    .join('');
+
+  return `
+    <div class="card">
+      <h2>🧩 Sistemas</h2>
+      <div class="systems-grid">${items}</div>
+    </div>`;
+}
+
 export function renderGuildDashboard(guild, data, usersById) {
   const topCommandsRows =
     data.topCommands.map((c) => `<tr><td>/${escapeHtml(c.command_name)}</td><td>${c.uses}</td></tr>`).join('') ||
@@ -137,7 +263,7 @@ export function renderGuildDashboard(guild, data, usersById) {
   // ningún comando, ver setup.js) — se muestra como "Siempre activa" en vez de
   // inventar un estado on/off que el código no tiene.
   const configCard = `
-    <div class="card">
+    <div class="card" id="config">
       <h2>⚙️ Configuración actual</h2>
       <p class="muted" style="margin-top:-0.5rem;">Datos reales de este servidor — para cambiar algo de acá, usá <code>/setup</code> o <code>/config</code>.</p>
       <div class="stat-row" style="margin-top:0.75rem;">
@@ -182,6 +308,9 @@ export function renderGuildDashboard(guild, data, usersById) {
   return `
     <a class="muted" href="/">&larr; Tus servidores</a>
     <h1>${escapeHtml(guild.name)}</h1>
+    ${buildResumenCard(guild, data, usersById)}
+    ${buildIssuesCard(data.configIssues)}
+    ${buildSystemsCard(data.systemsStatus)}
     ${readOnlyBanner}
     ${configCard}
 
@@ -195,7 +324,7 @@ export function renderGuildDashboard(guild, data, usersById) {
       <table><thead><tr><th>Comando más usado</th><th>Usos</th></tr></thead><tbody>${topCommandsRows}</tbody></table>
     </div>
 
-    <div class="card">
+    <div class="card" id="economia">
       <h2>💰 Economía</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.totalCoins.toLocaleString('es-ES')}</div><div class="label">Monedas en circulación</div></div>
@@ -203,7 +332,7 @@ export function renderGuildDashboard(guild, data, usersById) {
       <table><thead><tr><th>Usuario</th><th>Balance</th></tr></thead><tbody>${topBalancesRows}</tbody></table>
     </div>
 
-    <div class="card">
+    <div class="card" id="moderacion">
       <h2>🛡️ Moderación</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.totalWarns}</div><div class="label">Advertencias totales</div></div>
@@ -215,7 +344,7 @@ export function renderGuildDashboard(guild, data, usersById) {
       ${punishedOverflow}
     </div>
 
-    <div class="card">
+    <div class="card" id="giveaways">
       <h2>🎉 Sorteos y juegos</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.activeGiveaways.length}</div><div class="label">Sorteos activos</div></div>
@@ -232,7 +361,7 @@ export function renderGuildDashboard(guild, data, usersById) {
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="xp">
       <h2>⭐ XP y niveles</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.xpUserCount}</div><div class="label">Usuarios con XP</div></div>
@@ -240,7 +369,7 @@ export function renderGuildDashboard(guild, data, usersById) {
       <table><thead><tr><th>Usuario</th><th>Nivel</th><th>XP total</th></tr></thead><tbody>${xpRows}</tbody></table>
     </div>
 
-    <div class="card">
+    <div class="card" id="tempvoice">
       <h2>🔊 Salas de voz temporales</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.voiceStats.totalSessions}</div><div class="label">Salas creadas (histórico, últimas 500)</div></div>

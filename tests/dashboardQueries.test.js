@@ -41,6 +41,13 @@ vi.mock('../src/utils/lolPatchStore.js', () => ({ getLastAnnouncedPatchUrl, getL
 const fetchGuild = vi.fn();
 const fetchGuildMember = vi.fn();
 const fetchGuildMembersWithRole = vi.fn().mockResolvedValue({ members: [], possiblyIncomplete: false });
+// Dashboard 2.0 (MEJORA 1/2) — fetchGuildChannels/fetchGuildRoles alimentan
+// computeConfigIssues (¿el canal/rol guardado sigue existiendo?). Sin mock explícito
+// por test, resuelven `undefined` — fetchGuildResourceIds lo trata como "no se pudo
+// verificar" (null en vez de Set vacío), así que los tests existentes (que no les
+// interesa configIssues) no ven ningún falso positivo de "canal borrado".
+const fetchGuildChannels = vi.fn().mockResolvedValue(undefined);
+const fetchGuildRoles = vi.fn().mockResolvedValue(undefined);
 async function mapWithConcurrency(items, limit, fn) {
   const results = new Array(items.length);
   let nextIndex = 0;
@@ -53,12 +60,19 @@ async function mapWithConcurrency(items, limit, fn) {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
 }
-vi.mock('../dashboard/discordApi.js', () => ({ fetchGuild, fetchGuildMember, fetchGuildMembersWithRole, mapWithConcurrency }));
+vi.mock('../dashboard/discordApi.js', () => ({
+  fetchGuild,
+  fetchGuildMember,
+  fetchGuildMembersWithRole,
+  fetchGuildChannels,
+  fetchGuildRoles,
+  mapWithConcurrency,
+}));
 
 const isStaffFromRoles = vi.fn().mockReturnValue(false);
 vi.mock('../dashboard/permissions.js', () => ({ isStaffFromRoles }));
 
-const { listManagedGuilds, loadGuildDashboardData } = await import('../dashboard/queries.js');
+const { listManagedGuilds, loadGuildDashboardData, computeSystemsStatus, computeConfigIssues } = await import('../dashboard/queries.js');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -235,5 +249,210 @@ describe('loadGuildDashboardData — concurrencia acotada (sección 4)', () => {
 
     expect(maxInFlight).toBeLessThanOrEqual(6);
     expect(maxInFlight).toBeGreaterThan(1); // confirma que de verdad corrieron en paralelo, no todo secuencial
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dashboard 2.0 (MEJORA 1/2, CICLO 1) — computeSystemsStatus/computeConfigIssues son
+// funciones puras (sin red, sin Supabase): se testean directo con fixtures, sin pasar
+// por todo loadGuildDashboardData.
+// ---------------------------------------------------------------------------
+
+describe('computeSystemsStatus', () => {
+  it('Economía siempre está "ok" — no tiene toggle real', () => {
+    const [economia] = computeSystemsStatus({}, null);
+    expect(economia).toEqual({ key: 'economia', label: 'Economía', status: 'ok', detail: 'Siempre activa' });
+  });
+
+  it('XP: "ok" si features.xp está activado, "off" si no (nunca un problema)', () => {
+    const on = computeSystemsStatus({ features: { xp: true } }, null).find((s) => s.key === 'xp');
+    const off = computeSystemsStatus({ features: {} }, null).find((s) => s.key === 'xp');
+
+    expect(on).toEqual({ key: 'xp', label: 'XP', status: 'ok', detail: 'Activo' });
+    expect(off).toEqual({ key: 'xp', label: 'XP', status: 'off', detail: 'Apagado' });
+  });
+
+  it('Moderación: "off" apagada, "warning" activada sin canal de logs, "ok" activada con canal', () => {
+    const off = computeSystemsStatus({ features: {} }, null).find((s) => s.key === 'moderacion');
+    const warning = computeSystemsStatus({ features: { moderacion: true } }, null).find((s) => s.key === 'moderacion');
+    const ok = computeSystemsStatus({ features: { moderacion: true }, log_channel_moderation_id: 'chan-1' }, null).find((s) => s.key === 'moderacion');
+
+    expect(off.status).toBe('off');
+    expect(warning.status).toBe('warning');
+    expect(ok.status).toBe('ok');
+  });
+
+  it('Sorteos y Trivia siempre están disponibles', () => {
+    const statuses = computeSystemsStatus({}, null);
+    expect(statuses.find((s) => s.key === 'giveaways')).toMatchObject({ status: 'ok' });
+    expect(statuses.find((s) => s.key === 'trivia')).toMatchObject({ status: 'ok' });
+  });
+
+  it('Salas de voz temporales: "warning" nunca configurado, "off" desactivado a propósito, "ok" activo', () => {
+    const neverConfigured = computeSystemsStatus({}, null).find((s) => s.key === 'tempvoice');
+    const disabled = computeSystemsStatus({}, { enabled: false }).find((s) => s.key === 'tempvoice');
+    const enabled = computeSystemsStatus({}, { enabled: true }).find((s) => s.key === 'tempvoice');
+
+    expect(neverConfigured).toEqual({ key: 'tempvoice', label: 'Salas de voz temporales', status: 'warning', detail: 'Configuración pendiente' });
+    expect(disabled).toEqual({ key: 'tempvoice', label: 'Salas de voz temporales', status: 'off', detail: 'Desactivado' });
+    expect(enabled).toEqual({ key: 'tempvoice', label: 'Salas de voz temporales', status: 'ok', detail: 'Activo' });
+  });
+});
+
+describe('computeConfigIssues', () => {
+  it('sin ningún rol de staff configurado: un solo issue "Configuración inicial", nada más', () => {
+    const issues = computeConfigIssues({}, { channelIds: new Set(), roleIds: new Set() }, { enabled: true, createChannelId: 'x', categoryId: 'y' });
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({ severity: 'danger', title: 'Configuración inicial' });
+  });
+
+  it('rol de moderador configurado pero borrado: issue "danger"', () => {
+    const cfg = { moderator_role_id: 'role-mod', admin_role_id: 'role-mod' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set() }, null);
+
+    expect(issues).toContainEqual(expect.objectContaining({ severity: 'danger', title: 'Rol de moderador' }));
+  });
+
+  it('rol de administrador distinto del de moderador, borrado: issue propio (no se confunde con el de moderador)', () => {
+    const cfg = { moderator_role_id: 'role-mod', admin_role_id: 'role-admin' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
+
+    expect(issues).toContainEqual(expect.objectContaining({ title: 'Rol de administrador' }));
+    expect(issues.find((i) => i.title === 'Rol de moderador')).toBeUndefined();
+  });
+
+  it('admin_role_id igual a moderator_role_id (caso normal, /setup por defecto): no duplica el issue', () => {
+    const cfg = { moderator_role_id: 'role-mismo', admin_role_id: 'role-mismo', log_channel_moderation_id: 'chan-mod' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(['chan-mod']), roleIds: new Set(['role-mismo']) }, null);
+
+    expect(issues).toHaveLength(0);
+  });
+
+  it('moderación activada sin canal de logs: warning', () => {
+    const cfg = { moderator_role_id: 'role-mod', features: { moderacion: true } };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
+
+    expect(issues).toContainEqual(expect.objectContaining({ severity: 'warning', title: 'Moderación' }));
+  });
+
+  it('canal de logs de moderación configurado pero borrado: danger', () => {
+    const cfg = { moderator_role_id: 'role-mod', features: { moderacion: true }, log_channel_moderation_id: 'chan-borrado' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
+
+    expect(issues).toContainEqual(expect.objectContaining({ severity: 'danger', title: 'Moderación' }));
+  });
+
+  it('reportes: canal dedicado borrado pero el de moderación sigue vivo → warning (cae al fallback)', () => {
+    const cfg = { moderator_role_id: 'role-mod', log_channel_moderation_id: 'chan-mod', report_channel_id: 'chan-reportes-borrado' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(['chan-mod']), roleIds: new Set(['role-mod']) }, null);
+
+    expect(issues).toContainEqual(expect.objectContaining({ severity: 'warning', title: 'Reportes' }));
+  });
+
+  it('reportes: canal dedicado borrado Y el de moderación también → danger (no tiene dónde entregar nada)', () => {
+    const cfg = { moderator_role_id: 'role-mod', log_channel_moderation_id: 'chan-mod-borrado', report_channel_id: 'chan-reportes-borrado' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
+
+    expect(issues).toContainEqual(expect.objectContaining({ severity: 'danger', title: 'Reportes' }));
+  });
+
+  it('reportes: sin canal dedicado pero con log de moderación vivo → sin issue (estado normal por defecto)', () => {
+    const cfg = { moderator_role_id: 'role-mod', log_channel_moderation_id: 'chan-mod' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(['chan-mod']), roleIds: new Set(['role-mod']) }, null);
+
+    expect(issues.find((i) => i.title === 'Reportes')).toBeUndefined();
+  });
+
+  it('reportes: sin canal dedicado y sin log de moderación → warning', () => {
+    const cfg = { moderator_role_id: 'role-mod' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
+
+    expect(issues).toContainEqual(expect.objectContaining({ severity: 'warning', title: 'Reportes' }));
+  });
+
+  it('rol automático y rol de castigo borrados: warnings independientes', () => {
+    const cfg = { moderator_role_id: 'role-mod', auto_role_id: 'auto-borrado', punish_role_id: 'castigo-borrado' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
+
+    expect(issues).toContainEqual(expect.objectContaining({ title: 'Rol automático' }));
+    expect(issues).toContainEqual(expect.objectContaining({ title: 'Rol de castigo' }));
+  });
+
+  it('canal de bienvenida y de confesiones borrados: warnings independientes', () => {
+    const cfg = { moderator_role_id: 'role-mod', welcome_channel_id: 'bienvenida-borrado', confession_channel_id: 'confesiones-borrado' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
+
+    expect(issues).toContainEqual(expect.objectContaining({ title: 'Canal de bienvenida' }));
+    expect(issues).toContainEqual(expect.objectContaining({ title: 'Canal de confesiones' }));
+  });
+
+  it('salas de voz activas con canal/categoría borrados: danger', () => {
+    const cfg = { moderator_role_id: 'role-mod' };
+    const voiceConfig = { enabled: true, createChannelId: 'voz-borrada', categoryId: 'cat-borrada' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, voiceConfig);
+
+    expect(issues).toContainEqual(expect.objectContaining({ severity: 'danger', title: 'Salas de voz temporales' }));
+  });
+
+  it('salas de voz desactivadas con canal/categoría borrados: NO genera issue (no está en uso)', () => {
+    const cfg = { moderator_role_id: 'role-mod' };
+    const voiceConfig = { enabled: false, createChannelId: 'voz-borrada', categoryId: 'cat-borrada' };
+    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, voiceConfig);
+
+    expect(issues.find((i) => i.title === 'Salas de voz temporales')).toBeUndefined();
+  });
+
+  it('resourceIds no disponible (fetch de Discord falló): nunca acusa un canal/rol de "borrado" en falso', () => {
+    const cfg = {
+      moderator_role_id: 'role-mod',
+      auto_role_id: 'role-auto',
+      punish_role_id: 'role-castigo',
+      welcome_channel_id: 'chan-bienvenida',
+      confession_channel_id: 'chan-confesiones',
+      log_channel_moderation_id: 'chan-mod',
+      features: { moderacion: true },
+    };
+    const issues = computeConfigIssues(cfg, { channelIds: null, roleIds: null }, { enabled: true, createChannelId: 'x', categoryId: 'y' });
+
+    expect(issues).toEqual([]);
+  });
+
+  it('config completamente sana (todo configurado y vivo): sin issues', () => {
+    const cfg = {
+      moderator_role_id: 'role-mod',
+      admin_role_id: 'role-mod',
+      features: { moderacion: true, xp: true },
+      log_channel_moderation_id: 'chan-mod',
+      report_channel_id: 'chan-reportes',
+      auto_role_id: 'role-auto',
+      punish_role_id: 'role-castigo',
+      welcome_channel_id: 'chan-bienvenida',
+      confession_channel_id: 'chan-confesiones',
+    };
+    const resourceIds = {
+      channelIds: new Set(['chan-mod', 'chan-reportes', 'chan-bienvenida', 'chan-confesiones']),
+      roleIds: new Set(['role-mod', 'role-auto', 'role-castigo']),
+    };
+    const issues = computeConfigIssues(cfg, resourceIds, { enabled: true, createChannelId: 'chan-mod', categoryId: 'chan-mod' });
+
+    expect(issues).toEqual([]);
+  });
+});
+
+describe('loadGuildDashboardData — expone systemsStatus/configIssues/voiceConfig (Dashboard 2.0)', () => {
+  it('el resultado incluye los 3 campos nuevos, calculados sobre guildConfig real', async () => {
+    mockLoadGuildDashboardDeps();
+    supabaseMock.getBuilder('guild_config').__setResult({
+      data: { admin_role_id: 'role-mod', moderator_role_id: 'role-mod', features: { moderacion: true } },
+      error: null,
+    });
+    supabaseMock.getBuilder('voice_channel_config').__setResult({ data: { guild_id: 'guild-1', enabled: true, create_channel_id: 'c', category_id: 'cat' }, error: null });
+
+    const data = await loadGuildDashboardData('guild-1');
+
+    expect(data.voiceConfig).toEqual({ guildId: 'guild-1', createChannelId: 'c', categoryId: 'cat', enabled: true });
+    expect(data.systemsStatus.find((s) => s.key === 'tempvoice')).toMatchObject({ status: 'ok' });
+    expect(Array.isArray(data.configIssues)).toBe(true);
   });
 });

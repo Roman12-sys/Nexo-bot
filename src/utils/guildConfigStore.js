@@ -27,6 +27,7 @@ function defaultConfig(guildId) {
     xp_announce_channel_id: null,
     lol_announce_channel_id: null,
     report_channel_id: null,
+    selfassignable_roles: [],
     level_roles: {},
     level_roles_mode: 'cumulative',
     xp_ignored_channel_ids: [],

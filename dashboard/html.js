@@ -71,6 +71,26 @@ export function layout({ title, body, loggedIn = false }) {
   .login-card { text-align: center; padding: 3rem 1.5rem; }
   .header-actions { display: flex; align-items: center; gap: 1rem; }
   footer { max-width: 880px; margin: 0 auto; padding: 0 1.5rem 2rem; }
+
+  /* Dashboard 2.0 (MEJORA 1/2, CICLO 1) — resumen, acciones rápidas, estado de sistemas
+     y problemas de configuración. Mismos tokens de color de arriba, nada nuevo. */
+  .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+  .badge-ok { background: #123524; color: #4ade80; }
+  .badge-warning { background: #3a2f12; color: #facc15; }
+  .badge-off { background: #241f38; color: #978fb4; }
+  .badge-danger { background: #3a1420; color: #f87171; }
+  .quick-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.9rem; }
+  .quick-actions a { background: #1d1930; border: 1px solid #2c2645; border-radius: 8px; padding: 0.5rem 0.85rem; font-size: 0.85rem; text-decoration: none; color: #ede9f7; }
+  .quick-actions a:hover { border-color: ${BRAND_COLOR}; }
+  .issue-item { padding: 0.75rem 0; border-bottom: 1px solid #2c2645; display: flex; gap: 0.75rem; align-items: flex-start; }
+  .issue-item:last-child { border-bottom: none; }
+  .issue-item .issue-body h4 { margin: 0 0 0.2rem; font-size: 0.92rem; }
+  .issue-item .issue-body p { margin: 0; color: #978fb4; font-size: 0.85rem; }
+  .systems-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0.65rem; margin-top: 0.9rem; }
+  .systems-grid .system-item { background: #1d1930; border: 1px solid #2c2645; border-radius: 8px; padding: 0.7rem 0.85rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+  .activity-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+  .activity-list li { font-size: 0.85rem; color: #ede9f7; }
+  .activity-list .muted { display: block; font-size: 0.78rem; }
 </style>
 </head>
 <body>

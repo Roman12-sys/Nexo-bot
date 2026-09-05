@@ -73,6 +73,13 @@
 --
 --   alter table guild_config add column if not exists report_channel_id text;
 -- =========================================================
+--
+-- MIGRACIÓN MANUAL PENDIENTE (CICLO 1, Mejora 2/2 — roles autoasignables) — lista de
+-- roles que los miembros pueden elegir solos (ver src/utils/selfRoles.js). Correr
+-- DESPUÉS de que el código esté desplegado, y verificar por API tras correrla:
+--
+--   alter table guild_config add column if not exists selfassignable_roles jsonb not null default '[]';
+-- =========================================================
 
 -- =========================================================
 -- guild_config: configuración por servidor (reemplaza .env)
@@ -95,6 +102,7 @@ create table if not exists guild_config (
   xp_announce_channel_id text,
   lol_announce_channel_id text, -- opt-in: patch notes de LoL para ESTE servidor (ver lolPatchEngine.js)
   report_channel_id text, -- opt-in: destino de /report. Si es null, se usa log_channel_moderation_id (ver guildLogChannels.js) — nunca se agrega un segundo canal obligatorio.
+  selfassignable_roles jsonb not null default '[]', -- IDs de roles que un miembro puede elegir solo (ver src/utils/selfRoles.js) — administrado con /config rol-autoasignable-agregar/quitar
 
   -- niveles
   level_roles jsonb not null default '{}',

@@ -12,8 +12,9 @@ import { getGuildVoiceStatsSummary } from '../src/utils/tempVoiceStore.js';
 import { getGuildMissionCompletionSummary } from '../src/utils/missionsStore.js';
 import { getGuildDailyStats } from '../src/utils/guildDailyStatsStore.js';
 import { getLastAnnouncedPatchUrl, getLolPatchMonitorState } from '../src/utils/lolPatchStore.js';
-import { fetchGuild, fetchGuildMember, fetchGuildMembersWithRole, mapWithConcurrency } from './discordApi.js';
+import { fetchGuild, fetchGuildMember, fetchGuildMembersWithRole, fetchGuildChannels, fetchGuildRoles, mapWithConcurrency } from './discordApi.js';
 import { isStaffFromRoles } from './permissions.js';
+import { getGuildVoiceConfig } from '../src/utils/voiceConfigStore.js';
 
 // Caché de metadata de guild (nombre/ícono/dueño) para la LISTA de servidores en la
 // home — reduce el N+1 real de listManagedGuilds (una llamada REST por cada guild_config
@@ -173,6 +174,8 @@ export async function loadGuildDashboardData(guildId) {
     dailyStats,
     missionSummary,
     guildConfig,
+    voiceConfig,
+    resourceIds,
   ] = await allWithConcurrency(
     [
       () => getTopCommands(guildId, 5),
@@ -201,11 +204,19 @@ export async function loadGuildDashboardData(guildId) {
       // para el gate de acceso pero los descartaba sin mostrarlos nunca — el dashboard
       // tenía la data a mano y jamás la usaba. Ver fetchGuildConfigSummary más abajo.
       () => fetchGuildConfigSummary(guildId),
+      // Dashboard 2.0 (MEJORA 1/2) — reusa voice_channel_config (ya existe, /voice lo
+      // escribe) para el estado real de "Salas de voz temporales" (ver computeSystemsStatus).
+      () => getGuildVoiceConfig(guildId),
+      // Idem — IDs reales de canales/roles del server, para poder decir con certeza si
+      // algo que guild_config guarda ya fue borrado (ver computeConfigIssues).
+      () => fetchGuildResourceIds(guildId),
     ],
     6,
   );
 
   const messagesDelta = computeMessagesWeeklyDelta(dailyStats);
+  const systemsStatus = computeSystemsStatus(guildConfig, voiceConfig);
+  const configIssues = computeConfigIssues(guildConfig, resourceIds, voiceConfig);
 
   return {
     topCommands,
@@ -233,6 +244,9 @@ export async function loadGuildDashboardData(guildId) {
     messagesDelta,
     missionSummary,
     guildConfig,
+    voiceConfig,
+    systemsStatus,
+    configIssues,
   };
 }
 
@@ -251,6 +265,126 @@ async function fetchGuildConfigSummary(guildId) {
     .maybeSingle();
   if (error) throw error;
   return data ?? {};
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard 2.0 (MEJORA 1/2, CICLO 1) — "Resumen" / estado de sistemas / problemas de
+// configuración. Todo derivado de datos que YA se traían (guildConfig) o de datos
+// existentes que no se traían todavía (voice_channel_config, canales/roles reales del
+// server) — sin tabla ni columna nueva.
+// ---------------------------------------------------------------------------
+
+// Un solo request cada una (fetchGuildChannels/fetchGuildRoles traen TODO el server de
+// una vez, Discord no pagina esto) para poder validar si un ID guardado en guild_config
+// sigue existiendo — evita un request por cada ID guardado (N+1).
+// null (no un Set vacío) si el fetch falla: existsIn() trata "no lo pudimos verificar"
+// como "asumimos que está bien", nunca como "está borrado" — un falso "canal borrado" por
+// un timeout de Discord sería peor que no avisar nada.
+async function fetchGuildResourceIds(guildId) {
+  const [channels, roles] = await Promise.all([
+    fetchGuildChannels(guildId).catch(() => null),
+    fetchGuildRoles(guildId).catch(() => null),
+  ]);
+  return {
+    channelIds: Array.isArray(channels) ? new Set(channels.map((c) => c.id)) : null,
+    roleIds: Array.isArray(roles) ? new Set(roles.map((r) => r.id)) : null,
+  };
+}
+
+function existsIn(id, idSet) {
+  if (!id) return true; // no configurado no es lo mismo que "borrado"
+  if (!idSet) return true; // no se pudo verificar — no acusar en falso
+  return idSet.has(id);
+}
+
+// "¿Qué módulos tiene activos este servidor, y en qué estado?" — 3 estados posibles,
+// nunca hardcodeados: 'ok' (🟢 andando), 'warning' (🟡 nunca configurado / falta algo
+// para funcionar del todo) y 'off' (⚪ apagado a propósito, no es un problema).
+export function computeSystemsStatus(cfg, voiceConfig) {
+  const features = cfg.features || {};
+
+  return [
+    { key: 'economia', label: 'Economía', status: 'ok', detail: 'Siempre activa' },
+    { key: 'xp', label: 'XP', status: features.xp ? 'ok' : 'off', detail: features.xp ? 'Activo' : 'Apagado' },
+    {
+      key: 'moderacion',
+      label: 'Moderación',
+      status: !features.moderacion ? 'off' : cfg.log_channel_moderation_id ? 'ok' : 'warning',
+      detail: !features.moderacion ? 'Apagada' : cfg.log_channel_moderation_id ? 'Configurada' : 'Sin canal de logs',
+    },
+    { key: 'giveaways', label: 'Sorteos', status: 'ok', detail: 'Disponible' },
+    { key: 'trivia', label: 'Trivia', status: 'ok', detail: 'Disponible' },
+    {
+      key: 'tempvoice',
+      label: 'Salas de voz temporales',
+      status: !voiceConfig ? 'warning' : voiceConfig.enabled ? 'ok' : 'off',
+      detail: !voiceConfig ? 'Configuración pendiente' : voiceConfig.enabled ? 'Activo' : 'Desactivado',
+    },
+  ];
+}
+
+// "¿Qué está mal configurado de verdad, y qué puede hacer el admin al respecto?" —
+// severidad 'danger' (🔴 algo configurado apunta a un rol/canal que ya no existe, rompe
+// la feature) o 'warning' (🟡 falta configurar algo, pero nada roto todavía). Cada issue
+// explica QUÉ pasa y QUÉ hacer — nunca solo un código de error técnico.
+export function computeConfigIssues(cfg, resourceIds, voiceConfig) {
+  const { channelIds = null, roleIds = null } = resourceIds || {};
+  const issues = [];
+
+  if (!cfg.admin_role_id && !cfg.moderator_role_id) {
+    issues.push({
+      severity: 'danger',
+      title: 'Configuración inicial',
+      detail: 'Todavía no se corrió /setup en este servidor — la mayoría de las funciones de NEXO no están configuradas.',
+    });
+    return issues; // sin roles de staff, el resto de los checks no aporta nada nuevo
+  }
+
+  if (cfg.moderator_role_id && !existsIn(cfg.moderator_role_id, roleIds)) {
+    issues.push({ severity: 'danger', title: 'Rol de moderador', detail: 'El rol configurado ya no existe — nadie puede usar comandos de moderación. Corré /setup o /config de nuevo.' });
+  }
+  if (cfg.admin_role_id && cfg.admin_role_id !== cfg.moderator_role_id && !existsIn(cfg.admin_role_id, roleIds)) {
+    issues.push({ severity: 'danger', title: 'Rol de administrador', detail: 'El rol configurado ya no existe — nadie puede usar /economia-staff ni /xp. Corré /config rol-admin de nuevo.' });
+  }
+
+  const features = cfg.features || {};
+  if (features.moderacion && !cfg.log_channel_moderation_id) {
+    issues.push({ severity: 'warning', title: 'Moderación', detail: 'No hay canal de logs de moderación configurado — las sanciones no quedan registradas en ningún canal.' });
+  } else if (cfg.log_channel_moderation_id && !existsIn(cfg.log_channel_moderation_id, channelIds)) {
+    issues.push({ severity: 'danger', title: 'Moderación', detail: 'El canal de logs configurado ya no existe. Configurá uno nuevo con /config o /setup.' });
+  }
+
+  const moderationChannelAlive = Boolean(cfg.log_channel_moderation_id) && existsIn(cfg.log_channel_moderation_id, channelIds);
+  const reportChannelAlive = Boolean(cfg.report_channel_id) && existsIn(cfg.report_channel_id, channelIds);
+  if (cfg.report_channel_id && !reportChannelAlive) {
+    issues.push({
+      severity: moderationChannelAlive ? 'warning' : 'danger',
+      title: 'Reportes',
+      detail: moderationChannelAlive
+        ? 'El canal dedicado a /report ya no existe — por ahora cae al log de moderación.'
+        : 'El canal dedicado a /report ya no existe, y tampoco hay un log de moderación configurado — /report no tiene dónde entregar nada. Corré /config canal-reportes.',
+    });
+  } else if (!cfg.report_channel_id && !moderationChannelAlive) {
+    issues.push({ severity: 'warning', title: 'Reportes', detail: 'No hay canal de reportes ni de moderación configurado — /report no tiene dónde entregar nada. Corré /config canal-reportes o /setup.' });
+  }
+
+  if (cfg.auto_role_id && !existsIn(cfg.auto_role_id, roleIds)) {
+    issues.push({ severity: 'warning', title: 'Rol automático', detail: 'El rol configurado ya no existe — los miembros nuevos no reciben ningún rol.' });
+  }
+  if (cfg.punish_role_id && !existsIn(cfg.punish_role_id, roleIds)) {
+    issues.push({ severity: 'warning', title: 'Rol de castigo', detail: 'El rol configurado ya no existe — /punish y /unpunish van a fallar.' });
+  }
+  if (cfg.welcome_channel_id && !existsIn(cfg.welcome_channel_id, channelIds)) {
+    issues.push({ severity: 'warning', title: 'Canal de bienvenida', detail: 'El canal configurado ya no existe — los mensajes de bienvenida no se están mandando.' });
+  }
+  if (cfg.confession_channel_id && !existsIn(cfg.confession_channel_id, channelIds)) {
+    issues.push({ severity: 'warning', title: 'Canal de confesiones', detail: 'El canal configurado ya no existe — /confession no puede publicar nada.' });
+  }
+  if (voiceConfig?.enabled && (!existsIn(voiceConfig.createChannelId, channelIds) || !existsIn(voiceConfig.categoryId, channelIds))) {
+    issues.push({ severity: 'danger', title: 'Salas de voz temporales', detail: 'El canal o la categoría configurados ya no existen — corré /voice setup de nuevo.' });
+  }
+
+  return issues;
 }
 
 // Fase A, segunda auditoría 2026-08-30 (Parte 12: "convertir analítica en información

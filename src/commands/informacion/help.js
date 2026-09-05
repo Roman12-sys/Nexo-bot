@@ -5,6 +5,8 @@ import { buildInfoEmbed as buildUserInfoEmbed } from './info.js';
 import { buildServerEmbed, buildServerRow } from './servidor.js';
 import { buildAvatarEmbed } from './avatar.js';
 import { config } from '../../config.js';
+import { getGuildConfig } from '../../utils/guildConfigStore.js';
+import { buildSelfRolesMessage } from '../../utils/selfRoles.js';
 
 export function getHelpButtonsRow() {
   return new ActionRowBuilder().addComponents(
@@ -18,7 +20,28 @@ export function getHelpButtonsRow() {
 // ayuda con el bot en sí (no con moderación de SU server, sino con Nexo). Se muestra
 // solo si config.supportContact está configurado (env var SUPPORT_CONTACT) — nunca un
 // link inventado ni un campo vacío/roto.
-export function buildMainMenuEmbed() {
+// CICLO 1, Mejora 2/2 (experiencia del miembro, "descubrimiento") — antes esto listaba
+// SIEMPRE las mismas 5 categorías sin importar qué tenga activado el servidor; un
+// miembro nuevo no tenía ninguna guía de "por dónde empiezo" más allá de adivinar. Estas
+// líneas se arman en base a guild_config REAL: /nivel solo si XP está activado, /report
+// solo si tiene algún destino real configurado, roles autoasignables solo si hay al
+// menos uno cargado — nunca se menciona algo que este servidor no puede usar.
+function buildPrimerosPasosLines(cfg) {
+  const features = cfg.features || {};
+  const lines = ['👤 `/perfil` — tu nivel, monedas, logros y sanciones, todo junto.', '💰 `/daily` — reclamá tu recompensa diaria.'];
+
+  if (features.xp) lines.push('⭐ `/nivel` — tu tarjeta de XP y progreso hacia el siguiente nivel.');
+  lines.push('🧠 `/trivia jugar` — sumá puntos respondiendo preguntas.');
+  if (cfg.report_channel_id || cfg.log_channel_moderation_id) lines.push('🚨 `/report` — reportá un usuario, un mensaje o una situación al staff.');
+  if ((cfg.selfassignable_roles || []).length > 0) lines.push('🎭 Tocá **Mis roles** acá abajo para elegir tus roles.');
+
+  return lines;
+}
+
+// cfg es opcional (default {}) para no romper la firma sync/pura de esta función — los
+// call-sites reales (execute/help_back) le pasan la config ya resuelta de este server;
+// sin ella, simplemente no se arma el campo de "Primeros pasos" (nunca revienta).
+export function buildMainMenuEmbed(cfg = {}) {
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle(`📖 Centro de ayuda de ${BRAND_NAME}`)
@@ -27,6 +50,7 @@ export function buildMainMenuEmbed() {
         'economía, progresión (XP/niveles) y herramientas de gestión, todo en un solo lugar.\n\n' +
         'Elegí una categoría tocando un botón de abajo para ver sus comandos.',
     )
+    .addFields({ name: '🚀 Primeros pasos', value: buildPrimerosPasosLines(cfg).join('\n') })
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 
@@ -39,9 +63,11 @@ export function buildMainMenuEmbed() {
 
 // Devuelve un ARRAY de filas (no una sola) — los call sites spreadean esto directo en
 // `components`, nunca lo envuelven en un array extra. Con 5 categorías entran todas en
-// una sola ActionRow (máximo 5 de Discord).
-export function buildMainMenuRow() {
-  return [
+// una sola ActionRow (máximo 5 de Discord); "Mis roles" necesita una SEGUNDA fila (ya
+// no entra ninguna más en la primera) y solo se agrega si el server tiene al menos un
+// rol autoasignable configurado — nunca un botón que lleva a "no hay nada acá".
+export function buildMainMenuRow(showRolesButton = false) {
+  const rows = [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('help_cat_info').setLabel('ℹ️ Información').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('help_cat_economia').setLabel('💰 Economía').setStyle(ButtonStyle.Secondary),
@@ -50,6 +76,16 @@ export function buildMainMenuRow() {
       new ButtonBuilder().setCustomId('help_cat_accion').setLabel('🎭 Acción').setStyle(ButtonStyle.Secondary),
     ),
   ];
+
+  if (showRolesButton) {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('help_roles').setLabel('🎭 Mis roles').setStyle(ButtonStyle.Primary),
+      ),
+    );
+  }
+
+  return rows;
 }
 
 export function buildBackRow() {
@@ -142,9 +178,10 @@ export const data = new SlashCommandBuilder()
   .setDMPermission(false);
 
 export async function execute(interaction) {
+  const cfg = await getGuildConfig(interaction.guildId);
   await interaction.reply({
-    embeds: [buildMainMenuEmbed()],
-    components: buildMainMenuRow(),
+    embeds: [buildMainMenuEmbed(cfg)],
+    components: buildMainMenuRow((cfg.selfassignable_roles || []).length > 0),
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -177,5 +214,19 @@ registerButtonPrefix('help_cat_accion', async (i) => {
   await i.update({ embeds: [buildAccionEmbed()], components: [buildBackRow()] });
 });
 registerButtonPrefix('help_back', async (i) => {
-  await i.update({ embeds: [buildMainMenuEmbed()], components: buildMainMenuRow() });
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update({ embeds: [buildMainMenuEmbed(cfg)], components: buildMainMenuRow((cfg.selfassignable_roles || []).length > 0) });
+});
+
+// CICLO 1, Mejora 2/2 — reabre el mismo menú de roles autoasignables que ya se ofrece
+// en el mensaje de bienvenida (src/utils/selfRoles.js): un miembro que ya pasó ese
+// momento (o que quiere cambiar de opinión más tarde) tiene acá su segunda entrada,
+// sin que exista ningún comando dedicado ni una lógica duplicada.
+registerButtonPrefix('help_roles', async (i) => {
+  const message = await buildSelfRolesMessage(i.guild, i.member);
+  if (!message) {
+    await i.reply({ content: 'ℹ️ Este servidor todavía no tiene roles autoasignables configurados.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+  await i.reply({ ...message, flags: MessageFlags.Ephemeral });
 });

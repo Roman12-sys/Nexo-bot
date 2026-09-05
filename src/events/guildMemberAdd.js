@@ -4,7 +4,8 @@ import { findExecutor } from '../utils/auditLog.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { getGuildConfig } from '../utils/guildConfigStore.js';
 import { buildWelcomeImageAttachment } from '../utils/welcomeImage.js';
-import { BRAND_COLOR } from '../utils/embeds.js';
+import { buildSelfRolesMessage } from '../utils/selfRoles.js';
+import { BRAND_COLOR, BRAND_NAME } from '../utils/embeds.js';
 import { checkMemberCountAchievements } from '../utils/guildAchievements.js';
 import { eventBus } from '../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Fase 5 (analytics)
 
@@ -79,12 +80,28 @@ export async function execute(member, client) {
     }
 
     const attachment = await buildWelcomeImageAttachment(member);
-    const embed = new EmbedBuilder().setColor(BRAND_COLOR).setImage('attachment://welcome.png');
+    // QUÉ CAMBIÓ (CICLO 1, Mejora 2/2 — experiencia del miembro): antes este embed no
+    // tenía NINGÚN texto, solo la imagen — un miembro nuevo no tenía forma de enterarse
+    // de que /help existe. Una sola línea, sin mencionar de nuevo al usuario (ya lo hace
+    // el `content` de abajo) — sigue siendo UN solo mensaje, nada de spam.
+    const embed = new EmbedBuilder()
+      .setColor(BRAND_COLOR)
+      .setDescription(`Usá \`/help\` para conocer todo lo que podés hacer en **${member.guild.name}**.`)
+      .setImage('attachment://welcome.png')
+      .setFooter({ text: BRAND_NAME });
+
+    // El menú de roles autoasignables es opcional a propósito: si el server no
+    // configuró ninguno (o todos quedaron inválidos, ver resolveLiveSelfRoles), esto es
+    // null y el mensaje se manda exactamente igual que antes — no exige configurar nada
+    // nuevo para seguir recibiendo la bienvenida de siempre.
+    const selfRolesMessage = await buildSelfRolesMessage(member.guild, member);
+    if (selfRolesMessage) embed.addFields({ name: '🎭 ¿Querés elegir un rol?', value: selfRolesMessage.content });
 
     await channel.send({
       content: `${member}`,
       embeds: [embed],
       files: [attachment],
+      components: selfRolesMessage?.components || [],
       allowedMentions: { users: [member.id] },
     });
   } catch (error) {

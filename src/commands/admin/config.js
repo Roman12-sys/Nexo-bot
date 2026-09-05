@@ -45,6 +45,18 @@ export const data = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
+      .setName('rol-autoasignable-agregar')
+      .setDescription('Agrega un rol a la lista que los miembros pueden elegir solos (ver /help "Mis roles").')
+      .addRoleOption((o) => o.setName('rol').setDescription('Rol a agregar').setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName('rol-autoasignable-quitar')
+      .setDescription('Saca un rol de la lista de autoasignables (los miembros que ya lo tenían lo conservan).')
+      .addRoleOption((o) => o.setName('rol').setDescription('Rol a quitar').setRequired(true)),
+  )
+  .addSubcommand((sub) =>
+    sub
       .setName('canal-bienvenida')
       .setDescription('Canal donde se saluda a los miembros nuevos.')
       .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para desactivar)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
@@ -200,6 +212,73 @@ export async function execute(interaction) {
     await setGuildConfig(guildId, { auto_role_id: rol?.id ?? null });
     await interaction.reply({ content: rol ? `✅ Rol automático configurado: ${rol}.` : '✅ Rol automático desactivado.', flags: MessageFlags.Ephemeral });
     await logConfigChange(interaction, rol ? `🎫 Rol automático → ${rol}` : '🎫 Rol automático desactivado');
+    return;
+  }
+
+  // CICLO 1, Mejora 2/2 (experiencia del miembro) — un miembro elige uno o varios de
+  // estos roles solo, desde /help ("Mis roles") o el mensaje de bienvenida (ver
+  // src/utils/selfRoles.js). Mismo chequeo de rol peligroso que rol-castigo/
+  // rol-automatico (getDangerousRolePermission, política central de permissions.js) —
+  // acá SIEMPRE rechaza (nunca "descarta en silencio y crea uno nuevo" como /setup, que
+  // no aplica: este es un rol que YA existe, elegido a mano, no algo que /setup necesite
+  // garantizar que exista sí o sí).
+  if (sub === 'rol-autoasignable-agregar') {
+    const rol = interaction.options.getRole('rol');
+
+    const dangerousPermission = getDangerousRolePermission(rol);
+    if (dangerousPermission) {
+      await interaction.reply({
+        content: `❌ ${rol} tiene el permiso **${dangerousPermission}**, así que no se puede ofrecer como autoasignable — cualquier miembro podría dárselo a sí mismo. Elegí (o creá) un rol sin privilegios administrativos.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const me = interaction.guild.members.me;
+    if (!me.permissions.has(PermissionFlagsBits.ManageRoles) || me.roles.highest.position <= rol.position) {
+      await interaction.reply({
+        content: `❌ NEXO no podría asignar ${rol} — está en una posición igual o superior al rol más alto del bot. Subí el rol de NEXO por encima en *Ajustes del servidor → Roles*, o elegí otro rol.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const cfg = await getGuildConfig(guildId);
+    const current = cfg.selfassignable_roles || [];
+    if (current.includes(rol.id)) {
+      await interaction.reply({ content: `ℹ️ ${rol} ya está en la lista de autoasignables.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+    // 25 es el máximo real de opciones que admite un select menu de Discord — el menú de
+    // /help/bienvenida no tiene paginación (a propósito, para no convertir esto en un
+    // sistema grande), así que este es el techo real, no uno inventado.
+    if (current.length >= 25) {
+      await interaction.reply({
+        content: '❌ Ya hay 25 roles autoasignables — es el máximo que entra en un solo menú. Sacá alguno con `/config rol-autoasignable-quitar` antes de agregar otro.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    await setGuildConfig(guildId, { selfassignable_roles: [...current, rol.id] });
+    await interaction.reply({ content: `✅ ${rol} agregado a los roles autoasignables — ya lo pueden elegir desde /help ("Mis roles") o el mensaje de bienvenida.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `🎭 Rol autoasignable agregado → ${rol}`);
+    return;
+  }
+
+  if (sub === 'rol-autoasignable-quitar') {
+    const rol = interaction.options.getRole('rol');
+    const cfg = await getGuildConfig(guildId);
+    const current = cfg.selfassignable_roles || [];
+
+    if (!current.includes(rol.id)) {
+      await interaction.reply({ content: `ℹ️ ${rol} no estaba en la lista de autoasignables.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+
+    await setGuildConfig(guildId, { selfassignable_roles: current.filter((id) => id !== rol.id) });
+    await interaction.reply({ content: `✅ ${rol} sacado de los roles autoasignables. Quienes ya lo tenían lo conservan.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `🎭 Rol autoasignable quitado → ${rol}`);
     return;
   }
 
@@ -380,6 +459,7 @@ export async function buildConfigSummaryEmbed(guildId) {
       { name: '🎉 Impulso de XP de finde', value: toggle(cfg.xp_weekend_boost), inline: true },
       { name: '🚫 Rol de castigo', value: role(cfg.punish_role_id), inline: true },
       { name: '🎫 Rol automático', value: role(cfg.auto_role_id), inline: true },
+      { name: '🎭 Roles autoasignables', value: (cfg.selfassignable_roles || []).length > 0 ? `${cfg.selfassignable_roles.length} configurado(s)` : '— sin configurar', inline: true },
       { name: '🎉 Canal de bienvenida', value: channel(cfg.welcome_channel_id), inline: true },
       { name: '🤫 Canal de confesiones', value: channel(cfg.confession_channel_id), inline: true },
       { name: '🚨 Canal de reportes', value: cfg.report_channel_id ? channel(cfg.report_channel_id) : '— usa el log de moderación', inline: true },

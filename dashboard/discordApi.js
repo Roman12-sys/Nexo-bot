@@ -94,6 +94,18 @@ export function fetchGuildMember(guildId, userId) {
   return botFetch(`/guilds/${guildId}/members/${userId}`);
 }
 
+// Dashboard 2.0 (MEJORA 1/2) — un solo request cada una, trae TODOS los canales/roles
+// del server de una vez (Discord no pagina esto). Sirve para validar que los IDs sueltos
+// guardados en guild_config (canales de log, roles de staff, etc.) sigan existiendo de
+// verdad, sin disparar un request por cada ID guardado (N+1).
+export function fetchGuildChannels(guildId) {
+  return botFetch(`/guilds/${guildId}/channels`);
+}
+
+export function fetchGuildRoles(guildId) {
+  return botFetch(`/guilds/${guildId}/roles`);
+}
+
 // Para la tarjeta de "sancionados activos" del dashboard — src/utils/sanctions.js hace
 // esto mismo pero vía guild.members.fetch() de discord.js; acá no hay un Client conectado
 // al gateway, así que es la misma consulta por REST. Se limita a la primera página
