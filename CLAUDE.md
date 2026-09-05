@@ -1085,8 +1085,11 @@ el número correcto, con un "(+N más)" cuando corresponde (mismo patrón que
 `balance` de CADA fila de `economy` del server para sumarlas en JS) y `fetchTopAchievers`
 (traía TODAS las filas de `achievements_unlocked`, sin límite, para agrupar y contar en
 JS) reemplazadas por `sum_guild_balances`/`top_guild_achievers` (RPC, ver
-`migration_2026_09_01_fase2c.sql`, **preparada, no ejecutada**) — cero filas transferidas
-de más, mismo resultado. `getGuildFrequentReasons`/`getGuildFrequentWarnReasons`
+`migration_2026_09_01_fase2c.sql`, **ejecutada y verificada en producción** — Fase 4A,
+2026-09-04, confirmado por API contra `gmcqbvrqqpmcqjrbtauk`: ambas RPC existen, firma
+correcta, devuelven resultado real con un guild con datos y `0`/`[]` con un guild
+inexistente) — cero filas transferidas de más, mismo resultado. `getGuildFrequentReasons`/
+`getGuildFrequentWarnReasons`
 (moderación) y `getTotalUsage` (command_usage) se revisaron con el mismo criterio y se
 dejaron como estaban: el primer par ya tiene un `.limit(200)` explícito y consciente: el
 segundo está acotado por el tamaño del catálogo de comandos (~100), nunca crece con la

@@ -42,7 +42,13 @@ export async function execute(interaction) {
     const warn = { reason: motivo, moderatorId: interaction.user.id };
     const list = await addWarn(interaction.guild.id, targetUser.id, warn);
 
-    await interaction.editReply({ content: `✅ Se advirtió a ${targetUser} (advertencia #${list.length}). Motivo: ${motivo}` });
+    // allowedMentions: parse:['users'] permite la mención real de ${targetUser} pero
+    // bloquea @everyone/@here/roles que puedan venir inyectados en `motivo` (texto
+    // libre de staff, sin sanitizar). Ver SEC-1, Fase 4A.
+    await interaction.editReply({
+      content: `✅ Se advirtió a ${targetUser} (advertencia #${list.length}). Motivo: ${motivo}`,
+      allowedMentions: { parse: ['users'] },
+    });
 
     // Try/catch propio: si el log falla (permisos, rate limit), la advertencia YA se
     // aplicó y el usuario YA vio la confirmación — no hay que mostrarle un error acá,

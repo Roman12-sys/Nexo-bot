@@ -115,6 +115,59 @@ describe('/warn', () => {
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('advertencia #1') }));
     expect(logChannel.send).toHaveBeenCalledTimes(1);
   });
+
+  // SEC-1 (Fase 4A): el content público de /warn interpola `motivo` (texto libre de
+  // staff, sin sanear) tal cual — sin allowedMentions, un motivo "@everyone volvé"
+  // pingueaba al servidor entero con cero fricción. El fix no toca el texto (se sigue
+  // guardando y mostrando igual), solo bloquea que Discord lo interprete como mención
+  // real salvo la del usuario advertido.
+  it('SEC-1: motivo con @everyone se muestra tal cual pero allowedMentions bloquea la mención real', async () => {
+    addWarn.mockResolvedValue([{ reason: '@everyone volvé ya', moderatorId: 'mod-1' }]);
+    const interaction = makeInteraction({
+      staffRoleIds: ['role-admin'],
+      options: { motivo: '@everyone volvé ya' },
+    });
+
+    await warnExecute(interaction);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining('@everyone volvé ya'), // el texto no se censura ni se recorta
+        allowedMentions: { parse: ['users'] }, // pero la API nunca la resuelve como mención real
+      }),
+    );
+  });
+
+  it('SEC-1: motivo con @here tampoco puede activar la mención', async () => {
+    addWarn.mockResolvedValue([{ reason: '@here atentos', moderatorId: 'mod-1' }]);
+    const interaction = makeInteraction({ staffRoleIds: ['role-admin'], options: { motivo: '@here atentos' } });
+
+    await warnExecute(interaction);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining('@here atentos'), allowedMentions: { parse: ['users'] } }),
+    );
+  });
+
+  it('SEC-1: motivo con mención de rol tampoco queda habilitada', async () => {
+    addWarn.mockResolvedValue([{ reason: 'avisale a <@&555>', moderatorId: 'mod-1' }]);
+    const interaction = makeInteraction({ staffRoleIds: ['role-admin'], options: { motivo: 'avisale a <@&555>' } });
+
+    await warnExecute(interaction);
+
+    const call = interaction.editReply.mock.calls[0][0];
+    expect(call.content).toContain('<@&555>');
+    expect(call.allowedMentions.parse).not.toContain('roles');
+  });
+
+  it('SEC-1: un motivo normal (sin menciones) recibe la misma protección — no es un chequeo condicional', async () => {
+    addWarn.mockResolvedValue([{ reason: 'spam repetido', moderatorId: 'mod-1' }]);
+    const interaction = makeInteraction({ staffRoleIds: ['role-admin'], options: { motivo: 'spam repetido' } });
+
+    await warnExecute(interaction);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ allowedMentions: { parse: ['users'] } }));
+  });
 });
 
 describe('/kick', () => {
@@ -209,6 +262,27 @@ describe('/ban (con confirmación)', () => {
 
     expect(interaction.guild.members.ban).not.toHaveBeenCalled();
   });
+
+  // SEC-2 (Fase 4A): /ban interpola `motivo` en la description del panel de
+  // buildConfirmation() — mismo vector que SEC-1 pero vía el helper compartido. El texto
+  // se preserva íntegro (Discord.ban() recibe el motivo tal cual, sin sanear) pero el
+  // panel público nunca puede convertirlo en una mención real.
+  it('SEC-2: motivo con @everyone no activa la mención en el panel de confirmación, y Discord recibe el motivo intacto', async () => {
+    const interaction = makeInteraction({ staffRoleIds: ['role-admin'], options: { motivo: '@everyone raid en curso' } });
+
+    await banExecute(interaction);
+
+    const panelCall = interaction.reply.mock.calls[0][0];
+    expect(panelCall.content).toContain('@everyone raid en curso');
+    expect(panelCall.allowedMentions).toEqual({ parse: ['users'] });
+
+    const buttonInteraction = await confirmVia(interaction, 'Confirmar');
+
+    // El motivo real que ve Discord (audit log de Discord, no un mensaje del bot) no se
+    // modifica — la protección es solo de renderizado, nunca de contenido.
+    expect(interaction.guild.members.ban).toHaveBeenCalledWith('target-1', { reason: '@everyone raid en curso' });
+    expect(buttonInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se baneó') }));
+  });
 });
 
 describe('/unwarn (con confirmación)', () => {
@@ -245,5 +319,20 @@ describe('/unwarn (con confirmación)', () => {
 
     expect(clearWarns).toHaveBeenCalledWith('guild-1', 'target-1');
     expect(logChannel.send).toHaveBeenCalledTimes(1);
+  });
+
+  // SEC-2 (Fase 4A) — "bomba de tiempo": /unwarn reproduce `target.reason`, guardado en
+  // cualquier momento del pasado (incluso antes de que existiera este fix). Si esa warn
+  // vieja tenía "@everyone" en el motivo, confirmarla HOY la volvía a pingear al
+  // servidor entero, sin que el staff que corre /unwarn haya escrito nada malicioso.
+  it('SEC-2: un motivo histórico con @everyone no activa la mención al reproducirse en el panel', async () => {
+    getUserWarns.mockResolvedValue([{ reason: '@everyone contaminado desde antes del fix' }]);
+    const interaction = makeInteraction({ staffRoleIds: ['role-admin'], options: { numero: 1 } });
+
+    await unwarnExecute(interaction);
+
+    const panelCall = interaction.reply.mock.calls[0][0];
+    expect(panelCall.content).toContain('@everyone contaminado desde antes del fix');
+    expect(panelCall.allowedMentions).toEqual({ parse: ['users'] });
   });
 });

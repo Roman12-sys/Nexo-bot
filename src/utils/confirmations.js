@@ -27,7 +27,12 @@ export function buildConfirmation({ userId, guildId, description, run }) {
     new ButtonBuilder().setCustomId(`confirm_no_${token}`).setLabel('Cancelar').setEmoji('❌').setStyle(ButtonStyle.Secondary),
   );
 
-  return { content: `⚠️ **Confirmar acción**\n${description}`, components: [row], embeds: [] };
+  // allowedMentions: solo permite menciones de usuario (necesarias para interpolar
+  // ${targetUser} en la description de /ban y /unwarn) — bloquea @everyone/@here y
+  // menciones de rol, que nunca deberían poder colarse desde un motivo de staff
+  // (ban.js interpola `motivo` libre, unwarn.js interpola `target.reason` histórico,
+  // ninguno de los dos sanitizado hasta ahora). Ver SEC-2, Fase 4A.
+  return { content: `⚠️ **Confirmar acción**\n${description}`, components: [row], embeds: [], allowedMentions: { parse: ['users'] } };
 }
 
 function ownerMismatch(interaction, session) {
