@@ -396,34 +396,6 @@ describe('computeConfigIssues', () => {
     expect(issues).toContainEqual(expect.objectContaining({ severity: 'danger', title: 'Moderación' }));
   });
 
-  it('reportes: canal dedicado borrado pero el de moderación sigue vivo → warning (cae al fallback)', () => {
-    const cfg = { moderator_role_id: 'role-mod', log_channel_moderation_id: 'chan-mod', report_channel_id: 'chan-reportes-borrado' };
-    const issues = computeConfigIssues(cfg, { channelIds: new Set(['chan-mod']), roleIds: new Set(['role-mod']) }, null);
-
-    expect(issues).toContainEqual(expect.objectContaining({ severity: 'warning', title: 'Reportes' }));
-  });
-
-  it('reportes: canal dedicado borrado Y el de moderación también → danger (no tiene dónde entregar nada)', () => {
-    const cfg = { moderator_role_id: 'role-mod', log_channel_moderation_id: 'chan-mod-borrado', report_channel_id: 'chan-reportes-borrado' };
-    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
-
-    expect(issues).toContainEqual(expect.objectContaining({ severity: 'danger', title: 'Reportes' }));
-  });
-
-  it('reportes: sin canal dedicado pero con log de moderación vivo → sin issue (estado normal por defecto)', () => {
-    const cfg = { moderator_role_id: 'role-mod', log_channel_moderation_id: 'chan-mod' };
-    const issues = computeConfigIssues(cfg, { channelIds: new Set(['chan-mod']), roleIds: new Set(['role-mod']) }, null);
-
-    expect(issues.find((i) => i.title === 'Reportes')).toBeUndefined();
-  });
-
-  it('reportes: sin canal dedicado y sin log de moderación → warning', () => {
-    const cfg = { moderator_role_id: 'role-mod' };
-    const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
-
-    expect(issues).toContainEqual(expect.objectContaining({ severity: 'warning', title: 'Reportes' }));
-  });
-
   it('rol automático y rol de castigo borrados: warnings independientes', () => {
     const cfg = { moderator_role_id: 'role-mod', auto_role_id: 'auto-borrado', punish_role_id: 'castigo-borrado' };
     const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-mod']) }, null);
@@ -477,14 +449,13 @@ describe('computeConfigIssues', () => {
       admin_role_id: 'role-mod',
       features: { moderacion: true, xp: true },
       log_channel_moderation_id: 'chan-mod',
-      report_channel_id: 'chan-reportes',
       auto_role_id: 'role-auto',
       punish_role_id: 'role-castigo',
       welcome_channel_id: 'chan-bienvenida',
       confession_channel_id: 'chan-confesiones',
     };
     const resourceIds = {
-      channelIds: new Set(['chan-mod', 'chan-reportes', 'chan-bienvenida', 'chan-confesiones']),
+      channelIds: new Set(['chan-mod', 'chan-bienvenida', 'chan-confesiones']),
       roleIds: new Set(['role-mod', 'role-auto', 'role-castigo']),
     };
     const issues = computeConfigIssues(cfg, resourceIds, { enabled: true, createChannelId: 'chan-mod', categoryId: 'chan-mod' });

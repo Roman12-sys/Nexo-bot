@@ -626,6 +626,27 @@ se eliminó enteramente: cero consumidores reales (solo alimentaba un logro cosm
 también se sacó). No reintroducir sin un pedido explícito nuevo — no es un hueco a
 rellenar ni una feature "que faltó migrar".
 
+## /report — eliminado por completo (2026-09-10)
+
+Decisión de producto: NEXO no va a tener sistema interno de reports. Operativamente
+terminaba siendo un sistema parecido a tickets (estados, seguimiento, atención de staff)
+— dirección en la que se decidió no seguir invirtiendo. Se eliminó el comando
+(`src/commands/utilidad/report.js`), sus dos botones (`report_status_visto`/
+`report_status_resuelto`), la categoría `report` de `getGuildLogChannel`
+(`guildLogChannels.js`), el extra "Canal de reportes" de `/setup`, el subcomando
+`/config canal-reportes`, el campo de reportes de `/config ver`, las referencias en
+`/help`/`/helpstaff` y en el dashboard (tarjeta de configuración + `computeConfigIssues`),
+y la columna `guild_config.report_channel_id` de `schema.sql` — **columna que sí llegó a
+existir en producción** (verificado por API antes de tocar nada: el comentario
+"MIGRACIÓN MANUAL PENDIENTE" que había quedado en `schema.sql` estaba desactualizado, la
+migración de Fase 4C-1 se había corrido en algún momento sin borrar ese comentario; una
+fila tenía valor real, `guild_id` `1182874699169017987`). `migration_2026_09_10_remove_
+report.sql` (`alter table guild_config drop column if exists report_channel_id`) queda
+preparada pero sin correr — mismo criterio de orden que el resto del proyecto (DROP
+después del deploy del código, nunca antes). No reintroducir sin un pedido explícito
+nuevo — no es un hueco a rellenar. Las secciones "Fase 4C-1" y "Ciclo 2" más arriba
+documentan `/report` tal como existió; quedan como historial, no como estado actual.
+
 ## Testing (Vitest)
 
 `npm test` corre los tests de `tests/`. Todo lo que toca Supabase se mockea con

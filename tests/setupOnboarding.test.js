@@ -124,30 +124,6 @@ describe('/setup — onboarding final: "🚀 Próximos pasos"', () => {
     expect(steps).not.toContain('/nivel');
   });
 
-  it('con moderación activada: sugiere /report', async () => {
-    const interaction = makeInteraction();
-    const confirm = await runSetupFlow(interaction, { template: 'comunidad' });
-
-    const steps = fieldValue(finalEmbed(confirm), '🚀 Próximos pasos');
-    expect(steps).toContain('/report');
-  });
-
-  it('sin moderación NI extra de reportes: no sugiere /report (no tendría a dónde llegar)', async () => {
-    const interaction = makeInteraction();
-    const confirm = await runSetupFlow(interaction, { template: 'personalizado' });
-
-    const steps = fieldValue(finalEmbed(confirm), '🚀 Próximos pasos');
-    expect(steps).not.toContain('/report');
-  });
-
-  it('sin moderación pero CON el extra "Canal de reportes": igual sugiere /report', async () => {
-    const interaction = makeInteraction();
-    const confirm = await runSetupFlow(interaction, { template: 'personalizado', extras: ['reportes'] });
-
-    const steps = fieldValue(finalEmbed(confirm), '🚀 Próximos pasos');
-    expect(steps).toContain('/report');
-  });
-
   it('con DASHBOARD_BASE_URL configurado: incluye el link real al panel de este servidor', async () => {
     mockConfig.dashboardUrl = 'https://panel.example.com';
     const interaction = makeInteraction({ guildId: 'guild-42' });
@@ -164,26 +140,6 @@ describe('/setup — onboarding final: "🚀 Próximos pasos"', () => {
 
     const steps = fieldValue(finalEmbed(confirm), '🚀 Próximos pasos');
     expect(steps).not.toMatch(/https?:\/\//);
-  });
-});
-
-describe('/setup — extra "Canal de reportes" (nuevo, Fase 4C-1)', () => {
-  it('activado: crea el canal y persiste report_channel_id', async () => {
-    const interaction = makeInteraction();
-
-    await runSetupFlow(interaction, { template: 'personalizado', extras: ['reportes'] });
-
-    const call = setGuildConfig.mock.calls.find((c) => 'report_channel_id' in c[1]);
-    expect(call).toBeDefined();
-    expect(call[1].report_channel_id).toMatch(/^chan-nuevo-/);
-  });
-
-  it('no activado: report_channel_id nunca se toca', async () => {
-    const interaction = makeInteraction();
-
-    await runSetupFlow(interaction, { template: 'personalizado', extras: [] });
-
-    expect(setGuildConfig.mock.calls.some((c) => 'report_channel_id' in c[1])).toBe(false);
   });
 });
 

@@ -130,12 +130,6 @@ export const data = new SlashCommandBuilder()
   )
   .addSubcommand((sub) =>
     sub
-      .setName('canal-reportes')
-      .setDescription('Canal donde llegan los reportes de /report. Si no lo configurás, se usa el log de moderación.')
-      .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para volver al log de moderación)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
-  )
-  .addSubcommand((sub) =>
-    sub
       .setName('canal-lol')
       .setDescription('Canal donde se avisan los patch notes de League of Legends (opcional, apagado por defecto).')
       .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para desactivar)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
@@ -399,17 +393,6 @@ export async function execute(interaction) {
     return;
   }
 
-  if (sub === 'canal-reportes') {
-    const canal = interaction.options.getChannel('canal');
-    await setGuildConfig(guildId, { report_channel_id: canal?.id ?? null });
-    await interaction.reply({
-      content: canal ? `✅ Canal de reportes configurado: ${canal}.` : '✅ Canal de reportes desactivado — /report vuelve a usar el log de moderación.',
-      flags: MessageFlags.Ephemeral,
-    });
-    await logConfigChange(interaction, canal ? `🚨 Canal de reportes → ${canal}` : '🚨 Canal de reportes desactivado (vuelve al log de moderación)');
-    return;
-  }
-
   if (sub === 'canal-lol') {
     const canal = interaction.options.getChannel('canal');
     await setGuildConfig(guildId, { lol_announce_channel_id: canal?.id ?? null });
@@ -488,7 +471,6 @@ export async function buildConfigSummaryEmbed(guildId) {
       { name: '🎭 Roles autoasignables', value: (cfg.selfassignable_roles || []).length > 0 ? `${cfg.selfassignable_roles.length} configurado(s)` : '— sin configurar', inline: true },
       { name: '🎉 Canal de bienvenida', value: channel(cfg.welcome_channel_id), inline: true },
       { name: '🤫 Canal de confesiones', value: channel(cfg.confession_channel_id), inline: true },
-      { name: '🚨 Canal de reportes', value: cfg.report_channel_id ? channel(cfg.report_channel_id) : '— usa el log de moderación', inline: true },
       { name: '🕵️ Revisión previa de confesiones', value: toggle(cfg.confession_require_approval), inline: true },
       { name: '🚷 Usuarios bloqueados de /confession', value: `${(cfg.confession_blocked_ids || []).length}`, inline: true },
       { name: '🎮 Canal de patch notes de LoL', value: channel(cfg.lol_announce_channel_id), inline: true },

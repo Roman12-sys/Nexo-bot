@@ -95,7 +95,7 @@ export function buildAdministracionEmbed() {
           'Separa el rol de Administrador del de Moderador (por defecto son el mismo). Solo el rol de Administrador puede usar /economia-staff y /xp — el de Moderador conserva toda la moderación normal.',
       },
       {
-        name: '/config rol-castigo / rol-automatico / canal-bienvenida / canal-confesiones / canal-reportes / ...',
+        name: '/config rol-castigo / rol-automatico / canal-bienvenida / canal-confesiones / ...',
         value: 'Apuntá a un rol/canal que YA existe en el server en vez de crear uno nuevo con /setup.',
       },
       {
@@ -104,10 +104,6 @@ export function buildAdministracionEmbed() {
       },
       { name: '/config confesiones-revision / confesion-bloquear / confesion-desbloquear', value: 'Controles del sistema de confesiones anónimas.' },
       { name: '/config exportar', value: 'Descarga un JSON de respaldo de toda la configuración (solo lectura, no cambia nada).' },
-      {
-        name: '🚨 Reportes de miembros (/report)',
-        value: 'Cualquier miembro puede reportar un usuario, un mensaje o una situación con `/report`. Llega al canal de `/config canal-reportes` — si no lo configuraste, cae al log de moderación.',
-      },
       {
         name: '🎭 Roles autoasignables (/config rol-autoasignable-agregar / rol-autoasignable-quitar)',
         value: 'Elegí qué roles pueden elegir solos los miembros (hasta 25). Se ofrecen desde `/help` ("Mis roles") y desde el mensaje de bienvenida — nunca un rol con permisos peligrosos.',

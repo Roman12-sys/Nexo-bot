@@ -89,12 +89,6 @@ const EXTRAS = {
     label: 'Rol de castigo',
     description: 'Crea el rol "Sancionado" — quien lo tenga no puede mandar imágenes ni enlaces (usado por /punish).',
   },
-  reportes: {
-    stateKey: 'reportes',
-    emoji: '🚨',
-    label: 'Canal de reportes',
-    description: 'Crea el canal #reportes — ahí llegan los reportes de /report (si no lo activás, usan el log de moderación).',
-  },
 };
 
 // Sesión en memoria del panel interactivo, una por usuario (mismo patrón que
@@ -326,7 +320,7 @@ async function runSetup(interaction, state) {
   });
   summary.push(`${staffCreated ? '🆕 Creado' : '♻️ Reusado'} rol de staff: ${staffRole}`);
 
-  const needsCategory = state.moderacion || state.bienvenida || state.confesiones || state.reportes;
+  const needsCategory = state.moderacion || state.bienvenida || state.confesiones;
   let category = null;
   if (needsCategory) {
     const result = await resolveCategory(interaction, cfg);
@@ -391,16 +385,6 @@ async function runSetup(interaction, state) {
     await setGuildConfig(interaction.guildId, { confession_channel_id: channel.id });
   }
 
-  if (state.reportes) {
-    const { channel, created } = await resolveChannel(interaction, cfg, category, {
-      column: 'report_channel_id',
-      name: 'reportes',
-      overwrites: staffOnlyOverwrites(interaction, staffRole),
-    });
-    summary.push(`${created ? '🆕 Creado' : '♻️ Reusado'} canal de reportes: ${channel}`);
-    await setGuildConfig(interaction.guildId, { report_channel_id: channel.id });
-  }
-
   if (state.autoRol) {
     const { role, created, skippedDangerousPermission } = await resolveRole(interaction, cfg, {
       column: 'auto_role_id',
@@ -445,17 +429,13 @@ async function runSetup(interaction, state) {
     console.error('⚠️ No se pudo registrar /setup en el canal de logs:', error);
   }
 
-  // Próximos pasos (Fase 4C-1, onboarding): 3-4 acciones concretas con comandos que
+  // Próximos pasos (Fase 4C-1, onboarding): acciones concretas con comandos que
   // REALMENTE existen (nunca inventados) — /daily porque economía está siempre activa,
-  // /nivel y /report solo si los módulos que los sostienen quedaron prendidos en este
-  // mismo /setup. El link del dashboard solo aparece si config.dashboardUrl está
-  // configurado (nunca una URL inventada) — /guild/:id es la ruta real de dashboard/server.js.
+  // /nivel solo si el módulo que lo sostiene quedó prendido en este mismo /setup. El link
+  // del dashboard solo aparece si config.dashboardUrl está configurado (nunca una URL
+  // inventada) — /guild/:id es la ruta real de dashboard/server.js.
   const nextSteps = ['🔎 `/help` — mirá todos los comandos disponibles.', '💰 `/daily` — probá la economía (recompensa diaria).'];
   if (state.xp) nextSteps.push('⭐ `/nivel` — mirá tu tarjeta de XP y nivel.');
-  // /report siempre funciona (cae al log de moderación si no hay canal dedicado), pero
-  // solo tiene sentido recomendarlo si HAY algún destino real: el módulo de moderación
-  // (log_channel_moderation_id) o el extra "Canal de reportes" activado en este mismo panel.
-  if (state.moderacion || state.reportes) nextSteps.push('🚨 `/report` — así te van a poder avisar los miembros si pasa algo.');
   if (config.dashboardUrl) {
     nextSteps.push(`📊 [Panel de este servidor](${config.dashboardUrl}/guild/${interaction.guildId}) — actividad, economía y moderación de un vistazo.`);
   }

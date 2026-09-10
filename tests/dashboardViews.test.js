@@ -193,7 +193,7 @@ describe('renderGuildDashboard — problemas de configuración (Dashboard 2.0)',
   it('con issues: los lista con severidad, título y detalle', () => {
     const data = baseData({
       configIssues: [
-        { severity: 'danger', title: 'Reportes', detail: 'El canal configurado ya no existe.' },
+        { severity: 'danger', title: 'Moderación', detail: 'El canal configurado ya no existe.' },
         { severity: 'warning', title: 'Rol automático', detail: 'El rol configurado ya no existe.' },
       ],
     });
@@ -203,7 +203,7 @@ describe('renderGuildDashboard — problemas de configuración (Dashboard 2.0)',
     expect(html).toContain('Problemas de configuración (2)');
     expect(html).toContain('🔴 Urgente');
     expect(html).toContain('🟡 Atención');
-    expect(html).toContain('Reportes');
+    expect(html).toContain('Moderación');
     expect(html).toContain('El canal configurado ya no existe.');
   });
 });

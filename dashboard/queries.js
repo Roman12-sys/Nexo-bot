@@ -259,7 +259,7 @@ async function fetchGuildConfigSummary(guildId) {
   const { data, error } = await supabase
     .from('guild_config')
     .select(
-      'admin_role_id, moderator_role_id, log_channel_moderation_id, log_channel_activity_id, log_channel_economy_id, features, punish_role_id, auto_role_id, welcome_channel_id, confession_channel_id, report_channel_id, selfassignable_roles',
+      'admin_role_id, moderator_role_id, log_channel_moderation_id, log_channel_activity_id, log_channel_economy_id, features, punish_role_id, auto_role_id, welcome_channel_id, confession_channel_id, selfassignable_roles',
     )
     .eq('guild_id', guildId)
     .maybeSingle();
@@ -374,20 +374,6 @@ export function computeConfigIssues(cfg, resourceIds, voiceConfig) {
     issues.push({ severity: 'warning', title: 'Moderación', detail: 'No hay canal de logs de moderación configurado — las sanciones no quedan registradas en ningún canal.' });
   } else if (cfg.log_channel_moderation_id && !existsIn(cfg.log_channel_moderation_id, channelIds)) {
     issues.push({ severity: 'danger', title: 'Moderación', detail: 'El canal de logs configurado ya no existe. Configurá uno nuevo con /config o /setup.' });
-  }
-
-  const moderationChannelAlive = Boolean(cfg.log_channel_moderation_id) && existsIn(cfg.log_channel_moderation_id, channelIds);
-  const reportChannelAlive = Boolean(cfg.report_channel_id) && existsIn(cfg.report_channel_id, channelIds);
-  if (cfg.report_channel_id && !reportChannelAlive) {
-    issues.push({
-      severity: moderationChannelAlive ? 'warning' : 'danger',
-      title: 'Reportes',
-      detail: moderationChannelAlive
-        ? 'El canal dedicado a /report ya no existe — por ahora cae al log de moderación.'
-        : 'El canal dedicado a /report ya no existe, y tampoco hay un log de moderación configurado — /report no tiene dónde entregar nada. Corré /config canal-reportes.',
-    });
-  } else if (!cfg.report_channel_id && !moderationChannelAlive) {
-    issues.push({ severity: 'warning', title: 'Reportes', detail: 'No hay canal de reportes ni de moderación configurado — /report no tiene dónde entregar nada. Corré /config canal-reportes o /setup.' });
   }
 
   if (cfg.auto_role_id && !existsIn(cfg.auto_role_id, roleIds)) {

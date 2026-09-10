@@ -1,12 +1,11 @@
 # Nexo Bot
 
 **Nexo** es una plataforma para administrar y hacer crecer una comunidad de Discord desde
-un solo lugar: moderación, economía, progresión (XP/niveles), reportes de miembros,
-sorteos, trivia, salas de voz temporales (Join to Create), constructor de anuncios y
-tienda — todo en un único bot multi-servidor, con un dashboard de solo lectura para
-seguir la actividad sin entrar a Discord. Un solo proceso atiende a cualquier cantidad de
-servidores — cada uno se configura solo con `/setup` y `/config`, sin tocar código ni
-variables de entorno.
+un solo lugar: moderación, economía, progresión (XP/niveles), sorteos, trivia, salas de
+voz temporales (Join to Create), constructor de anuncios y tienda — todo en un único bot
+multi-servidor, con un dashboard de solo lectura para seguir la actividad sin entrar a
+Discord. Un solo proceso atiende a cualquier cantidad de servidores — cada uno se
+configura solo con `/setup` y `/config`, sin tocar código ni variables de entorno.
 
 ## Requisitos
 

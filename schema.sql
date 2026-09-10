@@ -64,16 +64,6 @@
 --   alter table economy_transactions add column if not exists delivered boolean not null default false;
 -- =========================================================
 --
--- MIGRACIÓN MANUAL PENDIENTE (Fase 4C-1, /report) — canal dedicado para los reportes de
--- miembros (/report). Si no está configurado, /report cae al canal de logs de moderación
--- (log_channel_moderation_id, ya existente) — ver src/commands/utilidad/report.js y
--- src/utils/guildLogChannels.js. Correr DESPUÉS de que el código de esta fase esté
--- desplegado (ver CLAUDE.md, gotcha "Correr un DROP/ALTER antes de que el código nuevo
--- esté desplegado"), y verificar por API tras correrla, no confiar solo en "Success":
---
---   alter table guild_config add column if not exists report_channel_id text;
--- =========================================================
---
 -- MIGRACIÓN MANUAL PENDIENTE (CICLO 1, Mejora 2/2 — roles autoasignables) — lista de
 -- roles que los miembros pueden elegir solos (ver src/utils/selfRoles.js). Correr
 -- DESPUÉS de que el código esté desplegado, y verificar por API tras correrla:
@@ -113,7 +103,6 @@ create table if not exists guild_config (
   confession_channel_id text,
   xp_announce_channel_id text,
   lol_announce_channel_id text, -- opt-in: patch notes de LoL para ESTE servidor (ver lolPatchEngine.js)
-  report_channel_id text, -- opt-in: destino de /report. Si es null, se usa log_channel_moderation_id (ver guildLogChannels.js) — nunca se agrega un segundo canal obligatorio.
   selfassignable_roles jsonb not null default '[]', -- IDs de roles que un miembro puede elegir solo (ver src/utils/selfRoles.js) — administrado con /config rol-autoasignable-agregar/quitar
 
   -- digest semanal (Ciclo 2, Bloque 11) — opt-in, ver src/utils/weeklyDigestEngine.js

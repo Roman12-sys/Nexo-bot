@@ -23,16 +23,15 @@ export function getHelpButtonsRow() {
 // CICLO 1, Mejora 2/2 (experiencia del miembro, "descubrimiento") — antes esto listaba
 // SIEMPRE las mismas 5 categorías sin importar qué tenga activado el servidor; un
 // miembro nuevo no tenía ninguna guía de "por dónde empiezo" más allá de adivinar. Estas
-// líneas se arman en base a guild_config REAL: /nivel solo si XP está activado, /report
-// solo si tiene algún destino real configurado, roles autoasignables solo si hay al
-// menos uno cargado — nunca se menciona algo que este servidor no puede usar.
+// líneas se arman en base a guild_config REAL: /nivel solo si XP está activado, roles
+// autoasignables solo si hay al menos uno cargado — nunca se menciona algo que este
+// servidor no puede usar.
 function buildPrimerosPasosLines(cfg) {
   const features = cfg.features || {};
   const lines = ['👤 `/perfil` — tu nivel, monedas, logros y sanciones, todo junto.', '💰 `/daily` — reclamá tu recompensa diaria.'];
 
   if (features.xp) lines.push('⭐ `/nivel` — tu tarjeta de XP y progreso hacia el siguiente nivel.');
   lines.push('🧠 `/trivia jugar` — sumá puntos respondiendo preguntas.');
-  if (cfg.report_channel_id || cfg.log_channel_moderation_id) lines.push('🚨 `/report` — reportá un usuario, un mensaje o una situación al staff.');
   if ((cfg.selfassignable_roles || []).length > 0) lines.push('🎭 Tocá **Mis roles** acá abajo para elegir tus roles.');
 
   return lines;
@@ -156,7 +155,7 @@ export function buildDiversionEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🎲 Diversión')
-    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/confession` `/encuesta` `/afk` `/recordatorio` `/report`')
+    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/confession` `/encuesta` `/afk` `/recordatorio`')
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }

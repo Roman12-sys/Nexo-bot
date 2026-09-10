@@ -24,14 +24,13 @@ describe('/helpstaff — Administración: roles autoasignables (Bloque 7)', () =
     expect(field.name).toContain('rol-autoasignable-quitar');
   });
 
-  it('el resto de los campos de Administración (setup, config ver, rol-admin, reportes) siguen intactos', () => {
+  it('el resto de los campos de Administración (setup, config ver, rol-admin) siguen intactos', () => {
     const embed = buildAdministracionEmbed();
     const names = embed.data.fields.map((f) => f.name);
 
     expect(names.some((n) => n === '/setup')).toBe(true);
     expect(names.some((n) => n === '/config ver')).toBe(true);
     expect(names.some((n) => n === '/config rol-admin')).toBe(true);
-    expect(names.some((n) => n.includes('Reportes de miembros'))).toBe(true);
   });
 });
 

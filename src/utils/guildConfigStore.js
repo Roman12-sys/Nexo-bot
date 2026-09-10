@@ -26,7 +26,6 @@ function defaultConfig(guildId) {
     confession_channel_id: null,
     xp_announce_channel_id: null,
     lol_announce_channel_id: null,
-    report_channel_id: null,
     selfassignable_roles: [],
     weekly_digest_enabled: false,
     weekly_digest_last_sent_at: null,

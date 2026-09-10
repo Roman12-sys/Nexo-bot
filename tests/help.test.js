@@ -63,7 +63,6 @@ describe('/help — "Primeros pasos" (descubrimiento, Mejora 2/2)', () => {
     expect(value).toContain('/daily');
     expect(value).toContain('/trivia jugar');
     expect(value).not.toContain('/nivel');
-    expect(value).not.toContain('/report');
     expect(value).not.toContain('Mis roles');
   });
 
@@ -73,15 +72,6 @@ describe('/help — "Primeros pasos" (descubrimiento, Mejora 2/2)', () => {
 
   it('sin XP: no sugiere /nivel', () => {
     expect(primerosPasos({ features: { xp: false } })).not.toContain('/nivel');
-  });
-
-  it('con destino de reportes (canal dedicado o log de moderación): agrega /report', () => {
-    expect(primerosPasos({ report_channel_id: 'chan-1' })).toContain('/report');
-    expect(primerosPasos({ log_channel_moderation_id: 'chan-2' })).toContain('/report');
-  });
-
-  it('sin destino de reportes: no sugiere /report', () => {
-    expect(primerosPasos({})).not.toContain('/report');
   });
 
   it('con roles autoasignables configurados: menciona "Mis roles"', () => {
