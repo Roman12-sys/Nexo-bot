@@ -47,8 +47,15 @@ function makeInteraction({
   };
 }
 
-const reportChannelMock = { send: vi.fn().mockResolvedValue(undefined) };
-const moderationChannelMock = { send: vi.fn().mockResolvedValue(undefined) };
+// UX-1 (Ciclo 2 aparte) — reportChannel.send() ahora devuelve el Message real, que
+// execute() usa para fijarlo (sentMessage.pin()) — el mock necesita exponer ese método
+// para que el código bajo test pueda llamarlo, igual que el `Message` real de discord.js.
+function makeSentMessage() {
+  return { pin: vi.fn().mockResolvedValue(undefined) };
+}
+
+const reportChannelMock = { send: vi.fn().mockResolvedValue(makeSentMessage()) };
+const moderationChannelMock = { send: vi.fn().mockResolvedValue(makeSentMessage()) };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -266,13 +273,21 @@ function makeReportEmbedData(fields) {
   return { data, toJSON: () => data };
 }
 
-function makeStatusInteraction(customId, { userId = 'mod-1', guildId = 'guild-1', staffRoleIds = [], fields = [{ name: 'Estado', value: '🔴 Pendiente' }] } = {}) {
+// UX-1 — el mensaje mock ahora expone `unpin`, igual que el `Message` real (ver
+// handleStatusButton, que desfija DESPUÉS de escribir el Estado). `message` es
+// opcional para poder pasar el MISMO objeto (con el mismo mock de `unpin`) a dos
+// interactions distintas — así un test de doble click puede ver los 2 llamados
+// acumulados sobre el mismo mensaje.
+function makeStatusInteraction(
+  customId,
+  { userId = 'mod-1', guildId = 'guild-1', staffRoleIds = [], fields = [{ name: 'Estado', value: '🔴 Pendiente' }], message = null } = {},
+) {
   return makeButtonInteraction(customId, {
     userId,
     guildId,
     base: {
       member: { roles: { cache: new Map(staffRoleIds.map((id) => [id, { id }])) } },
-      message: { embeds: [makeReportEmbedData(fields)] },
+      message: message || { embeds: [makeReportEmbedData(fields)], unpin: vi.fn().mockResolvedValue(undefined) },
     },
   });
 }
@@ -284,7 +299,7 @@ describe('/report — estado del reporte (Bloque 10: Pendiente/Visto/Resuelto)',
     getGuildConfig.mockResolvedValue(STAFF_CFG);
   });
 
-  it('reporte recién creado: arranca en estado Pendiente, con los botones Visto/Resuelto', async () => {
+  it('reporte recién creado: arranca en estado Pendiente, con los botones Visto/Resuelto, y queda fijado', async () => {
     const interaction = makeInteraction({ userId: 'rep-est-1' });
 
     await execute(interaction);
@@ -294,9 +309,13 @@ describe('/report — estado del reporte (Bloque 10: Pendiente/Visto/Resuelto)',
     expect(embed.data.fields.find((f) => f.name === 'Estado').value).toBe('🔴 Pendiente');
     const buttons = call.components[0].components;
     expect(buttons.map((b) => b.data.custom_id)).toEqual(['report_status_visto', 'report_status_resuelto']);
+    // UX-1: Pendiente = fijado — la cola de "Mensajes fijados" del canal ES la cola de
+    // reportes sin atender, sin mover ni duplicar el mensaje.
+    const sentMessage = await moderationChannelMock.send.mock.results[0].value;
+    expect(sentMessage.pin).toHaveBeenCalledTimes(1);
   });
 
-  it('staff puede marcar "Visto": actualiza Estado + color, reconstruye los mismos 2 botones', async () => {
+  it('staff puede marcar "Visto": actualiza Estado + color, reconstruye los mismos 2 botones, y desfija', async () => {
     const interaction = makeStatusInteraction('report_status_visto', { staffRoleIds: ['mod-role'] });
 
     await routeButton(interaction);
@@ -308,9 +327,11 @@ describe('/report — estado del reporte (Bloque 10: Pendiente/Visto/Resuelto)',
     expect(updatedFields.find((f) => f.name === 'Estado').value).toMatch(/^👀 Visto por/);
     expect(payload.embeds[0].data.color).toBe(Number('0x7F5AF0'));
     expect(payload.components[0].components.map((b) => b.data.custom_id)).toEqual(['report_status_visto', 'report_status_resuelto']);
+    // UX-1: Visto YA NO ocupa la cola de fijados — solo Pendiente la ocupa.
+    expect(interaction.message.unpin).toHaveBeenCalledTimes(1);
   });
 
-  it('staff puede marcar "Resuelto": actualiza Estado + color distinto de "Visto"', async () => {
+  it('staff puede marcar "Resuelto": actualiza Estado + color distinto de "Visto", y desfija', async () => {
     const interaction = makeStatusInteraction('report_status_resuelto', { staffRoleIds: ['mod-role'] });
 
     await routeButton(interaction);
@@ -318,6 +339,7 @@ describe('/report — estado del reporte (Bloque 10: Pendiente/Visto/Resuelto)',
     const payload = interaction.update.mock.calls[0][0];
     expect(payload.embeds[0].data.fields.find((f) => f.name === 'Estado').value).toMatch(/^✅ Resuelto por/);
     expect(payload.embeds[0].data.color).toBe(Number('0x2A9D8F'));
+    expect(interaction.message.unpin).toHaveBeenCalledTimes(1);
   });
 
   it('se puede pasar de Visto a Resuelto sobre el mismo mensaje (no queda pegado en un estado)', async () => {
@@ -352,13 +374,49 @@ describe('/report — estado del reporte (Bloque 10: Pendiente/Visto/Resuelto)',
     }
   });
 
-  it('un usuario sin el rol de staff no puede cambiar el estado (ni ephemeral revela nada al mensaje público)', async () => {
+  it('un usuario sin el rol de staff no puede cambiar el estado (ni ephemeral revela nada al mensaje público, ni toca el fijado)', async () => {
     const interaction = makeStatusInteraction('report_status_visto', { staffRoleIds: [] });
 
     await routeButton(interaction);
 
     expect(interaction.update).not.toHaveBeenCalled();
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el staff') }));
+    expect(interaction.message.unpin).not.toHaveBeenCalled();
+  });
+
+  // Ciclo 2 aparte (UX-1) — cada click de botón es una interaction NUEVA de Discord
+  // (nunca la misma reenviada), así que "doble click" se simula acá con dos llamadas a
+  // routeButton — ambas leyendo/escribiendo sobre el MISMO objeto `message` (mismo mock
+  // de `unpin`), igual que dos clicks reales sobre el mismo mensaje en Discord.
+  it('doble click sobre el mismo botón (Visto dos veces): no revienta, el estado queda igual, desfija las dos veces sin error', async () => {
+    const sharedMessage = { embeds: [makeReportEmbedData([{ name: 'Estado', value: '🔴 Pendiente' }])], unpin: vi.fn().mockResolvedValue(undefined) };
+    const firstClick = makeStatusInteraction('report_status_visto', { staffRoleIds: ['mod-role'], message: sharedMessage });
+
+    await routeButton(firstClick);
+
+    // El segundo click ve el mensaje YA actualizado por el primero (mismo criterio que
+    // Discord: cada interaction trae el estado real del mensaje en ese momento).
+    sharedMessage.embeds = firstClick.update.mock.calls[0][0].embeds;
+    const secondClick = makeStatusInteraction('report_status_visto', { staffRoleIds: ['mod-role'], message: sharedMessage });
+
+    await expect(routeButton(secondClick)).resolves.not.toThrow();
+
+    expect(secondClick.update).toHaveBeenCalledTimes(1);
+    expect(secondClick.update.mock.calls[0][0].embeds[0].data.fields.find((f) => f.name === 'Estado').value).toMatch(/^👀 Visto por/);
+    expect(sharedMessage.unpin).toHaveBeenCalledTimes(2); // una vez por click, sin error ninguna de las dos
+  });
+
+  it('si desfijar falla (permiso perdido, ya desfijado, etc.): el Estado igual queda escrito — nunca deja el reporte en un estado inconsistente', async () => {
+    const brokenMessage = {
+      embeds: [makeReportEmbedData([{ name: 'Estado', value: '🔴 Pendiente' }])],
+      unpin: vi.fn().mockRejectedValue(new Error('Missing Permissions')),
+    };
+    const interaction = makeStatusInteraction('report_status_resuelto', { staffRoleIds: ['mod-role'], message: brokenMessage });
+
+    await expect(routeButton(interaction)).resolves.not.toThrow();
+
+    expect(interaction.update).toHaveBeenCalledTimes(1);
+    expect(interaction.update.mock.calls[0][0].embeds[0].data.fields.find((f) => f.name === 'Estado').value).toMatch(/^✅ Resuelto por/);
   });
 
   it('mensaje sin embed legible (borrado/corrupto): avisa en vez de fallar en silencio', async () => {
@@ -371,6 +429,17 @@ describe('/report — estado del reporte (Bloque 10: Pendiente/Visto/Resuelto)',
 
     expect(interaction.update).not.toHaveBeenCalled();
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No se pudo leer este reporte') }));
+  });
+
+  it('si fijar falla al crear el reporte (canal con 50 fijados, permiso perdido, etc.): el reporte se entrega igual, sin fingir un error', async () => {
+    const unpinnableMessage = { pin: vi.fn().mockRejectedValue(new Error('Maximum number of pins reached (50)')) };
+    moderationChannelMock.send.mockResolvedValueOnce(unpinnableMessage);
+    const interaction = makeInteraction({ userId: 'rep-pin-fail' });
+
+    await expect(execute(interaction)).resolves.not.toThrow();
+
+    expect(unpinnableMessage.pin).toHaveBeenCalledTimes(1);
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('✅') }));
   });
 
   it('persistencia tras un restart conceptual: el estado depende SOLO del embed del mensaje, nunca de un Map en memoria del proceso', async () => {

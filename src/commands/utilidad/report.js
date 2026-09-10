@@ -168,8 +168,9 @@ export async function execute(interaction) {
     new ButtonBuilder().setCustomId('report_status_resuelto').setLabel('Resuelto').setEmoji('✅').setStyle(ButtonStyle.Success),
   );
 
+  let sentMessage;
   try {
-    await reportChannel.send({ embeds: [embed], components: [statusRow] });
+    sentMessage = await reportChannel.send({ embeds: [embed], components: [statusRow] });
   } catch (error) {
     console.error('❌ No se pudo entregar un reporte al canal de staff:', error);
     await interaction.editReply({
@@ -177,6 +178,14 @@ export async function execute(interaction) {
     });
     return;
   }
+
+  // UX-1 (Ciclo 2 aparte) — fijar el mensaje mientras está Pendiente convierte el panel
+  // de "Mensajes fijados" del canal en la cola real de reportes sin atender, sin mover
+  // ni duplicar nada. Best-effort y totalmente aparte de la entrega del reporte en sí
+  // (que YA se confirmó arriba, `sentMessage` existe) — un canal con 50 fijados
+  // (el máximo de Discord) o sin el permiso "Gestionar mensajes" simplemente no lo fija,
+  // nunca le hace fallar el reporte a quien lo mandó.
+  await sentMessage.pin().catch((error) => console.warn('⚠️ No se pudo fijar un reporte nuevo (Pendiente):', error.message));
 
   await interaction.editReply({ content: '✅ Reporte enviado al staff. Gracias por ayudar a mantener el servidor en orden.' });
 }
@@ -227,6 +236,16 @@ async function handleStatusButton(interaction, estado) {
   // visible para todo el staff que mire el canal, no hace falta una respuesta ephemeral
   // aparte. Se puede pasar de Visto a Resuelto, o de Resuelto de vuelta a Visto, sin límite.
   await interaction.update({ embeds: [updatedEmbed], components: [statusRow] });
+
+  // UX-1 — "Visto" y "Resuelto" son los dos estados en que un reporte ya NO necesita
+  // estar en la cola de fijados (solo "Pendiente" la ocupa) — se desfija sin importar
+  // cuál de los dos botones se clickeó, y sin importar si ya estaba desfijado (Discord
+  // no tira error por desfijar algo que no está fijado; igual queda en try/catch por si
+  // el bot perdió el permiso "Gestionar mensajes" después de que el reporte se creó).
+  // Se hace DESPUÉS de interaction.update() — el campo "Estado" (la fuente real de
+  // verdad) ya quedó escrito antes de intentar esto, así que un fallo acá nunca deja el
+  // estado del reporte inconsistente, como mucho el mensaje queda fijado de más.
+  await interaction.message.unpin().catch((error) => console.warn(`⚠️ No se pudo desfijar un reporte marcado ${estado}:`, error.message));
 }
 
 registerButtonPrefix('report_status_visto', (i) => handleStatusButton(i, 'visto'));
