@@ -1557,6 +1557,69 @@ dashboard (que sigue siendo 100% solo lectura); reescribirlo con el lenguaje de
 tampoco — el staff ya conoce el producto, ese texto es de navegación, no de
 presentación.
 
+## Ciclo 2 — implementación real de hallazgos de Auditoría 3.0 (2026-09-09/10)
+
+A diferencia de las fases anteriores (auditoría → triage → una fase acotada), acá se
+tomó una lista ya cerrada de 11 hallazgos ya investigados (concurrencia de `/give`,
+`rob_shield` inalcanzable en tienda custom, recovery de Temp Voice, consistencia del
+dashboard, confirmación faltante en `/sanciones`, semántica de error de `/crime`,
+discoverability de `/helpstaff`, mensaje de diagnóstico de rol de staff, micro-cleanup
+de `guildMemberAdd.js`, estado de `/report`, digest semanal) y se implementaron los 11
+en el mismo tramo de trabajo, sin volver a auditar entre bloques. Sin commitear todavía
+al momento de escribir esto — solo se documentan acá las dos piezas con una decisión
+arquitectónica real detrás; el resto son fixes puntuales que el propio diff explica.
+
+**`/give` — el cooldown ya existía (Fase 4B), lo que faltaba era el lock.** Tener un
+`Map` de cooldown no alcanza si el read-check-write no está serializado: dos `/give`
+del mismo emisor casi simultáneos podían leer el mismo cooldown vencido antes de que
+ninguno de los dos lo actualizara. Mismo patrón que `/daily`/`/work`/`/crime`/`/rob`
+— `withLock('give:{guild}:{sender}')`, con un pre-check fuera del lock solo por UX
+(responder rápido) y la revalidación real DENTRO, justo antes de recién ahí marcar el
+cooldown. `transferBalance` en sí ya era atómico (RPC) desde antes — lo que faltaba
+serializar era el cooldown, no la transferencia.
+
+**`/report` — estado (Pendiente/Visto/Resuelto) vive en el propio mensaje de Discord,
+nunca en Supabase.** Antes era un buzón muerto: llegaba al canal de staff y ahí
+terminaba, sin señal de si alguien lo había atendido. En vez de una tabla nueva (el
+pedido explícito era evitarla salvo estrictamente necesario), el campo "Estado" del
+embed + 2 botones (`report_status_visto`/`report_status_resuelto`, staff-only vía
+`isStaff()`) cargan y persisten el estado en el mensaje mismo — un mensaje de Discord ya
+sobrevive un restart del bot solo, y `registerButtonPrefix` se re-registra en cada boot,
+así que "persistir después de un restart" queda resuelto sin ninguna infraestructura
+nueva. Cada click relee `interaction.message.embeds[0]` fresco (nunca un estado
+cacheado) y reconstruye los 2 botones desde cero en vez de reusar
+`interaction.message.components` (mismo criterio que el resto del proyecto: `.update()`
+arma sus componentes de cero). Sin lock entre clicks — dos staff cambiando el estado
+casi al mismo tiempo es un "último click gana" (no hay corrupción de datos posible,
+`withEstadoField` solo reemplaza el campo "Estado" sin tocar el resto), aceptado porque
+esto es coordinación interna de staff, no una acción con consecuencia sobre un usuario.
+
+**Digest semanal — barrido sobre `guild_config`, mismo patrón que `lolPatchEngine.js`,
+nunca un scheduler nuevo.** Opt-in por servidor (`/config digest-semanal`,
+`weekly_digest_enabled` + `weekly_digest_last_sent_at` epoch ms — mismo criterio que las
+columnas de cooldown). `src/utils/weeklyDigestEngine.js` corre cada 1h (guardia
+`tickRunning` contra solapamiento, mismo patrón que `voiceXpEngine.js`) y, por cada
+guild opt-in, manda un resumen de `guild_daily_stats` (7 días) a
+`log_channel_activity_id` SOLO si ya pasó una semana desde el último envío.
+`weekly_digest_last_sent_at` avanza recién DESPUÉS de un `send()` exitoso — sin canal
+configurado o con un envío fallido, el guild se reintenta solo en el próximo tick, sin
+duplicar ni perder nada. Restart-resistente sin reprogramar nada (a diferencia de
+sorteos/recordatorios/restricciones): no hay ningún `setTimeout` puntual que reconstruir
+al arrancar, cada tick vuelve a leer el estado real de Supabase. Al activar el digest se
+siembra `weekly_digest_last_sent_at = ahora` (nunca queda `null` mientras está activo)
+para que el primer envío real, 7 días después, refleje una semana completa en vez de un
+resumen parcial de actividad de antes de que el server hubiera optado por recibirlo.
+
+**`migration_2026_09_10_cycle2.sql`** (las 2 columnas de arriba) — corrida contra
+producción el 2026-09-10 y verificada por API (`guild_config` ya devuelve
+`weekly_digest_enabled`/`weekly_digest_last_sent_at`), **antes** de que el código de
+este ciclo esté commiteado/pusheado/desplegado — a diferencia del orden que pide el
+gotcha de DROP/ALTER más abajo. Sin riesgo real acá porque es un `add column`
+aditivo con default: el bot ya desplegado no las conoce ni las consulta, así que
+quedan inertes (sin efecto visible) hasta que el código de `weeklyDigestEngine.js`/
+`/config digest-semanal` se despliegue — a diferencia del DROP de Pets (2026-09-01),
+que sí rompió comandos en vivo porque el código viejo SÍ dependía de lo que se borró.
+
 ## Stack
 
 Node 22+, discord.js 14 (ESM, `"type": "module"` en `package.json`), Supabase

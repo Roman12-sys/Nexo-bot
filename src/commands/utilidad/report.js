@@ -4,9 +4,21 @@
 // vez de armar un sistema paralelo: getGuildLogChannel (mismo helper que /warn, /ban,
 // etc. usan para resolver+validar un canal de logs), el cooldown en Map autolimpiante de
 // /encuesta, y el embed simple estilo logEmbeds.js.
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
 import { BRAND_NAME, LOG_COLOR } from '../../utils/embeds.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { isStaff } from '../../utils/permissions.js';
+import { registerButtonPrefix } from '../../components/buttons.js';
+
+// Ciclo 1, Bloque 10 — antes /report era un buzón muerto: el mensaje llegaba al canal
+// de staff y ahí terminaba, sin ninguna señal de si alguien lo había atendido. Estado
+// vive DENTRO del propio embed (campo "Estado" + color), nunca en Supabase — un mensaje
+// de Discord ya sobrevive un restart del bot solo, así que no hace falta ninguna tabla
+// nueva para "persistir después de restart": el mensaje sigue ahí, con sus botones
+// funcionando en cuanto el bot vuelve a estar online (registerButtonPrefix se registra
+// en cada boot, no por mensaje).
+const VISTO_COLOR = '#7F5AF0'; // BRAND_COLOR — "alguien ya lo está mirando"
+const RESUELTO_COLOR = '#2A9D8F'; // mismo verde que OK_COLOR de logEmbeds.js — "cerrado"
 
 // Anti-spam simple, mismo criterio que POLL_COOLDOWN_MS de encuesta.js: por guild+usuario
 // (no global), en memoria (nunca amerita Supabase). 60s en vez de los 2 min de /encuesta
@@ -142,6 +154,7 @@ export async function execute(interaction) {
   }
 
   fields.push({ name: 'Motivo', value: motivo });
+  fields.push({ name: 'Estado', value: '🔴 Pendiente' });
 
   const embed = new EmbedBuilder()
     .setColor(LOG_COLOR)
@@ -150,8 +163,13 @@ export async function execute(interaction) {
     .setFooter({ text: `${BRAND_NAME} • /report` })
     .setTimestamp();
 
+  const statusRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('report_status_visto').setLabel('Visto').setEmoji('👀').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('report_status_resuelto').setLabel('Resuelto').setEmoji('✅').setStyle(ButtonStyle.Success),
+  );
+
   try {
-    await reportChannel.send({ embeds: [embed] });
+    await reportChannel.send({ embeds: [embed], components: [statusRow] });
   } catch (error) {
     console.error('❌ No se pudo entregar un reporte al canal de staff:', error);
     await interaction.editReply({
@@ -162,3 +180,54 @@ export async function execute(interaction) {
 
   await interaction.editReply({ content: '✅ Reporte enviado al staff. Gracias por ayudar a mantener el servidor en orden.' });
 }
+
+// Reemplaza (o agrega, si por algún motivo no estuviera) el campo "Estado" sin tocar el
+// resto del embed — motivo, usuario reportado, mensaje, etc. quedan exactamente igual.
+function withEstadoField(embed, value) {
+  const fields = [...(embed.data.fields || [])];
+  const idx = fields.findIndex((f) => f.name === 'Estado');
+  const field = { name: 'Estado', value };
+  if (idx === -1) fields.push(field);
+  else fields[idx] = field;
+  return embed.setFields(fields);
+}
+
+async function handleStatusButton(interaction, estado) {
+  // Único chequeo de autorización que hace falta: cualquier miembro con el rol de staff
+  // puede marcar el estado — no hay jerarquía de por medio (esto no es una sanción
+  // contra nadie, es coordinación interna del staff).
+  if (!(await isStaff(interaction))) {
+    await interaction.reply({ content: '❌ Solo el staff puede cambiar el estado de un reporte.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  const originalEmbed = interaction.message.embeds[0];
+  if (!originalEmbed) {
+    await interaction.reply({ content: '❌ No se pudo leer este reporte.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const value = estado === 'visto' ? `👀 Visto por ${interaction.user} — <t:${now}:R>` : `✅ Resuelto por ${interaction.user} — <t:${now}:R>`;
+  const color = estado === 'visto' ? VISTO_COLOR : RESUELTO_COLOR;
+
+  const updatedEmbed = withEstadoField(EmbedBuilder.from(originalEmbed).setColor(color), value);
+
+  // Reconstruye los mismos 2 botones de siempre (en vez de reusar
+  // interaction.message.components tal cual) — mismo criterio que el resto del proyecto:
+  // .update() siempre arma sus componentes desde cero, nunca reserializa lo recibido.
+  // Son estáticos (no llevan ningún ID de reporte codificado, el handler opera sobre
+  // interaction.message directamente), así que reconstruirlos es trivial.
+  const statusRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('report_status_visto').setLabel('Visto').setEmoji('👀').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('report_status_resuelto').setLabel('Resuelto').setEmoji('✅').setStyle(ButtonStyle.Success),
+  );
+
+  // .update() edita el mismo mensaje público — el cambio de estado ES la confirmación,
+  // visible para todo el staff que mire el canal, no hace falta una respuesta ephemeral
+  // aparte. Se puede pasar de Visto a Resuelto, o de Resuelto de vuelta a Visto, sin límite.
+  await interaction.update({ embeds: [updatedEmbed], components: [statusRow] });
+}
+
+registerButtonPrefix('report_status_visto', (i) => handleStatusButton(i, 'visto'));
+registerButtonPrefix('report_status_resuelto', (i) => handleStatusButton(i, 'resuelto'));

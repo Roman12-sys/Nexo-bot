@@ -9,6 +9,7 @@ import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
 import { recordModerationAction, getUserModerationActions } from '../../utils/moderationActionsStore.js';
 import { revokePunishment } from '../../utils/punishEngine.js';
+import { buildConfirmation } from '../../utils/confirmations.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 const ACTION_LABELS = {
@@ -285,32 +286,64 @@ registerSelectPrefix('sanciones_select_ban', async (i) => {
   await recordModerationAction(i.guildId, userId, { actionType: 'unban', moderatorId: i.user.id, reason: null }).catch(() => {});
 });
 
+// QUÉ CAMBIÓ (auditoría Ciclo 1, Bloque 5): antes esto borraba TODAS las advertencias
+// de un usuario con un solo click en el dropdown (hasta 25 nombres listados) — el
+// equivalente directo, /unwarn sin número, YA pasaba por buildConfirmation para la
+// MISMA acción. Reusa ese mismo helper en vez de duplicar el mecanismo de confirmación
+// — el panel de "¿Confirmás?" revalida permisos y jerarquía de nuevo en `run`, por si
+// cambiaron en la ventana entre elegir el nombre y confirmar (mismo criterio que
+// /ban/`/clear`/`/unwarn`).
 registerSelectPrefix('sanciones_select_warn', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
 
-  // Defer apenas se confirma el permiso — mismo motivo que los selects de arriba
-  // (sección 3 de la auditoría Fase 2B); todas las ramas ya eran ephemeral.
-  await i.deferReply({ flags: MessageFlags.Ephemeral });
-
   const userId = i.values[0];
 
-  // QUÉ CAMBIÓ: mismo chequeo central de jerarquía que /unwarn — antes el panel podía
-  // borrar TODAS las advertencias de alguien con rango igual/superior (o del propio
-  // staff, o del bot) sin ningún control, algo que /unwarn directo sí bloqueaba. member
-  // puede ser null (el usuario ya no está en el server) — getModerationBlockReason no
-  // bloquea en ese caso, mismo criterio que /unwarn.
-  // MOTIVO: auditoría Fase 2B, sección 1A.
+  // Mismo chequeo central de jerarquía que /unwarn — antes el panel podía borrar TODAS
+  // las advertencias de alguien con rango igual/superior (o del propio staff, o del
+  // bot) sin ningún control. member puede ser null (el usuario ya no está en el
+  // server) — getModerationBlockReason no bloquea en ese caso, mismo criterio que
+  // /unwarn. Se revalida DE NUEVO dentro de confirmClearWarns, no solo acá.
   const member = await i.guild.members.fetch(userId).catch(() => null);
   const blockReason = getModerationBlockReason(i, member);
-  if (blockReason) return i.editReply({ content: blockReason });
+  if (blockReason) return i.reply({ content: blockReason, flags: MessageFlags.Ephemeral });
 
   const user = await i.client.users.fetch(userId).catch(() => null);
-  const total = await clearWarns(i.guildId, userId);
 
-  await i.editReply({ content: `✅ Se borraron las ${total} advertencia(s) de ${user?.tag || userId}.` });
-  await i.channel.send({ content: `✅ ${i.user} borró las ${total} advertencia(s) de ${user?.tag || userId}.` }).catch(() => {});
-
-  if (user) {
-    await sendPanelLog(i, 'moderation', createUnwarnLogEmbed({ user, executor: i.user, detail: `Se borraron todas (${total}) desde el panel /sanciones` }));
-  }
+  const confirmation = buildConfirmation({
+    userId: i.user.id,
+    guildId: i.guildId,
+    description: `Vas a borrar **todas** las advertencias de ${user ? `${user}` : `<@${userId}>`}.`,
+    run: (confirmInteraction) => confirmClearWarns(confirmInteraction, userId, user),
+  });
+  await i.reply(confirmation);
 });
+
+async function confirmClearWarns(interaction, userId, user) {
+  await interaction.update({ content: '⏳ Procesando...', embeds: [], components: [] });
+
+  try {
+    if (!(await isStaff(interaction))) {
+      await interaction.editReply({ content: '❌ Ya no tenés permisos para esta acción.' });
+      return;
+    }
+
+    const member = await interaction.guild.members.fetch(userId).catch(() => null);
+    const blockReason = getModerationBlockReason(interaction, member);
+    if (blockReason) {
+      await interaction.editReply({ content: blockReason });
+      return;
+    }
+
+    const total = await clearWarns(interaction.guildId, userId);
+
+    await interaction.editReply({ content: `✅ Se borraron las ${total} advertencia(s) de ${user?.tag || userId}.` });
+    await interaction.channel.send({ content: `✅ ${interaction.user} borró las ${total} advertencia(s) de ${user?.tag || userId}.` }).catch(() => {});
+
+    if (user) {
+      await sendPanelLog(interaction, 'moderation', createUnwarnLogEmbed({ user, executor: interaction.user, detail: `Se borraron todas (${total}) desde el panel /sanciones` }));
+    }
+  } catch (error) {
+    console.error('❌ Error al confirmar el borrado de advertencias desde /sanciones:', error);
+    await interaction.editReply({ content: '❌ Ocurrió un error al borrar las advertencias.' }).catch(() => {});
+  }
+}

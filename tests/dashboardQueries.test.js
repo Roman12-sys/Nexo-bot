@@ -297,6 +297,29 @@ describe('computeSystemsStatus', () => {
     expect(disabled).toEqual({ key: 'tempvoice', label: 'Salas de voz temporales', status: 'off', detail: 'Desactivado' });
     expect(enabled).toEqual({ key: 'tempvoice', label: 'Salas de voz temporales', status: 'ok', detail: 'Activo' });
   });
+
+  // Ciclo 1, Bloque 4B — antes "Moderación" decidía 'ok' con solo mirar si
+  // log_channel_moderation_id tenía un valor, nunca si el canal seguía existiendo.
+  describe('Moderación con resourceIds (verificación real de existencia)', () => {
+    const cfg = { features: { moderacion: true }, log_channel_moderation_id: 'chan-vivo' };
+
+    it('canal configurado y VIVO (existe en channelIds): "ok"', () => {
+      const status = computeSystemsStatus(cfg, null, { channelIds: new Set(['chan-vivo']), roleIds: new Set() }).find((s) => s.key === 'moderacion');
+      expect(status.status).toBe('ok');
+      expect(status.detail).toBe('Configurada');
+    });
+
+    it('canal configurado pero BORRADO (ausente de channelIds): "warning", nunca "ok"', () => {
+      const status = computeSystemsStatus(cfg, null, { channelIds: new Set(), roleIds: new Set() }).find((s) => s.key === 'moderacion');
+      expect(status.status).toBe('warning');
+      expect(status.detail).toBe('El canal configurado ya no existe');
+    });
+
+    it('sin resourceIds disponible (fetch de Discord falló): no acusa en falso, sigue "ok"', () => {
+      const status = computeSystemsStatus(cfg, null, { channelIds: null, roleIds: null }).find((s) => s.key === 'moderacion');
+      expect(status.status).toBe('ok');
+    });
+  });
 });
 
 describe('computeConfigIssues', () => {
@@ -312,6 +335,36 @@ describe('computeConfigIssues', () => {
     const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set() }, null);
 
     expect(issues).toContainEqual(expect.objectContaining({ severity: 'danger', title: 'Rol de moderador' }));
+  });
+
+  // Ciclo 1, Bloque 8 — cuando admin_role_id === moderator_role_id (caso normal
+  // post-/setup) y ese rol se borra, el mensaje tiene que avisar que /economia-staff y
+  // /xp TAMBIÉN quedan rotos, no solo la moderación.
+  describe('mensaje de "Rol de moderador" borrado — menciona /economia-staff y /xp cuando corresponde (Bloque 8)', () => {
+    it('admin_role_id === moderator_role_id (mismo rol): el mensaje menciona economia-staff y xp', () => {
+      const cfg = { moderator_role_id: 'role-mismo', admin_role_id: 'role-mismo' };
+      const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set() }, null);
+
+      const issue = issues.find((i) => i.title === 'Rol de moderador');
+      expect(issue.detail).toContain('economia-staff');
+      expect(issue.detail).toContain('/xp');
+    });
+
+    it('admin_role_id distinto y todavía vivo: el mensaje NO menciona economia-staff/xp (siguen funcionando)', () => {
+      const cfg = { moderator_role_id: 'role-mod-borrado', admin_role_id: 'role-admin-vivo' };
+      const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set(['role-admin-vivo']) }, null);
+
+      const issue = issues.find((i) => i.title === 'Rol de moderador');
+      expect(issue.detail).not.toContain('economia-staff');
+    });
+
+    it('sin admin_role_id configurado: el mensaje NO menciona economia-staff/xp', () => {
+      const cfg = { moderator_role_id: 'role-mod-borrado', admin_role_id: null };
+      const issues = computeConfigIssues(cfg, { channelIds: new Set(), roleIds: new Set() }, null);
+
+      const issue = issues.find((i) => i.title === 'Rol de moderador');
+      expect(issue.detail).not.toContain('economia-staff');
+    });
   });
 
   it('rol de administrador distinto del de moderador, borrado: issue propio (no se confunde con el de moderador)', () => {
@@ -437,6 +490,76 @@ describe('computeConfigIssues', () => {
     const issues = computeConfigIssues(cfg, resourceIds, { enabled: true, createChannelId: 'chan-mod', categoryId: 'chan-mod' });
 
     expect(issues).toEqual([]);
+  });
+
+  // Ciclo 1, Bloque 4A — antes ni siquiera se pedía selfassignable_roles en el select;
+  // el dashboard no tenía forma de saber que un rol autoasignable whitelisteado había
+  // sido borrado del servidor.
+  describe('Roles autoasignables (guild_config.selfassignable_roles)', () => {
+    const baseCfg = { moderator_role_id: 'role-mod', log_channel_moderation_id: 'chan-mod' };
+    const aliveResourceIds = { channelIds: new Set(['chan-mod']), roleIds: new Set(['role-mod', 'role-vivo']) };
+
+    it('rol autoasignable que sigue existiendo: sin issue', () => {
+      const cfg = { ...baseCfg, selfassignable_roles: ['role-vivo'] };
+      const issues = computeConfigIssues(cfg, aliveResourceIds, null);
+      expect(issues.find((i) => i.title === 'Roles autoasignables')).toBeUndefined();
+    });
+
+    it('un rol autoasignable borrado: issue en singular', () => {
+      const cfg = { ...baseCfg, selfassignable_roles: ['role-vivo', 'role-borrado'] };
+      const issues = computeConfigIssues(cfg, aliveResourceIds, null);
+      const issue = issues.find((i) => i.title === 'Roles autoasignables');
+      expect(issue).toBeDefined();
+      expect(issue.severity).toBe('warning');
+      expect(issue.detail).toMatch(/^Un rol autoasignable/);
+    });
+
+    it('varios roles autoasignables borrados: issue en plural con el conteo real', () => {
+      const cfg = { ...baseCfg, selfassignable_roles: ['role-borrado-1', 'role-borrado-2', 'role-vivo'] };
+      const issues = computeConfigIssues(cfg, aliveResourceIds, null);
+      const issue = issues.find((i) => i.title === 'Roles autoasignables');
+      expect(issue.detail).toContain('2 roles autoasignables');
+    });
+
+    it('sin roles autoasignables configurados: sin issue (no es un problema, es el default)', () => {
+      const cfg = { ...baseCfg, selfassignable_roles: [] };
+      const issues = computeConfigIssues(cfg, aliveResourceIds, null);
+      expect(issues.find((i) => i.title === 'Roles autoasignables')).toBeUndefined();
+    });
+
+    it('sin resourceIds disponible: no acusa ningún rol autoasignable de borrado en falso', () => {
+      const cfg = { ...baseCfg, selfassignable_roles: ['role-a', 'role-b'] };
+      const issues = computeConfigIssues(cfg, { channelIds: null, roleIds: null }, null);
+      expect(issues.find((i) => i.title === 'Roles autoasignables')).toBeUndefined();
+    });
+  });
+});
+
+// Ciclo 1, Bloque 4B — prueba directa de que "Sistemas" y "Problemas" ya NO pueden
+// contradecirse para el mismo dato: con el MISMO cfg/resourceIds donde el canal de
+// moderación está borrado, computeSystemsStatus tiene que decir "no ok" exactamente
+// cuando computeConfigIssues señala el problema — nunca uno sin el otro.
+describe('Consistencia Sistemas vs Problemas (Bloque 4B)', () => {
+  it('canal de moderación borrado: computeSystemsStatus NO dice "ok" Y computeConfigIssues SÍ tiene el issue', () => {
+    const cfg = { moderator_role_id: 'role-mod', features: { moderacion: true }, log_channel_moderation_id: 'chan-borrado' };
+    const resourceIds = { channelIds: new Set(), roleIds: new Set(['role-mod']) };
+
+    const moderacionStatus = computeSystemsStatus(cfg, null, resourceIds).find((s) => s.key === 'moderacion');
+    const issues = computeConfigIssues(cfg, resourceIds, null);
+
+    expect(moderacionStatus.status).not.toBe('ok');
+    expect(issues).toContainEqual(expect.objectContaining({ title: 'Moderación', severity: 'danger' }));
+  });
+
+  it('canal de moderación vivo: computeSystemsStatus dice "ok" Y computeConfigIssues NO tiene ningún issue de moderación', () => {
+    const cfg = { moderator_role_id: 'role-mod', features: { moderacion: true }, log_channel_moderation_id: 'chan-vivo' };
+    const resourceIds = { channelIds: new Set(['chan-vivo']), roleIds: new Set(['role-mod']) };
+
+    const moderacionStatus = computeSystemsStatus(cfg, null, resourceIds).find((s) => s.key === 'moderacion');
+    const issues = computeConfigIssues(cfg, resourceIds, null);
+
+    expect(moderacionStatus.status).toBe('ok');
+    expect(issues.find((i) => i.title === 'Moderación')).toBeUndefined();
   });
 });
 

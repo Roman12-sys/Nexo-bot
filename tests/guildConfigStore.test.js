@@ -8,7 +8,7 @@ import { createSupabaseMock } from './helpers/supabaseMock.js';
 const supabaseMock = createSupabaseMock();
 vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMock; } }));
 
-const { getGuildConfig, setGuildConfig, invalidateGuildConfig } = await import('../src/utils/guildConfigStore.js');
+const { getGuildConfig, setGuildConfig, invalidateGuildConfig, getGuildsWithWeeklyDigestEnabled } = await import('../src/utils/guildConfigStore.js');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -61,6 +61,36 @@ describe('aislamiento entre servidores', () => {
     // Repetir guild-1 (todavía en cache) NO debe traer lo de guild-2.
     const cfgGuild1DeNuevo = await getGuildConfig('guild-1');
     expect(cfgGuild1DeNuevo.admin_role_id).toBe('role-de-guild-1');
+  });
+});
+
+// Ciclo 2, Bloque 11 — weeklyDigestEngine.js necesita la lista COMPLETA de guilds
+// opt-in de una sola consulta (no getGuildConfig, pensado para "la config de UN server
+// puntual"). Mismo criterio que getGuildsWithLolAnnounceChannel, ya existente.
+describe('getGuildsWithWeeklyDigestEnabled', () => {
+  it('sin ningún servidor activado, devuelve [] (no null ni error)', async () => {
+    supabaseMock.getBuilder('guild_config').__setResult({ data: [], error: null });
+
+    const guilds = await getGuildsWithWeeklyDigestEnabled();
+
+    expect(guilds).toEqual([]);
+  });
+
+  it('mapea guild_id/weekly_digest_last_sent_at a guildId/lastSentAt', async () => {
+    supabaseMock.getBuilder('guild_config').__setResult({
+      data: [
+        { guild_id: 'guild-1', weekly_digest_last_sent_at: 1000 },
+        { guild_id: 'guild-2', weekly_digest_last_sent_at: null },
+      ],
+      error: null,
+    });
+
+    const guilds = await getGuildsWithWeeklyDigestEnabled();
+
+    expect(guilds).toEqual([
+      { guildId: 'guild-1', lastSentAt: 1000 },
+      { guildId: 'guild-2', lastSentAt: null },
+    ]);
   });
 });
 

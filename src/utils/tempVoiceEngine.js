@@ -549,7 +549,19 @@ export async function handleUnblockButton(interaction, channelId) {
     return interaction.reply({ content: 'ℹ️ No hay nadie bloqueado en esta sala.', flags: MessageFlags.Ephemeral });
   }
 
-  const members = blockedIds.map((id) => channel.guild.members.cache.get(id)).filter(Boolean);
+  // QUÉ CAMBIÓ (auditoría Ciclo 1, hallazgo Medio): antes esto solo miraba
+  // guild.members.cache — el caché de miembros arranca vacío en cada boot (Railway
+  // redeploya en cada push a main), así que un bloqueado que no volvió a aparecer en
+  // caché antes del próximo redeploy quedaba invisible acá, aunque el overwrite de
+  // Discord lo siguiera bloqueando de verdad de todas formas (fallaba del lado seguro,
+  // pero el panel mentía diciendo "no hay nadie bloqueado"). Fetch puntual POR ID para
+  // lo que el caché no tiene — nunca guild.members.fetch() sin argumentos (eso usa el
+  // gateway, con su propio rate limit aparte del de REST, ver CLAUDE.md).
+  const members = (
+    await Promise.all(
+      blockedIds.map(async (id) => channel.guild.members.cache.get(id) || (await channel.guild.members.fetch(id).catch(() => null))),
+    )
+  ).filter(Boolean);
   if (members.length === 0) {
     return interaction.reply({ content: 'ℹ️ No hay nadie bloqueado en esta sala.', flags: MessageFlags.Ephemeral });
   }

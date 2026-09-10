@@ -7,6 +7,7 @@ import { startVoiceXpLoop } from '../utils/voiceXpEngine.js';
 import { startLogPurgeLoop } from '../utils/logPurgeEngine.js';
 import { startLolPatchLoop } from '../utils/lolPatchEngine.js';
 import { startLolDdragonMonitorLoop } from '../utils/lolPatchMonitor.js';
+import { startWeeklyDigestLoop } from '../utils/weeklyDigestEngine.js';
 // Import de efecto (no se usa ningún export de acá): registra los handlers del Event
 // Engine que llenan guild_daily_stats en vivo — Fase 5. Sin este import nada garantiza
 // que el archivo se cargue, a diferencia de achievements.js/missionsStore.js, que ya
@@ -67,4 +68,10 @@ export async function execute(client) {
   // se rompió — nunca publica nada, solo deja un warning en consola. No necesita el
   // client porque no manda mensajes a Discord.
   startLolDdragonMonitorLoop();
+
+  // Resumen semanal de actividad, opt-in por servidor (/config digest-semanal) — barrido
+  // cada 1h, el estado de "cuándo se mandó el último" vive en guild_config (ver
+  // weeklyDigestEngine.js). Restart-resistente sin reprogramar nada: cada tick vuelve a
+  // leer ese estado de Supabase, nunca depende de lo que había en memoria antes del reinicio.
+  startWeeklyDigestLoop(client);
 }

@@ -118,6 +118,19 @@ describe('guildMemberAdd — con canal de bienvenida configurado', () => {
     expect(payload.content).toBe('<@user-1>');
   });
 
+  // Ciclo 1, Bloque 9 — guildMemberAdd.js ya resuelve `cfg` para auto_role_id/
+  // welcome_channel_id; se lo pasa a buildSelfRolesMessage en vez de dejar que lo
+  // vuelva a pedir por su cuenta.
+  it('le pasa el cfg ya resuelto a buildSelfRolesMessage (no lo hace pedir de nuevo)', async () => {
+    const cfg = { welcome_channel_id: 'chan-bienvenida', auto_role_id: null, selfassignable_roles: ['role-1'] };
+    getGuildConfig.mockResolvedValue(cfg);
+    const member = makeMember();
+
+    await execute(member, client);
+
+    expect(buildSelfRolesMessage).toHaveBeenCalledWith(member.guild, member, cfg);
+  });
+
   it('siempre menciona /help en la descripción del embed (COM/descubrimiento)', async () => {
     getGuildConfig.mockResolvedValue({ welcome_channel_id: 'chan-bienvenida' });
     const member = makeMember();

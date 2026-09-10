@@ -94,7 +94,7 @@ export async function execute(member, client) {
     // configuró ninguno (o todos quedaron inválidos, ver resolveLiveSelfRoles), esto es
     // null y el mensaje se manda exactamente igual que antes — no exige configurar nada
     // nuevo para seguir recibiendo la bienvenida de siempre.
-    const selfRolesMessage = await buildSelfRolesMessage(member.guild, member);
+    const selfRolesMessage = await buildSelfRolesMessage(member.guild, member, cfg);
     if (selfRolesMessage) embed.addFields({ name: '🎭 ¿Querés elegir un rol?', value: selfRolesMessage.content });
 
     await channel.send({

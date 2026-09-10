@@ -72,7 +72,7 @@ function buildListarEmbed(items, page) {
     embed.addFields(
       slice.map((i) => ({
         name: i.name,
-        value: `${i.price.toLocaleString('es-ES')} monedas · \`${i.id}\`${i.roleId ? ` · rol <@&${i.roleId}>` : ''}${i.fulfillment === 'manual' ? ' · entrega manual' : ''}${i.type === 'xp_boost' ? ' · ⚡ impulso de XP' : ''}${i.type === 'mystery_box' ? ' · 🎁 caja misteriosa' : ''}`,
+        value: `${i.price.toLocaleString('es-ES')} monedas · \`${i.id}\`${i.roleId ? ` · rol <@&${i.roleId}>` : ''}${i.fulfillment === 'manual' ? ' · entrega manual' : ''}${i.type === 'xp_boost' ? ' · ⚡ impulso de XP' : ''}${i.type === 'mystery_box' ? ' · 🎁 caja misteriosa' : ''}${i.type === 'rob_shield' ? ' · 🛡️ escudo anti-robo' : ''}`,
       })),
     );
   }
@@ -164,6 +164,7 @@ export const data = new SlashCommandBuilder()
           .addChoices(
             { name: 'Impulso de XP (x2 por 24hs)', value: 'xp_boost' },
             { name: 'Caja misteriosa (monedas al azar)', value: 'mystery_box' },
+            { name: 'Escudo anti-robo (protege de /rob por 2hs)', value: 'rob_shield' },
           ),
       ),
   )

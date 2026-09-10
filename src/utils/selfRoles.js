@@ -19,9 +19,15 @@ const SELECT_CUSTOM_ID = 'selfroles_select';
 // roles en o por encima del rol más alto del bot (no los podría asignar de todas formas).
 // Se llama tanto al construir el menú como al procesar cada click — nunca se confía en
 // que la lista siga siendo válida entre un momento y el otro.
-export async function resolveLiveSelfRoles(guild) {
-  const cfg = await getGuildConfig(guild.id);
-  const ids = cfg.selfassignable_roles || [];
+//
+// `cfg` es opcional (Ciclo 1, Bloque 9): si el caller YA hizo su propio getGuildConfig
+// hace un instante (ej. guildMemberAdd.js, que lo necesita para auto_role_id/
+// welcome_channel_id de todas formas), lo puede pasar para no repetir el lookup —
+// servido por el cache de 30s de guildConfigStore.js de cualquier forma, así que esto
+// es puramente cosmético (evita un Map.get() de más), nunca cambia el resultado.
+export async function resolveLiveSelfRoles(guild, cfg = null) {
+  const resolvedCfg = cfg || (await getGuildConfig(guild.id));
+  const ids = resolvedCfg.selfassignable_roles || [];
   if (ids.length === 0) return [];
 
   const me = guild.members.me;
@@ -41,9 +47,10 @@ export async function resolveLiveSelfRoles(guild) {
 
 // null si no hay ningún rol disponible de verdad — el caller nunca debe mandar/mostrar
 // un menú vacío. `member` es opcional (para pre-marcar lo que ya tiene con .setDefault);
-// sin él, el menú arranca sin nada preseleccionado.
-export async function buildSelfRolesMessage(guild, member = null) {
-  const roles = await resolveLiveSelfRoles(guild);
+// sin él, el menú arranca sin nada preseleccionado. `cfg` es opcional (ver
+// resolveLiveSelfRoles) — evita un getGuildConfig redundante cuando el caller ya tiene uno.
+export async function buildSelfRolesMessage(guild, member = null, cfg = null) {
+  const roles = await resolveLiveSelfRoles(guild, cfg);
   if (roles.length === 0) return null;
 
   const menu = new StringSelectMenuBuilder()

@@ -28,6 +28,8 @@ function defaultConfig(guildId) {
     lol_announce_channel_id: null,
     report_channel_id: null,
     selfassignable_roles: [],
+    weekly_digest_enabled: false,
+    weekly_digest_last_sent_at: null,
     level_roles: {},
     level_roles_mode: 'cumulative',
     xp_ignored_channel_ids: [],
@@ -92,4 +94,17 @@ export async function getGuildsWithLolAnnounceChannel() {
 
   if (error) throw error;
   return (data || []).map((row) => ({ guildId: row.guild_id, channelId: row.lol_announce_channel_id }));
+}
+
+// Usada por weeklyDigestEngine.js — mismo motivo que getGuildsWithLolAnnounceChannel:
+// el barrido necesita la lista completa de servidores opt-in de una sola consulta, no
+// getGuildConfig (pensado para "la config de UN server puntual") guild por guild.
+export async function getGuildsWithWeeklyDigestEnabled() {
+  const { data, error } = await supabase
+    .from('guild_config')
+    .select('guild_id, weekly_digest_last_sent_at')
+    .eq('weekly_digest_enabled', true);
+
+  if (error) throw error;
+  return (data || []).map((row) => ({ guildId: row.guild_id, lastSentAt: row.weekly_digest_last_sent_at }));
 }

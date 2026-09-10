@@ -80,6 +80,18 @@
 --
 --   alter table guild_config add column if not exists selfassignable_roles jsonb not null default '[]';
 -- =========================================================
+--
+-- MIGRACIÓN MANUAL PENDIENTE (CICLO 2, Bloque 11 — digest semanal) — opt-in por
+-- servidor (ver src/utils/weeklyDigestEngine.js, activado con /config digest-semanal).
+-- weekly_digest_last_sent_at es epoch ms (mismo criterio que las columnas de cooldown,
+-- ver CLAUDE.md) — se siembra al activar el digest, nunca queda null mientras está
+-- activo, así el primer envío real siempre tiene una semana completa de datos en vez de
+-- mandar un resumen parcial apenas alguien lo prende. Correr DESPUÉS de que el código
+-- esté desplegado, y verificar por API tras correrla:
+--
+--   alter table guild_config add column if not exists weekly_digest_enabled boolean not null default false;
+--   alter table guild_config add column if not exists weekly_digest_last_sent_at bigint;
+-- =========================================================
 
 -- =========================================================
 -- guild_config: configuración por servidor (reemplaza .env)
@@ -103,6 +115,10 @@ create table if not exists guild_config (
   lol_announce_channel_id text, -- opt-in: patch notes de LoL para ESTE servidor (ver lolPatchEngine.js)
   report_channel_id text, -- opt-in: destino de /report. Si es null, se usa log_channel_moderation_id (ver guildLogChannels.js) — nunca se agrega un segundo canal obligatorio.
   selfassignable_roles jsonb not null default '[]', -- IDs de roles que un miembro puede elegir solo (ver src/utils/selfRoles.js) — administrado con /config rol-autoasignable-agregar/quitar
+
+  -- digest semanal (Ciclo 2, Bloque 11) — opt-in, ver src/utils/weeklyDigestEngine.js
+  weekly_digest_enabled boolean not null default false,
+  weekly_digest_last_sent_at bigint, -- epoch ms; se siembra al activar (nunca null mientras enabled=true)
 
   -- niveles
   level_roles jsonb not null default '{}',

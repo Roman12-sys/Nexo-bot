@@ -119,6 +119,17 @@ describe('renderGuildDashboard — tarjeta de configuración actual (DASH-1)', (
     // toggle ✅/❌ que moderación/XP (features.economia no existe en el código real).
     expect(html).toContain('💰 Siempre activa');
   });
+
+  // Ciclo 1, Bloque 4A — antes la tarjeta no mostraba absolutamente nada de
+  // guild_config.selfassignable_roles.
+  it('roles autoasignables: sin configurar muestra "sin configurar", con roles muestra el conteo real', () => {
+    const sinConfigurar = renderGuildDashboard(guild, baseData({ guildConfig: {} }), new Map());
+    expect(sinConfigurar).toContain('Roles autoasignables');
+    expect(sinConfigurar).toContain('sin configurar');
+
+    const conRoles = renderGuildDashboard(guild, baseData({ guildConfig: { selfassignable_roles: ['role-1', 'role-2', 'role-3'] } }), new Map());
+    expect(conRoles).toContain('3 configurado(s)');
+  });
 });
 
 // Dashboard 2.0 (MEJORA 1/2, CICLO 1) — Resumen (stats + accesos rápidos + actividad

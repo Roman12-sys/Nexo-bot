@@ -75,11 +75,25 @@ export async function execute(interaction) {
     const currentEconomy = await getUserEconomy(guildId, userId);
     const actualFine = Math.min(fine, currentEconomy.balance);
     let newBalance = currentEconomy.balance;
+    let finePaid = actualFine;
     if (actualFine > 0) {
-      newBalance = await deductBalanceIfSufficient(guildId, userId, actualFine);
-      await recordTransaction(guildId, userId, { type: 'crime_fine', amount: -actualFine, balanceAfter: newBalance, reason: flavorText });
+      try {
+        newBalance = await deductBalanceIfSufficient(guildId, userId, actualFine);
+        await recordTransaction(guildId, userId, { type: 'crime_fine', amount: -actualFine, balanceAfter: newBalance, reason: flavorText });
+      } catch (error) {
+        if (error.code !== 'insufficient_funds') throw error;
+        // Auditoría Ciclo 1 (hallazgo Bajo): ventana de carrera angosta — actualFine se
+        // calculó contra un balance leído un momento antes; si otro comando (/buy,
+        // /vender, /give) lo vació justo en el medio, deductBalanceIfSufficient rechaza
+        // con datos frescos (su RPC sigue siendo la autoridad atómica real, sin cambios).
+        // No se recalcula la multa ni se reintenta el cobro — se trata igual que
+        // actualFine === 0 ("no tenía nada que perder"), y se relee el balance real para
+        // no mostrarle al usuario un número que ya quedó viejo.
+        finePaid = 0;
+        newBalance = (await getUserEconomy(guildId, userId)).balance;
+      }
     }
-    return { onCooldown: false, exito: false, amount: actualFine, flavorText, newBalance };
+    return { onCooldown: false, exito: false, amount: finePaid, flavorText, newBalance };
   });
 
   if (result.onCooldown) {

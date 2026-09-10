@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { makeInteraction, makeSelectInteraction } from './helpers/discordMock.js';
+import { makeInteraction, makeSelectInteraction, extractButtonCustomId, makeButtonInteraction } from './helpers/discordMock.js';
 
 // Panel /sanciones — Fase 2B, sección 1A (jerarquía en el select de borrar warns),
 // sección 1B (revokePunishment real en el select de quitar restricción) y sección 4
@@ -41,6 +41,7 @@ vi.mock('../src/utils/punishStore.js', () => ({
 
 const { execute: sancionesExecute } = await import('../src/commands/moderacion/sanciones.js');
 const { routeSelect } = await import('../src/components/selects.js');
+const { routeButton } = await import('../src/components/buttons.js');
 const { schedulePunishExpiry } = await import('../src/utils/punishEngine.js');
 
 const STAFF_CFG = { admin_role_id: 'role-admin', moderator_role_id: null, punish_role_id: 'role-sancionado' };
@@ -95,12 +96,29 @@ describe('/sanciones <usuario> — historial (sección 4: duración de timeout)'
   });
 });
 
-describe('panel /sanciones — select de borrar advertencias (sección 1A: jerarquía)', () => {
+// QUÉ CAMBIÓ (auditoría Ciclo 1, Bloque 5): antes elegir un nombre en el dropdown
+// borraba TODAS sus advertencias en el mismo click — ahora pasa por buildConfirmation
+// (mismo helper que /ban/`/clear`/`/unwarn`), igual que ya hacía /unwarn directo sin
+// número para la MISMA acción. La jerarquía se sigue chequeando ANTES de mostrar la
+// confirmación (para no ofrecerle confirmar algo que de entrada está prohibido) y DE
+// NUEVO dentro de confirmClearWarns (por si cambió en la ventana de confirmación).
+describe('panel /sanciones — select de borrar advertencias (Bloque 5: confirmación + jerarquía)', () => {
   function member({ position = 1 } = {}) {
     return { id: 'target-1', roles: { highest: { position } } };
   }
 
-  it('sin permisos de staff: rechazado, no borra nada', async () => {
+  async function clickConfirm(originalInteraction, { userId } = {}) {
+    const confirmId = extractButtonCustomId(originalInteraction.reply.mock.calls[0][0], 'Confirmar');
+    const confirmInteraction = makeButtonInteraction(confirmId, {
+      userId: userId || originalInteraction.user.id,
+      guildId: originalInteraction.guildId,
+      base: originalInteraction,
+    });
+    await routeButton(confirmInteraction);
+    return confirmInteraction;
+  }
+
+  it('sin permisos de staff: rechazado, no llega a mostrar confirmación', async () => {
     const interaction = makeSelectInteraction({ staffRoleIds: [], values: ['target-1'], member: member() });
 
     await routeSelect({ ...interaction, customId: 'sanciones_select_warn' });
@@ -109,22 +127,7 @@ describe('panel /sanciones — select de borrar advertencias (sección 1A: jerar
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('permisos') }));
   });
 
-  it('target de rango inferior: permitido, borra las advertencias', async () => {
-    clearWarns.mockResolvedValue(3);
-    const interaction = makeSelectInteraction({
-      staffRoleIds: ['role-admin'],
-      userPosition: 10,
-      values: ['target-1'],
-      member: member({ position: 1 }),
-    });
-
-    await routeSelect({ ...interaction, customId: 'sanciones_select_warn' });
-
-    expect(clearWarns).toHaveBeenCalledWith('guild-1', 'target-1');
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('3 advertencia') }));
-  });
-
-  it('target de rango igual/superior (no owner): rechazado por jerarquía, no borra nada', async () => {
+  it('target de rango igual/superior (no owner): rechazado por jerarquía, no llega a mostrar confirmación', async () => {
     const interaction = makeSelectInteraction({
       staffRoleIds: ['role-admin'],
       userPosition: 5,
@@ -136,18 +139,87 @@ describe('panel /sanciones — select de borrar advertencias (sección 1A: jerar
     await routeSelect({ ...interaction, customId: 'sanciones_select_warn' });
 
     expect(clearWarns).not.toHaveBeenCalled();
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('rango') }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('rango') }));
   });
 
-  it('operación normal: además de borrar, anuncia en el canal y loguea', async () => {
-    clearWarns.mockResolvedValue(1);
-    const interaction = makeSelectInteraction({ staffRoleIds: ['role-admin'], values: ['target-1'], member: member({ position: 1 }) });
-    getGuildLogChannel.mockResolvedValue({ send: vi.fn().mockResolvedValue(undefined) });
+  it('click inicial (target válido): muestra el panel de "¿Confirmás?", NO borra todavía', async () => {
+    const interaction = makeSelectInteraction({ staffRoleIds: ['role-admin'], userPosition: 10, values: ['target-1'], member: member({ position: 1 }) });
 
     await routeSelect({ ...interaction, customId: 'sanciones_select_warn' });
 
-    expect(interaction.channel.send).toHaveBeenCalledTimes(1);
-    expect(getGuildLogChannel).toHaveBeenCalledWith(interaction.client, 'guild-1', 'moderation');
+    expect(clearWarns).not.toHaveBeenCalled();
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Confirmar acción') }));
+  });
+
+  it('confirmar: recién ahí borra, anuncia en el canal y loguea', async () => {
+    clearWarns.mockResolvedValue(3);
+    const interaction = makeSelectInteraction({ staffRoleIds: ['role-admin'], userPosition: 10, values: ['target-1'], member: member({ position: 1 }) });
+    getGuildLogChannel.mockResolvedValue({ send: vi.fn().mockResolvedValue(undefined) });
+
+    await routeSelect({ ...interaction, customId: 'sanciones_select_warn' });
+    const confirmInteraction = await clickConfirm(interaction);
+
+    expect(clearWarns).toHaveBeenCalledWith('guild-1', 'target-1');
+    expect(confirmInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('3 advertencia') }));
+    expect(confirmInteraction.channel.send).toHaveBeenCalledTimes(1);
+    expect(getGuildLogChannel).toHaveBeenCalledWith(confirmInteraction.client, 'guild-1', 'moderation');
+  });
+
+  it('cancelar: no borra nada', async () => {
+    const interaction = makeSelectInteraction({ staffRoleIds: ['role-admin'], userPosition: 10, values: ['target-1'], member: member({ position: 1 }) });
+
+    await routeSelect({ ...interaction, customId: 'sanciones_select_warn' });
+    const cancelId = extractButtonCustomId(interaction.reply.mock.calls[0][0], 'Cancelar');
+    const cancelInteraction = makeButtonInteraction(cancelId, { userId: interaction.user.id, guildId: interaction.guildId, base: interaction });
+    await routeButton(cancelInteraction);
+
+    expect(clearWarns).not.toHaveBeenCalled();
+    expect(cancelInteraction.update).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('cancelada') }));
+  });
+
+  it('otro usuario (no quien pidió la acción) intenta confirmar: rechazado, no borra nada', async () => {
+    const interaction = makeSelectInteraction({ staffRoleIds: ['role-admin'], userPosition: 10, values: ['target-1'], member: member({ position: 1 }) });
+
+    await routeSelect({ ...interaction, customId: 'sanciones_select_warn' });
+    const otroInteraction = await clickConfirm(interaction, { userId: 'otro-usuario' });
+
+    expect(clearWarns).not.toHaveBeenCalled();
+    expect(otroInteraction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('no es tuya') }));
+  });
+
+  it('la confirmación pierde el permiso de staff antes de confirmar: rechazado dentro de confirmClearWarns, no borra nada', async () => {
+    getGuildConfig.mockResolvedValueOnce(STAFF_CFG); // vigente durante el click inicial
+    const interaction = makeSelectInteraction({ staffRoleIds: ['role-admin'], userPosition: 10, values: ['target-1'], member: member({ position: 1 }) });
+
+    await routeSelect({ ...interaction, customId: 'sanciones_select_warn' });
+
+    // Entre el click inicial y la confirmación, guild_config cambia (ej. /config
+    // rol-admin apuntó a otro rol) — el mismo usuario ya no tiene isStaff().
+    getGuildConfig.mockResolvedValue({ admin_role_id: 'otro-rol', moderator_role_id: null });
+    const confirmInteraction = await clickConfirm(interaction);
+
+    expect(clearWarns).not.toHaveBeenCalled();
+    expect(confirmInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Ya no tenés permisos') }));
+  });
+
+  it('confirmación expirada (pasado 1 minuto): no borra nada', async () => {
+    vi.useFakeTimers();
+    try {
+      const interaction = makeSelectInteraction({ staffRoleIds: ['role-admin'], userPosition: 10, values: ['target-1'], member: member({ position: 1 }) });
+
+      await routeSelect({ ...interaction, customId: 'sanciones_select_warn' });
+      const confirmId = extractButtonCustomId(interaction.reply.mock.calls[0][0], 'Confirmar');
+
+      vi.advanceTimersByTime(61 * 1000); // TTL real de buildConfirmation es 60s
+
+      const confirmInteraction = makeButtonInteraction(confirmId, { userId: interaction.user.id, guildId: interaction.guildId, base: interaction });
+      await routeButton(confirmInteraction);
+
+      expect(clearWarns).not.toHaveBeenCalled();
+      expect(confirmInteraction.update).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('expiró') }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

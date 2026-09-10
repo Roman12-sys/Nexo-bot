@@ -93,6 +93,29 @@ describe('resolveLiveSelfRoles', () => {
     await expect(resolveLiveSelfRoles(guild)).resolves.toEqual([]);
   });
 
+  // Ciclo 1, Bloque 9 — cfg opcional: si el caller ya hizo su propio getGuildConfig
+  // (ej. guildMemberAdd.js), no hace falta repetirlo acá.
+  it('con cfg ya resuelto pasado como parámetro: no vuelve a llamar getGuildConfig', async () => {
+    const safe = makeRole('role-normal', { position: 1 });
+    const guild = makeGuild({ roles: [safe] });
+    const cfg = { selfassignable_roles: ['role-normal'] };
+
+    const roles = await resolveLiveSelfRoles(guild, cfg);
+
+    expect(roles.map((r) => r.id)).toEqual(['role-normal']);
+    expect(getGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('sin cfg (comportamiento de siempre): sí llama getGuildConfig', async () => {
+    const safe = makeRole('role-normal', { position: 1 });
+    getGuildConfig.mockResolvedValue({ selfassignable_roles: ['role-normal'] });
+    const guild = makeGuild({ roles: [safe] });
+
+    await resolveLiveSelfRoles(guild);
+
+    expect(getGuildConfig).toHaveBeenCalledWith('guild-1');
+  });
+
   it('devuelve exactamente los roles seguros, en el mismo orden que guild_config', async () => {
     const roleA = makeRole('role-a', { position: 1 });
     const roleB = makeRole('role-b', { position: 2 });

@@ -118,4 +118,56 @@ describe('/give — cooldown por guild+emisor (ECO-2)', () => {
 
     expect(transferBalance).toHaveBeenCalledTimes(2);
   });
+
+  it('transferBalance tira un error inesperado (no insufficient_funds): se propaga sin manejar acá', async () => {
+    transferBalance.mockRejectedValueOnce(new Error('network blip'));
+    const interaction = makeInteraction({ userId: 'give-7' });
+
+    await expect(giveExecute(interaction)).rejects.toThrow('network blip');
+  });
+});
+
+// Auditoría Ciclo 1 (hallazgo Alto) — el cooldown se leía y escribía SIN lock: dos
+// /give casi simultáneos del mismo emisor podían los dos leer el cooldown vencido antes
+// de que ninguno lo actualizara, y las dos pasaban. Estos tests disparan las dos
+// interactions SIN esperar entre sí (Promise.all) contra el `withLock` REAL de
+// asyncLock.js (nunca mockeado, mismo criterio que giveawayEngine.test.js) — si alguien
+// vuelve a sacar el lock de give.js, "mismo emisor" empieza a fallar (transferBalance
+// se llamaría 2 veces en vez de 1) mientras que "emisores/guilds distintos" seguiría
+// pasando, aislando exactamente qué se rompió.
+describe('/give — concurrencia real (mismo emisor vs. distinto, lock real de asyncLock.js)', () => {
+  it('mismo emisor, dos /give disparados sin await entre sí: una sola transferencia real', async () => {
+    const first = makeInteraction({ userId: 'give-race-1' });
+    const second = makeInteraction({ userId: 'give-race-1' });
+
+    await Promise.all([giveExecute(first), giveExecute(second)]);
+
+    expect(transferBalance).toHaveBeenCalledTimes(1);
+
+    // Exactamente una de las dos interactions tiene que haber recibido el rechazo de
+    // cooldown (cuál de las dos gana la carrera no es lo que importa acá) — la prueba
+    // real es que NUNCA las dos pasan.
+    const cooldownRejections = [first, second].filter((i) =>
+      i.editReply.mock.calls.some((call) => call[0]?.content?.includes('Ya transferiste monedas hace poco')),
+    );
+    expect(cooldownRejections).toHaveLength(1);
+  });
+
+  it('emisores DISTINTOS disparados sin await entre sí: no se bloquean entre ellos, las dos pasan', async () => {
+    const a = makeInteraction({ userId: 'give-race-a' });
+    const b = makeInteraction({ userId: 'give-race-b' });
+
+    await Promise.all([giveExecute(a), giveExecute(b)]);
+
+    expect(transferBalance).toHaveBeenCalledTimes(2);
+  });
+
+  it('mismo userId en guilds DISTINTOS disparados sin await entre sí: no comparten lock, las dos pasan', async () => {
+    const inGuildA = makeInteraction({ guildId: 'guild-race-a', userId: 'give-race-2' });
+    const inGuildB = makeInteraction({ guildId: 'guild-race-b', userId: 'give-race-2' });
+
+    await Promise.all([giveExecute(inGuildA), giveExecute(inGuildB)]);
+
+    expect(transferBalance).toHaveBeenCalledTimes(2);
+  });
 });

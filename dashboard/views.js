@@ -291,6 +291,9 @@ export function renderGuildDashboard(guild, data, usersById) {
       <div class="stat-row" style="margin-top:0.75rem;">
         <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Canal de reportes</div>${cfg.report_channel_id ? channel(cfg.report_channel_id) : '<span class="muted">— usa el log de moderación</span>'}</div>
       </div>
+      <div class="stat-row" style="margin-top:0.75rem;">
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Roles autoasignables</div>${(cfg.selfassignable_roles || []).length > 0 ? `${cfg.selfassignable_roles.length} configurado(s)` : '<span class="muted">— sin configurar</span>'}</div>
+      </div>
     </div>`;
 
   const lolCard = data.lolChannelId

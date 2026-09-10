@@ -215,7 +215,7 @@ export async function loadGuildDashboardData(guildId) {
   );
 
   const messagesDelta = computeMessagesWeeklyDelta(dailyStats);
-  const systemsStatus = computeSystemsStatus(guildConfig, voiceConfig);
+  const systemsStatus = computeSystemsStatus(guildConfig, voiceConfig, resourceIds);
   const configIssues = computeConfigIssues(guildConfig, resourceIds, voiceConfig);
 
   return {
@@ -259,7 +259,7 @@ async function fetchGuildConfigSummary(guildId) {
   const { data, error } = await supabase
     .from('guild_config')
     .select(
-      'admin_role_id, moderator_role_id, log_channel_moderation_id, log_channel_activity_id, log_channel_economy_id, features, punish_role_id, auto_role_id, welcome_channel_id, confession_channel_id, report_channel_id',
+      'admin_role_id, moderator_role_id, log_channel_moderation_id, log_channel_activity_id, log_channel_economy_id, features, punish_role_id, auto_role_id, welcome_channel_id, confession_channel_id, report_channel_id, selfassignable_roles',
     )
     .eq('guild_id', guildId)
     .maybeSingle();
@@ -300,8 +300,18 @@ function existsIn(id, idSet) {
 // "¿Qué módulos tiene activos este servidor, y en qué estado?" — 3 estados posibles,
 // nunca hardcodeados: 'ok' (🟢 andando), 'warning' (🟡 nunca configurado / falta algo
 // para funcionar del todo) y 'off' (⚪ apagado a propósito, no es un problema).
-export function computeSystemsStatus(cfg, voiceConfig) {
+//
+// QUÉ CAMBIÓ (Ciclo 1, Bloque 4B): "Moderación" antes decidía 'ok' con solo mirar si
+// log_channel_moderation_id tenía UN VALOR, nunca si el canal seguía existiendo de
+// verdad — a diferencia de computeConfigIssues, que sí lo revalida. Un admin podía ver
+// "🟢 Configurada" acá mismo mientras la tarjeta de Problemas, en la misma carga de
+// página, decía "🔴 el canal ya no existe" para ese mismo dato. resourceIds (mismo
+// objeto que ya usa computeConfigIssues, sin ninguna query nueva) resuelve la
+// contradicción — reusa existsIn(), null-safe si Discord no respondió (nunca acusa en falso).
+export function computeSystemsStatus(cfg, voiceConfig, resourceIds) {
   const features = cfg.features || {};
+  const { channelIds = null } = resourceIds || {};
+  const moderationChannelAlive = Boolean(cfg.log_channel_moderation_id) && existsIn(cfg.log_channel_moderation_id, channelIds);
 
   return [
     { key: 'economia', label: 'Economía', status: 'ok', detail: 'Siempre activa' },
@@ -309,8 +319,8 @@ export function computeSystemsStatus(cfg, voiceConfig) {
     {
       key: 'moderacion',
       label: 'Moderación',
-      status: !features.moderacion ? 'off' : cfg.log_channel_moderation_id ? 'ok' : 'warning',
-      detail: !features.moderacion ? 'Apagada' : cfg.log_channel_moderation_id ? 'Configurada' : 'Sin canal de logs',
+      status: !features.moderacion ? 'off' : moderationChannelAlive ? 'ok' : 'warning',
+      detail: !features.moderacion ? 'Apagada' : moderationChannelAlive ? 'Configurada' : cfg.log_channel_moderation_id ? 'El canal configurado ya no existe' : 'Sin canal de logs',
     },
     { key: 'giveaways', label: 'Sorteos', status: 'ok', detail: 'Disponible' },
     { key: 'trivia', label: 'Trivia', status: 'ok', detail: 'Disponible' },
@@ -340,8 +350,20 @@ export function computeConfigIssues(cfg, resourceIds, voiceConfig) {
     return issues; // sin roles de staff, el resto de los checks no aporta nada nuevo
   }
 
+  // QUÉ CAMBIÓ (Ciclo 1, Bloque 8): el mensaje no avisaba que, cuando admin_role_id ==
+  // moderator_role_id (el caso normal post-/setup — ver PERM-1 en CLAUDE.md), borrar
+  // ese único rol rompe TAMBIÉN /economia-staff y /xp (isAdmin() compara contra el
+  // mismo rol) — no solo moderación. El diagnóstico (QUÉ dispara el issue) no cambió,
+  // solo el texto que explica el impacto real.
   if (cfg.moderator_role_id && !existsIn(cfg.moderator_role_id, roleIds)) {
-    issues.push({ severity: 'danger', title: 'Rol de moderador', detail: 'El rol configurado ya no existe — nadie puede usar comandos de moderación. Corré /setup o /config de nuevo.' });
+    const sameRoleAsAdmin = Boolean(cfg.admin_role_id) && cfg.admin_role_id === cfg.moderator_role_id;
+    issues.push({
+      severity: 'danger',
+      title: 'Rol de moderador',
+      detail: sameRoleAsAdmin
+        ? 'El rol configurado ya no existe — nadie puede usar comandos de moderación NI `/economia-staff`/`/xp` (es el mismo rol para los dos niveles de staff). Corré /setup o /config de nuevo.'
+        : 'El rol configurado ya no existe — nadie puede usar comandos de moderación. Corré /setup o /config de nuevo.',
+    });
   }
   if (cfg.admin_role_id && cfg.admin_role_id !== cfg.moderator_role_id && !existsIn(cfg.admin_role_id, roleIds)) {
     issues.push({ severity: 'danger', title: 'Rol de administrador', detail: 'El rol configurado ya no existe — nadie puede usar /economia-staff ni /xp. Corré /config rol-admin de nuevo.' });
@@ -380,6 +402,23 @@ export function computeConfigIssues(cfg, resourceIds, voiceConfig) {
   if (cfg.confession_channel_id && !existsIn(cfg.confession_channel_id, channelIds)) {
     issues.push({ severity: 'warning', title: 'Canal de confesiones', detail: 'El canal configurado ya no existe — /confession no puede publicar nada.' });
   }
+
+  // Ciclo 1, Bloque 4A: antes esto ni siquiera se pedía en el select — el dashboard no
+  // tenía ninguna idea de que existían roles autoasignables (guild_config.selfassignable_roles,
+  // Mejora 2/2), a pesar de que el patrón de "¿este rol sigue existiendo?" ya existía acá
+  // mismo para auto_role_id/punish_role_id.
+  const missingSelfRoles = (cfg.selfassignable_roles || []).filter((id) => !existsIn(id, roleIds));
+  if (missingSelfRoles.length > 0) {
+    issues.push({
+      severity: 'warning',
+      title: 'Roles autoasignables',
+      detail:
+        missingSelfRoles.length === 1
+          ? 'Un rol autoasignable configurado ya no existe — sigue en la lista pero nadie puede elegirlo.'
+          : `${missingSelfRoles.length} roles autoasignables configurados ya no existen — siguen en la lista pero nadie puede elegirlos.`,
+    });
+  }
+
   if (voiceConfig?.enabled && (!existsIn(voiceConfig.createChannelId, channelIds) || !existsIn(voiceConfig.categoryId, channelIds))) {
     issues.push({ severity: 'danger', title: 'Salas de voz temporales', detail: 'El canal o la categoría configurados ya no existen — corré /voice setup de nuevo.' });
   }

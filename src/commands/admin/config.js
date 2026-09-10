@@ -140,6 +140,12 @@ export const data = new SlashCommandBuilder()
       .setDescription('Canal donde se avisan los patch notes de League of Legends (opcional, apagado por defecto).')
       .addChannelOption((o) => o.setName('canal').setDescription('Canal de texto (dejalo vacío para desactivar)').addChannelTypes(ChannelType.GuildText).setRequired(false)),
   )
+  .addSubcommand((sub) =>
+    sub
+      .setName('digest-semanal')
+      .setDescription('Resumen semanal de actividad (mensajes, comandos, economía, XP) al canal de logs de actividad.')
+      .addBooleanOption((o) => o.setName('activo').setDescription('Activar o desactivar el digest semanal').setRequired(true)),
+  )
   .addSubcommand((sub) => sub.setName('ver').setDescription('Muestra la configuración actual de estos campos.'))
   .addSubcommand((sub) => sub.setName('exportar').setDescription('Descarga la configuración actual como JSON (respaldo, o para clonarla a otro servidor).'))
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
@@ -412,6 +418,26 @@ export async function execute(interaction) {
     return;
   }
 
+  // Ciclo 2, Bloque 11 — se siembra weekly_digest_last_sent_at = ahora al activar
+  // (nunca lo deja en null mientras está activo): así el primer digest real, 7 días
+  // después, refleja una semana completa en vez de un resumen parcial de lo que haya
+  // en guild_daily_stats desde antes de que este server hubiera optado por recibirlo.
+  // Re-activar después de desactivarlo reinicia la ventana por el mismo motivo — no
+  // tiene sentido mandar un digest calculado sobre una ventana que incluye tiempo con
+  // el feature apagada.
+  if (sub === 'digest-semanal') {
+    const activo = interaction.options.getBoolean('activo');
+    await setGuildConfig(guildId, { weekly_digest_enabled: activo, weekly_digest_last_sent_at: activo ? Date.now() : null });
+    await interaction.reply({
+      content: activo
+        ? '✅ Digest semanal activado — el primer resumen llega en 7 días al canal de logs de actividad.'
+        : '✅ Digest semanal desactivado.',
+      flags: MessageFlags.Ephemeral,
+    });
+    await logConfigChange(interaction, `📊 Digest semanal → ${activo ? 'activado' : 'desactivado'}`);
+    return;
+  }
+
   if (sub === 'ver') {
     await interaction.reply({ embeds: [await buildConfigSummaryEmbed(guildId)], flags: MessageFlags.Ephemeral });
     return;
@@ -466,6 +492,7 @@ export async function buildConfigSummaryEmbed(guildId) {
       { name: '🕵️ Revisión previa de confesiones', value: toggle(cfg.confession_require_approval), inline: true },
       { name: '🚷 Usuarios bloqueados de /confession', value: `${(cfg.confession_blocked_ids || []).length}`, inline: true },
       { name: '🎮 Canal de patch notes de LoL', value: channel(cfg.lol_announce_channel_id), inline: true },
+      { name: '📊 Digest semanal', value: toggle(cfg.weekly_digest_enabled), inline: true },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
