@@ -45,7 +45,10 @@ function renderCommandCard(command) {
 }
 
 export function renderCommandsPage() {
+  // 'voz' no tiene comando propio (feature 100% automática, ver website/data/features.js)
+  // — un chip que siempre da "0 resultados" es peor que no mostrarlo.
   const categoryChips = Object.entries(CATEGORY_META)
+    .filter(([id]) => id !== 'voz')
     .map(([id, meta]) => `<button type="button" class="chip" data-filter-category="${id}">${meta.emoji} ${escapeHtml(meta.name)}</button>`)
     .join('');
 

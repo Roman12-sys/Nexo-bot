@@ -382,13 +382,18 @@ function renderFooter() {
         <ul>
           <li><a href="/#funciones">Funciones</a></li>
           ${dashboardHref ? `<li><a href="${escapeHtml(dashboardHref)}" target="_blank" rel="noopener">Dashboard</a></li>` : ''}
+          <li><a href="/commands">Comandos</a></li>
+          <li><a href="/docs">Documentación</a></li>
+          <li><a href="/changelog">Changelog</a></li>
+          <li><a href="/status">Status</a></li>
           <li><a href="${escapeHtml(buildInviteUrl())}" target="_blank" rel="noopener">Añadir NEXO</a></li>
         </ul>
       </div>
       <div class="footer-col">
         <h4>Soporte</h4>
         <ul>
-          ${websiteConfig.supportContact ? `<li>${escapeHtml(websiteConfig.supportContact)}</li>` : '<li style="color:var(--text-dim)">Próximamente</li>'}
+          <li><a href="/faq">FAQ</a></li>
+          ${websiteConfig.supportContact ? `<li>${escapeHtml(websiteConfig.supportContact)}</li>` : ''}
         </ul>
       </div>
       <div class="footer-col">

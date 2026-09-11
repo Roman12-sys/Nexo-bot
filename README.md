@@ -144,13 +144,31 @@ servicio, el radio de daño queda acotado a "se puede desfigurar la landing", nu
 Todos los datos que muestra (cantidad de comandos, categorías, tests) se calculan al
 arrancar leyendo el filesystem real del repo (`website/data/stats.js`) — no están
 tipeados a mano, así que nunca quedan desactualizados como pasó con el Artifact de
-landing anterior ("70+ comandos", ya en 88). El catálogo de funciones
-(`website/data/features.js`) sí es curado a mano, pero cada número es verificable contra
-`src/commands/`.
+landing anterior ("70+ comandos", ya en 88).
 
-`/login` y "Abrir Dashboard" no reimplementan OAuth — enlazan al dashboard real
+Rutas: `/` (landing), `/commands` (explorador de comandos), `/docs`, `/faq`, `/status`,
+`/changelog`.
+
+**`/commands` necesita un paso de build aparte** (`npm run website:generate-commands`,
+corre `scripts/generate-commands-data.js`) porque leer los 88 `SlashCommandBuilder`
+reales arrastra `utils/economyStore.js` y compañía hasta `src/supabaseClient.js`, que
+exige `DISCORD_TOKEN`/`SUPABASE_SERVICE_ROLE_KEY` — el proceso del sitio, siempre
+corriendo, nunca tiene esos secrets (ver más arriba). El script se corre a mano con el
+`.env` completo (mismo criterio que `npm run deploy`) y escribe
+`website/data/commands.generated.json`, que el sitio solo lee. **Correr de nuevo cada
+vez que se agrega/edita/saca un comando** — si no, `/commands` queda desactualizado
+contra el bot real. El catálogo de funciones (`website/data/features.js`) deriva sus
+números de ese mismo JSON, así que también se actualiza solo.
+
+`/faq` reusa `essentialPermissionsBitfield`/`ESSENTIAL_BOT_PERMISSIONS` de
+`src/utils/botPermissions.js` (puro, sin secrets) para la pregunta de permisos —
+"Iniciar sesión" y "Abrir Dashboard" no reimplementan OAuth, enlazan al dashboard real
 (`DASHBOARD_BASE_URL`), que ya tiene todo el flujo. Sin esa variable configurada, esos
-links simplemente no aparecen (nunca un dominio inventado).
+links simplemente no aparecen (nunca un dominio inventado). `/status` sí tiene un dato
+100% en vivo: el estado público de la plataforma de Discord (discordstatus.com, API sin
+auth) — bot/dashboard/base de datos se muestran como "sin monitoreo público" en vez de
+inventar un semáforo, con un pointer a `/estado` dentro de Discord para un diagnóstico
+real.
 
 **Puesta en marcha:**
 

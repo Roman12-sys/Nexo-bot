@@ -7,7 +7,10 @@ import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 // Best-effort: /config ya le confirmó el cambio a quien lo hizo — un log fallido acá
 // nunca debe aparentar que el cambio en sí no se aplicó.
-async function logConfigChange(interaction, changeText) {
+// Exportada (Fase 2 del Staff Control Center) para que /staff pueda auditar sus
+// propias escrituras a guild_config con el MISMO formato que /config, en vez de
+// duplicar esta composición en un segundo archivo con riesgo real de divergencia.
+export async function logConfigChange(interaction, changeText) {
   try {
     const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'activity');
     if (logChannel) {

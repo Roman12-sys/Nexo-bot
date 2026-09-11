@@ -7,27 +7,45 @@
 // leer guild_config con getGuildConfig(), la misma función que ya usan /config y
 // /help.
 //
-// ALCANCE DE ESTA FASE: solo lectura. Ningún botón escribe nada todavía — donde una
-// pantalla necesitaría un botón "Configurar" real, el footer dice explícitamente qué
-// comando usar mientras tanto. Los módulos que necesitan una fuente de datos nueva
+// ALCANCE DE FASE 1: solo lectura. Los módulos que necesitan una fuente de datos nueva
 // (sorteos activos, plantillas de anuncios, estadísticas semanales, catálogo de
 // misiones/logros) muestran un placeholder honesto en vez de inventar números — se
 // conectan en su propia fase.
+//
+// FASE 2 (Moderación funcional): primera escritura real. Solo 2 campos, elegidos a
+// propósito por ser los únicos de Moderación con un camino de escritura simple y
+// reversible ("vacío para desactivar"): canal de logs de moderación y rol de castigo.
+// moderator_role_id/admin_role_id quedan FUERA de esta fase — admin_role_id es
+// sensible (PERM-1, sin opción de vaciar, ver config.js) y moderator_role_id no tiene
+// hoy ni siquiera un /config dedicado (solo lo fija /setup) — mezclar esos dos con la
+// primera escritura del panel es más riesgo del que esta fase necesita asumir.
+// Cada escritura reusa exactamente lo que ya usa /config para el mismo campo, nunca
+// una versión propia: mismo gate (dueño o Administrator — /config lo exige para TODO
+// el comando, así que /staff lo replica acá en vez de conformarse con el isStaff() más
+// laxo del resto del panel), mismo getDangerousRolePermission() para el rol de
+// castigo, y el mismo logConfigChange() (exportado de config.js para esto) para que
+// el canal de logs de actividad vea auditado un cambio hecho desde /staff exactamente
+// igual que uno hecho desde /config — nunca un bypass silencioso del audit trail.
 import {
   SlashCommandBuilder,
   EmbedBuilder,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelSelectMenuBuilder,
+  RoleSelectMenuBuilder,
+  ChannelType,
   PermissionFlagsBits,
   MessageFlags,
 } from 'discord.js';
-import { getGuildConfig } from '../../utils/guildConfigStore.js';
-import { isStaff } from '../../utils/permissions.js';
+import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
+import { isStaff, getDangerousRolePermission } from '../../utils/permissions.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
+import { registerSelectPrefix } from '../../components/selects.js';
+import { logConfigChange } from './config.js';
 
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutos, mismo criterio que /setup y /anuncio
 
@@ -125,6 +143,15 @@ function baseEmbed(screen) {
   return new EmbedBuilder().setColor(BRAND_COLOR).setTitle(`${meta.icon} ${meta.label}`).setFooter({ text: BRAND_NAME });
 }
 
+// Mismo gate que /config exige para el comando ENTERO (config.js línea ~150) —
+// replicado acá porque /staff es un solo comando compartido por los 3 tiers: isStaff()
+// (el gate de entrada de /staff) alcanza para VER esta pantalla, pero cualquier
+// escritura sobre guild_config necesita el mismo piso que /config, no el más laxo de
+// isStaff().
+function isOwnerOrAdmin(interaction) {
+  return interaction.guild.ownerId === interaction.user.id || interaction.member.permissions.has(PermissionFlagsBits.Administrator);
+}
+
 // ---------- Pantallas ----------
 
 function buildHomeScreen(interaction) {
@@ -145,18 +172,63 @@ function buildConfigScreen() {
   return { embeds: [embed], components: [...moduleButtonRows(CONFIG_ITEMS, 5), navRow('config')] };
 }
 
-function buildModeracionScreen(cfg) {
+function buildModeracionScreen(cfg, interaction) {
   const role = (id) => (id ? `<@&${id}>` : '❌ Sin configurar');
-  const embed = baseEmbed('moderacion')
-    .addFields(
-      { name: 'Módulo', value: cfg.features?.moderacion ? '🟢 Activado' : '🔴 Desactivado', inline: true },
-      { name: 'Rol de moderador', value: role(cfg.moderator_role_id), inline: true },
-      { name: 'Rol de administrador', value: role(cfg.admin_role_id), inline: true },
-      { name: 'Rol de castigo', value: role(cfg.punish_role_id), inline: true },
-      { name: 'Canal de logs', value: cfg.log_channel_moderation_id ? `<#${cfg.log_channel_moderation_id}>` : '❌ Sin configurar', inline: true },
-    );
-  embed.setFooter({ text: 'Edición disponible en la próxima fase — usá /config mientras tanto.' });
-  return { embeds: [embed], components: [navRow('moderacion')] };
+  const canEdit = isOwnerOrAdmin(interaction);
+  const embed = baseEmbed('moderacion').addFields(
+    { name: 'Módulo', value: cfg.features?.moderacion ? '🟢 Activado' : '🔴 Desactivado', inline: true },
+    { name: 'Rol de moderador', value: role(cfg.moderator_role_id), inline: true },
+    { name: 'Rol de administrador', value: role(cfg.admin_role_id), inline: true },
+    { name: 'Rol de castigo', value: role(cfg.punish_role_id), inline: true },
+    { name: 'Canal de logs', value: cfg.log_channel_moderation_id ? `<#${cfg.log_channel_moderation_id}>` : '❌ Sin configurar', inline: true },
+  );
+  embed.setFooter({
+    text: canEdit
+      ? 'Rol de moderador/administrador: usá /config mientras tanto (llegan a este panel más adelante).'
+      : '🔒 Editar requiere ser dueño o Administrator — el resto se ve, pero no se puede tocar desde acá.',
+  });
+  const editRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_edit_modlog_channel').setLabel('Canal de logs').setEmoji('🔧').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+    new ButtonBuilder().setCustomId('staff_edit_punish_role').setLabel('Rol de castigo').setEmoji('🔧').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+  );
+  return { embeds: [embed], components: [editRow, navRow('moderacion')] };
+}
+
+// ---------- Sub-vistas de edición (Fase 2) ----------
+// No son "pantallas" del breadcrumb (no empujan el stack de navegación) — son un
+// estado transitorio sobre la MISMA pantalla de Moderación, mismo criterio que un
+// modal: se sale con "Guardar" (el select dispara solo) o "Cancelar", nunca con
+// "Volver".
+
+function buildModlogChannelEditView() {
+  const embed = baseEmbed('moderacion').setDescription(
+    'Elegí el canal donde se van a mandar los logs de moderación (warns, bans, kicks, timeouts…). Dejalo vacío para desactivarlo.',
+  );
+  const selectRow = new ActionRowBuilder().addComponents(
+    new ChannelSelectMenuBuilder()
+      .setCustomId('staff_modlog_channel_select')
+      .setPlaceholder('Elegí un canal de texto (opcional)')
+      .addChannelTypes(ChannelType.GuildText)
+      .setMinValues(0)
+      .setMaxValues(1),
+  );
+  const cancelRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Cancelar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+  );
+  return { embeds: [embed], components: [selectRow, cancelRow] };
+}
+
+function buildPunishRoleEditView() {
+  const embed = baseEmbed('moderacion').setDescription(
+    'Elegí el rol de castigo (lo usan /punish y /unpunish para restringir imágenes/enlaces). Dejalo vacío para desactivarlo.',
+  );
+  const selectRow = new ActionRowBuilder().addComponents(
+    new RoleSelectMenuBuilder().setCustomId('staff_punish_role_select').setPlaceholder('Elegí un rol (opcional)').setMinValues(0).setMaxValues(1),
+  );
+  const cancelRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Cancelar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+  );
+  return { embeds: [embed], components: [selectRow, cancelRow] };
 }
 
 function buildEconomiaScreen() {
@@ -267,7 +339,7 @@ async function buildScreen(screen, interaction) {
   if (PLACEHOLDER_SCREENS.has(screen)) return buildPlaceholderScreen(screen);
 
   const cfg = await getGuildConfig(interaction.guildId);
-  if (screen === 'moderacion') return buildModeracionScreen(cfg);
+  if (screen === 'moderacion') return buildModeracionScreen(cfg, interaction);
   if (screen === 'economia') return buildEconomiaScreen();
   if (screen === 'xp') return buildXpScreen(cfg);
   if (screen === 'roles') return buildRolesScreen(cfg);
@@ -328,4 +400,73 @@ registerButtonPrefix('staff_close', async (i) => {
   const key = sessionKey(i.guildId, i.user.id);
   sessions.delete(key);
   await i.update({ content: '✅ Panel cerrado.', embeds: [], components: [] });
+});
+
+// ---------- Fase 2: edición de Moderación ----------
+// Gate revalidado ACÁ, no solo en el render del botón: un botón deshabilitado ya
+// impide el click en el cliente de Discord, pero nunca hay que confiar en eso como
+// única defensa (mismo criterio que el resto del proyecto — un customId se puede
+// disparar por otras vías, ej. un cliente modificado).
+
+registerButtonPrefix('staff_edit_modlog_channel', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  await i.update(buildModlogChannelEditView());
+});
+
+registerButtonPrefix('staff_edit_punish_role', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  await i.update(buildPunishRoleEditView());
+});
+
+// Sale de la sub-vista de edición SIN guardar nada — vuelve a la Moderación real
+// (nunca al tope del stack de navegación: esta sub-vista nunca lo empujó).
+registerButtonPrefix('staff_edit_cancel', async (i) => {
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildModeracionScreen(cfg, i));
+});
+
+registerSelectPrefix('staff_modlog_channel_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const channelId = i.values[0] ?? null;
+  await setGuildConfig(i.guildId, { log_channel_moderation_id: channelId });
+
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildModeracionScreen(cfg, i));
+  await i.followUp({
+    content: channelId ? `✅ Canal de logs de moderación actualizado a <#${channelId}>.` : '✅ Canal de logs de moderación desactivado.',
+    flags: MessageFlags.Ephemeral,
+  });
+  await logConfigChange(i, channelId ? `🛡️ Canal de logs de moderación → <#${channelId}> (desde /staff)` : '🛡️ Canal de logs de moderación desactivado (desde /staff)');
+});
+
+registerSelectPrefix('staff_punish_role_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const roleId = i.values[0] ?? null;
+  if (roleId) {
+    const role = i.roles?.first();
+    const dangerousPermission = role ? getDangerousRolePermission(role) : null;
+    if (dangerousPermission) {
+      return i.reply({
+        content: `❌ Ese rol tiene el permiso **${dangerousPermission}**, así que no se puede usar como rol de castigo — el bot se lo agregaría a cualquier usuario sancionado, entregándole ese permiso por error. Elegí (o creá) un rol sin privilegios administrativos.`,
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+  }
+  await setGuildConfig(i.guildId, { punish_role_id: roleId });
+
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildModeracionScreen(cfg, i));
+  await i.followUp({
+    content: roleId ? `✅ Rol de castigo actualizado a <@&${roleId}>.` : '✅ Rol de castigo desactivado.',
+    flags: MessageFlags.Ephemeral,
+  });
+  await logConfigChange(i, roleId ? `🚫 Rol de castigo → <@&${roleId}> (desde /staff)` : '🚫 Rol de castigo desactivado (desde /staff)');
 });

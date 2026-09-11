@@ -14,6 +14,7 @@
     "website": "node website/server.js",
     "website:dev": "node --watch website/server.js",
     "deploy": "node src/deploy-commands.js",
+    "website:generate-commands": "node scripts/generate-commands-data.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },
