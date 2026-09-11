@@ -7,10 +7,12 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 // Bloque 1) — y (3) que cada pantalla muestre datos REALES de guild_config, nunca
 // inventados.
 const isStaff = vi.fn();
-vi.mock('../src/utils/permissions.js', () => ({ isStaff }));
+const getDangerousRolePermission = vi.fn(() => null);
+vi.mock('../src/utils/permissions.js', () => ({ isStaff, getDangerousRolePermission }));
 
 const getGuildConfig = vi.fn();
-vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig }));
+const setGuildConfig = vi.fn().mockResolvedValue(undefined);
+vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig, setGuildConfig }));
 
 const pingSupabase = vi.fn();
 vi.mock('../src/supabaseClient.js', () => ({ pingSupabase }));
@@ -18,14 +20,30 @@ vi.mock('../src/supabaseClient.js', () => ({ pingSupabase }));
 const getMissingBotPermissions = vi.fn();
 vi.mock('../src/utils/botPermissions.js', () => ({ getMissingBotPermissions }));
 
+// logConfigChange (Fase 2) — auditoría de escrituras hecha desde /staff, exportada de
+// config.js para reusar el mismo formato. Se mockea acá para no depender de
+// getGuildLogChannel/createBotConfigLogEmbed reales — lo que importa probar es que
+// /staff LA LLAMA con el texto correcto, no su implementación interna (ya cubierta
+// donde corresponde, en los tests de /config).
+const logConfigChange = vi.fn().mockResolvedValue(undefined);
+vi.mock('../src/commands/admin/config.js', () => ({ logConfigChange }));
+
 const { execute } = await import('../src/commands/admin/staff.js');
 const { routeButton } = await import('../src/components/buttons.js');
+const { routeSelect } = await import('../src/components/selects.js');
 
-function makeInteraction({ guildId = 'guild-1', userId = 'staff-1', guildName = 'Comunidad de prueba' } = {}) {
+function makeInteraction({
+  guildId = 'guild-1',
+  userId = 'staff-1',
+  guildName = 'Comunidad de prueba',
+  ownerId = 'owner-1',
+  isAdministrator = false,
+} = {}) {
   return {
-    guild: { id: guildId, name: guildName },
+    guild: { id: guildId, name: guildName, ownerId },
     guildId,
     user: { id: userId, tag: `${userId}#0001` },
+    member: { permissions: { has: vi.fn(() => isAdministrator) } },
     client: {
       ws: { ping: 42 },
       uptime: 3_600_000,
@@ -44,6 +62,21 @@ function makeInteraction({ guildId = 'guild-1', userId = 'staff-1', guildName = 
 async function nav(base, customId) {
   const clicked = { ...base, customId, update: vi.fn().mockResolvedValue(undefined) };
   await routeButton(clicked);
+  return clicked;
+}
+// Selects (Fase 2) — `values` es lo elegido; `roles` simula el Collection que
+// discord.js resuelve para un RoleSelectMenu (con .first()), igual criterio que
+// anuncio.js ya usa para su select de mención.
+async function navSelect(base, customId, { values = [], role = null } = {}) {
+  const clicked = {
+    ...base,
+    customId,
+    values,
+    roles: { first: () => role },
+    update: vi.fn().mockResolvedValue(undefined),
+    followUp: vi.fn().mockResolvedValue(undefined),
+  };
+  await routeSelect(clicked);
   return clicked;
 }
 function payloadOf(interactionLike) {
@@ -85,6 +118,9 @@ beforeEach(() => {
   getGuildConfig.mockResolvedValue({ ...FULL_CONFIG });
   pingSupabase.mockResolvedValue({ ok: true, ms: 55 });
   getMissingBotPermissions.mockReturnValue([]);
+  getDangerousRolePermission.mockReturnValue(null);
+  setGuildConfig.mockResolvedValue(undefined);
+  logConfigChange.mockResolvedValue(undefined);
 });
 
 describe('/staff — gate de permisos', () => {
@@ -284,5 +320,133 @@ describe('/staff — Sistema (datos reales, mismo criterio que /estado)', () => 
 
     const payload = payloadOf(clicked);
     expect(fieldValue(payload, '🔐 Permisos del bot')).toContain('Gestionar roles');
+  });
+});
+
+describe('/staff — Fase 2: editar Moderación (primera escritura real)', () => {
+  it('los botones de editar están DESHABILITADOS para un staff que no es dueño ni Administrator', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_moderacion');
+
+    const payload = payloadOf(clicked);
+    const editRow = payload.components[0];
+    expect(editRow.components.every((b) => b.data.disabled)).toBe(true);
+    expect(payload.embeds[0].data.footer.text).toContain('🔒');
+  });
+
+  it('los botones de editar están habilitados para un Administrator', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_moderacion');
+
+    const editRow = payloadOf(clicked).components[0];
+    expect(editRow.components.every((b) => b.data.disabled)).toBe(false);
+  });
+
+  it('los botones de editar están habilitados para el DUEÑO del servidor aunque no tenga Administrator', async () => {
+    const interaction = makeInteraction({ userId: 'owner-1', ownerId: 'owner-1', isAdministrator: false });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_moderacion');
+
+    const editRow = payloadOf(clicked).components[0];
+    expect(editRow.components.every((b) => b.data.disabled)).toBe(false);
+  });
+
+  it('revalidación server-side: clickear "Canal de logs" sin ser admin lo rechaza igual, aunque el botón debería estar deshabilitado en el cliente', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_moderacion');
+
+    const clicked = { ...interaction, customId: 'staff_edit_modlog_channel', reply: vi.fn().mockResolvedValue(undefined), update: vi.fn().mockResolvedValue(undefined) };
+    await routeButton(clicked);
+
+    expect(clicked.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    expect(clicked.update).not.toHaveBeenCalled();
+  });
+
+  it('admin: click en "Canal de logs" abre el select real de canal', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_moderacion');
+
+    const clicked = await nav(interaction, 'staff_edit_modlog_channel');
+    const payload = payloadOf(clicked);
+    expect(payload.embeds[0].data.description).toContain('Elegí el canal');
+    expect(payload.components[0].components[0].data.custom_id).toBe('staff_modlog_channel_select');
+  });
+
+  it('elegir un canal guarda log_channel_moderation_id, audita el cambio y refresca la pantalla con el valor nuevo', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_moderacion');
+    await nav(interaction, 'staff_edit_modlog_channel');
+
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, log_channel_moderation_id: 'chan-nuevo' });
+    const selected = await navSelect(interaction, 'staff_modlog_channel_select', { values: ['chan-nuevo'] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { log_channel_moderation_id: 'chan-nuevo' });
+    expect(logConfigChange).toHaveBeenCalledWith(selected, expect.stringContaining('chan-nuevo'));
+    expect(fieldValue(payloadOf(selected), 'Canal de logs')).toBe('<#chan-nuevo>');
+    expect(selected.followUp).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('actualizado') }));
+  });
+
+  it('dejar el select vacío desactiva el canal de logs (null), no lo deja como estaba', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_moderacion');
+    await nav(interaction, 'staff_edit_modlog_channel');
+
+    await navSelect(interaction, 'staff_modlog_channel_select', { values: [] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { log_channel_moderation_id: null });
+  });
+
+  it('revalidación server-side: el select también rechaza a un no-admin aunque dispare el customId directo', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    const selected = await navSelect(interaction, 'staff_modlog_channel_select', { values: ['chan-x'] });
+
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('"Cancelar" vuelve a Moderación sin llamar a setGuildConfig', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_moderacion');
+    await nav(interaction, 'staff_edit_modlog_channel');
+
+    const cancelled = await nav(interaction, 'staff_edit_cancel');
+
+    expect(payloadOf(cancelled).embeds[0].data.title).toContain('Moderación');
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('rol de castigo peligroso: se rechaza y NUNCA se llega a guardar', async () => {
+    getDangerousRolePermission.mockReturnValue('Administrador');
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_moderacion');
+    await nav(interaction, 'staff_edit_punish_role');
+
+    const selected = await navSelect(interaction, 'staff_punish_role_select', { values: ['role-dangerous'], role: { id: 'role-dangerous' } });
+
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Administrador') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+    expect(logConfigChange).not.toHaveBeenCalled();
+  });
+
+  it('rol de castigo seguro: se guarda, se audita, y la pantalla refrescada lo muestra', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_moderacion');
+    await nav(interaction, 'staff_edit_punish_role');
+
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, punish_role_id: 'role-safe' });
+    const selected = await navSelect(interaction, 'staff_punish_role_select', { values: ['role-safe'], role: { id: 'role-safe' } });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { punish_role_id: 'role-safe' });
+    expect(logConfigChange).toHaveBeenCalledWith(selected, expect.stringContaining('role-safe'));
+    expect(fieldValue(payloadOf(selected), 'Rol de castigo')).toBe('<@&role-safe>');
   });
 });
