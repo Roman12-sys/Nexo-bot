@@ -59,6 +59,16 @@
 // que SÍ se conecta acá son datos reales de sorteos (activos/finalizados, misma
 // función que ya usa /estado y el autocomplete de /sorteo) y de anuncios (plantillas
 // guardadas reales).
+//
+// FASE 6 (Digest/Estadísticas/Sistema): Sistema ya quedó 100% real desde la Fase 1
+// (nunca tuvo motivo para esperar, es puramente de lectura). Digest gana su única
+// escritura real posible — activar/desactivar, MISMA semántica exacta que /config
+// digest-semanal (sembrar weekly_digest_last_sent_at al activar, limpiarlo al
+// desactivar) — nunca hubo campos de "día"/"hora" que inventar: esas columnas no
+// existen, el digest corre cada 1h chequeando si ya pasaron 7 días reales desde el
+// último envío, sin horario fijo. Estadísticas conecta guild_daily_stats (mismo dato
+// que ya usa el dashboard) sumado en los últimos 7 días — un pulso rápido, no un
+// reemplazo del desglose diario del dashboard.
 import {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -79,6 +89,7 @@ import { isStaff, getDangerousRolePermission } from '../../utils/permissions.js'
 import { resolveLiveSelfRoles } from '../../utils/selfRoles.js';
 import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
 import { getGuildAnnouncementTemplates } from '../../utils/announcementTemplatesStore.js';
+import { getGuildDailyStats } from '../../utils/guildDailyStatsStore.js';
 import { startBuilder as startAnuncioBuilder } from '../anuncios/anuncio.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
@@ -148,7 +159,7 @@ const CONFIG_ITEMS = [
 
 // Módulos que todavía no tienen una fuente de datos real conectada — placeholder
 // honesto en vez de un número inventado (ver la nota de alcance arriba).
-const PLACEHOLDER_SCREENS = new Set(['minijuegos', 'misiones', 'logros', 'estadisticas']);
+const PLACEHOLDER_SCREENS = new Set(['minijuegos', 'misiones', 'logros']);
 
 function chunk(arr, size) {
   const out = [];
@@ -414,15 +425,26 @@ async function buildSelfRoleRemoveView(guild, cfg) {
   return { embeds: [embed], components: [selectRow, backRow] };
 }
 
-function buildDigestScreen(cfg) {
+function buildDigestScreen(cfg, interaction) {
+  const canEdit = isOwnerOrAdmin(interaction);
   const lastSent = cfg.weekly_digest_last_sent_at ? `<t:${Math.floor(cfg.weekly_digest_last_sent_at / 1000)}:R>` : 'Nunca';
-  const embed = baseEmbed('digest').addFields(
-    { name: 'Estado', value: cfg.weekly_digest_enabled ? '🟢 Activado' : '🔴 Desactivado', inline: true },
-    { name: 'Canal', value: cfg.log_channel_activity_id ? `<#${cfg.log_channel_activity_id}>` : '❌ Sin canal de actividad configurado', inline: true },
-    { name: 'Último envío', value: lastSent, inline: true },
+  const embed = baseEmbed('digest')
+    .setDescription('Se manda automáticamente 7 días después del último envío (o de cuando se activó) — sin día/hora fijos, `guild_config` no guarda eso.')
+    .addFields(
+      { name: 'Estado', value: cfg.weekly_digest_enabled ? '🟢 Activado' : '🔴 Desactivado', inline: true },
+      { name: 'Canal', value: cfg.log_channel_activity_id ? `<#${cfg.log_channel_activity_id}>` : '❌ Sin canal de actividad configurado', inline: true },
+      { name: 'Último envío', value: lastSent, inline: true },
+    );
+  embed.setFooter({ text: canEdit ? BRAND_NAME : '🔒 Activar/desactivar requiere ser dueño o Administrator.' });
+  const editRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('staff_digest_toggle')
+      .setLabel(cfg.weekly_digest_enabled ? 'Desactivar' : 'Activar')
+      .setEmoji(cfg.weekly_digest_enabled ? '🔴' : '🟢')
+      .setStyle(cfg.weekly_digest_enabled ? ButtonStyle.Danger : ButtonStyle.Success)
+      .setDisabled(!canEdit),
   );
-  embed.setFooter({ text: 'Edición disponible en la próxima fase — usá /config digest-semanal mientras tanto.' });
-  return { embeds: [embed], components: [navRow('digest')] };
+  return { embeds: [embed], components: [editRow, navRow('digest')] };
 }
 
 function buildBienvenidaScreen(cfg) {
@@ -516,6 +538,37 @@ async function buildAnunciosScreen(guildId) {
   return { embeds: [embed], components: [buttonsRow, navRow('anuncios')] };
 }
 
+// Fase 6 — mismo dato que ya alimenta el dashboard (dashboard/queries.js
+// getGuildDailyStats), ahora también leído desde el bot. Suma los últimos 7 días en
+// vez de mostrar día por día: el objetivo acá es un pulso rápido de "cómo viene la
+// semana", el desglose diario ya vive en el dashboard.
+async function buildEstadisticasScreen(guildId) {
+  const days = await getGuildDailyStats(guildId, 7);
+  const totals = days.reduce(
+    (acc, d) => ({
+      messages: acc.messages + d.messagesSent,
+      commands: acc.commands + d.commandsExecuted,
+      newMembers: acc.newMembers + d.newMembers,
+      moneyCreated: acc.moneyCreated + d.moneyCreated,
+      moneyDestroyed: acc.moneyDestroyed + d.moneyDestroyed,
+      xp: acc.xp + d.xpDistributed,
+    }),
+    { messages: 0, commands: 0, newMembers: 0, moneyCreated: 0, moneyDestroyed: 0, xp: 0 },
+  );
+  const embed = baseEmbed('estadisticas')
+    .setDescription('Últimos 7 días.')
+    .addFields(
+      { name: 'Mensajes', value: `${totals.messages.toLocaleString('es-AR')}`, inline: true },
+      { name: 'Comandos', value: `${totals.commands.toLocaleString('es-AR')}`, inline: true },
+      { name: 'Miembros nuevos', value: `${totals.newMembers.toLocaleString('es-AR')}`, inline: true },
+      { name: 'Coins creadas', value: `+${totals.moneyCreated.toLocaleString('es-AR')}`, inline: true },
+      { name: 'Coins destruidas', value: `-${totals.moneyDestroyed.toLocaleString('es-AR')}`, inline: true },
+      { name: 'XP distribuida', value: `${totals.xp.toLocaleString('es-AR')}`, inline: true },
+    );
+  embed.setFooter({ text: 'Desglose día por día: dashboard web. Acá solo el total de la semana.' });
+  return { embeds: [embed], components: [navRow('estadisticas')] };
+}
+
 async function buildScreen(screen, interaction) {
   if (screen === 'home') return buildHomeScreen(interaction);
   if (screen === 'config') return buildConfigScreen();
@@ -523,13 +576,14 @@ async function buildScreen(screen, interaction) {
   if (screen === 'economia') return buildEconomiaScreen(interaction.guildId); // no depende de guild_config — sin toggle propio
   if (screen === 'sorteos') return buildSorteosScreen(interaction.guildId);
   if (screen === 'anuncios') return buildAnunciosScreen(interaction.guildId);
+  if (screen === 'estadisticas') return buildEstadisticasScreen(interaction.guildId);
   if (PLACEHOLDER_SCREENS.has(screen)) return buildPlaceholderScreen(screen);
 
   const cfg = await getGuildConfig(interaction.guildId);
   if (screen === 'moderacion') return buildModeracionScreen(cfg, interaction);
   if (screen === 'xp') return buildXpScreen(cfg, interaction);
   if (screen === 'roles') return buildRolesScreen(cfg, interaction);
-  if (screen === 'digest') return buildDigestScreen(cfg);
+  if (screen === 'digest') return buildDigestScreen(cfg, interaction);
   if (screen === 'bienvenida') return buildBienvenidaScreen(cfg);
   if (screen === 'canales') return buildCanalesScreen(cfg);
 
@@ -772,4 +826,26 @@ registerSelectPrefix('staff_selfrole_remove_select', async (i) => {
 // así que esta interacción de botón nunca se toca con i.update()/i.reply() propio.
 registerButtonPrefix('staff_anuncio_crear', async (i) => {
   await startAnuncioBuilder(i);
+});
+
+// ---------- Fase 6: Digest semanal ----------
+// Misma semántica exacta que /config digest-semanal: activar siembra
+// weekly_digest_last_sent_at = ahora (para que el primer envío real, 7 días después,
+// refleje una semana completa en vez de actividad de antes de activarlo); desactivar
+// lo deja en null. Nunca un toggle "ingenuo" que solo tocara el booleano.
+registerButtonPrefix('staff_digest_toggle', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const cfg = await getGuildConfig(i.guildId);
+  const nuevoEstado = !cfg.weekly_digest_enabled;
+  await setGuildConfig(i.guildId, { weekly_digest_enabled: nuevoEstado, weekly_digest_last_sent_at: nuevoEstado ? Date.now() : null });
+
+  const freshCfg = await getGuildConfig(i.guildId);
+  await i.update(buildDigestScreen(freshCfg, i));
+  await i.followUp({
+    content: nuevoEstado ? '✅ Digest semanal activado — el primer resumen llega en 7 días al canal de logs de actividad.' : '✅ Digest semanal desactivado.',
+    flags: MessageFlags.Ephemeral,
+  });
+  await logConfigChange(i, `📊 Digest semanal → ${nuevoEstado ? 'activado' : 'desactivado'} (desde /staff)`);
 });

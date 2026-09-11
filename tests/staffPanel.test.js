@@ -50,6 +50,11 @@ vi.mock('../src/utils/announcementTemplatesStore.js', () => ({ getGuildAnnouncem
 const startAnuncioBuilder = vi.fn().mockResolvedValue(undefined);
 vi.mock('../src/commands/anuncios/anuncio.js', () => ({ startBuilder: startAnuncioBuilder }));
 
+// Fase 6 (Estadísticas) — mismo dato que ya usa el dashboard (guildDailyStatsStore),
+// su propia agregación/filtros ya están cubiertos en guildDailyStatsStore.test.js.
+const getGuildDailyStats = vi.fn();
+vi.mock('../src/utils/guildDailyStatsStore.js', () => ({ getGuildDailyStats }));
+
 // logConfigChange (Fase 2) — auditoría de escrituras hecha desde /staff, exportada de
 // config.js para reusar el mismo formato. Se mockea acá para no depender de
 // getGuildLogChannel/createBotConfigLogEmbed reales — lo que importa probar es que
@@ -177,6 +182,10 @@ beforeEach(() => {
   );
   getGuildAnnouncementTemplates.mockResolvedValue([{ name: 'Mantenimiento', data: {}, createdAt: '2026-01-01' }]);
   startAnuncioBuilder.mockResolvedValue(undefined);
+  getGuildDailyStats.mockResolvedValue([
+    { date: '2026-09-08', messagesSent: 100, commandsExecuted: 20, newMembers: 2, moneyCreated: 500, moneyDestroyed: 50, xpDistributed: 300 },
+    { date: '2026-09-09', messagesSent: 150, commandsExecuted: 30, newMembers: 1, moneyCreated: 700, moneyDestroyed: 100, xpDistributed: 400 },
+  ]);
 });
 
 describe('/staff — gate de permisos', () => {
@@ -346,10 +355,10 @@ describe('/staff — contenido real por módulo (sin inventar datos)', () => {
     expect(getGuildConfig).not.toHaveBeenCalled(); // economía no depende de guild_config
   });
 
-  it('los módulos sin datos conectados todavía (Estadísticas, Misiones, etc.) muestran el placeholder honesto, sin ni siquiera pedir guild_config', async () => {
+  it('los módulos sin datos conectados todavía (Misiones, Logros, Minijuegos) muestran el placeholder honesto, sin ni siquiera pedir guild_config', async () => {
     const interaction = makeInteraction();
     await execute(interaction);
-    const clicked = await nav(interaction, 'staff_nav_estadisticas');
+    const clicked = await nav(interaction, 'staff_nav_misiones');
 
     const payload = payloadOf(clicked);
     expect(payload.embeds[0].data.description).toContain('🚧');
@@ -779,5 +788,79 @@ describe('/staff — Fase 5: Sorteos (datos reales) y Anuncios (lanza el flujo r
     // No reimplementa nada del panel de anuncio: nunca llama a i.update() por su cuenta,
     // eso es responsabilidad exclusiva de startBuilder (que hace su propio i.reply()).
     expect(clicked.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('/staff — Fase 6: Digest semanal (toggle real) y Estadísticas (guild_daily_stats real)', () => {
+  it('Digest activado: el botón dice "Desactivar" y está habilitado para un admin', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_config');
+    const clicked = await nav(interaction, 'staff_nav_digest');
+
+    const button = payloadOf(clicked).components[0].components[0];
+    expect(button.data.label).toBe('Desactivar');
+    expect(button.data.disabled).toBe(false);
+  });
+
+  it('activar/desactivar el digest siembra o limpia weekly_digest_last_sent_at, exactamente como /config digest-semanal', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_config');
+    await nav(interaction, 'staff_nav_digest'); // FULL_CONFIG arranca con weekly_digest_enabled: true
+
+    getGuildConfig
+      .mockResolvedValueOnce({ ...FULL_CONFIG }) // lectura antes de guardar (estado real: activado)
+      .mockResolvedValueOnce({ ...FULL_CONFIG, weekly_digest_enabled: false, weekly_digest_last_sent_at: null }); // refresco
+    const clicked = await nav(interaction, 'staff_digest_toggle');
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { weekly_digest_enabled: false, weekly_digest_last_sent_at: null });
+    expect(fieldValue(payloadOf(clicked), 'Estado')).toContain('Desactivado');
+    expect(logConfigChange).toHaveBeenCalledWith(clicked, expect.stringContaining('desactivado'));
+  });
+
+  it('al activarlo, siembra weekly_digest_last_sent_at con la hora actual (nunca queda null mientras está activo)', async () => {
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, weekly_digest_enabled: false, weekly_digest_last_sent_at: null });
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_config');
+    await nav(interaction, 'staff_nav_digest');
+
+    await nav(interaction, 'staff_digest_toggle');
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', expect.objectContaining({ weekly_digest_enabled: true, weekly_digest_last_sent_at: expect.any(Number) }));
+  });
+
+  it('revalidación server-side: activar/desactivar sin ser admin se rechaza', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    const clicked = { ...interaction, customId: 'staff_digest_toggle', reply: vi.fn().mockResolvedValue(undefined), update: vi.fn().mockResolvedValue(undefined) };
+    await routeButton(clicked);
+
+    expect(clicked.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('Estadísticas suma los últimos 7 días reales, sin depender de guild_config', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_estadisticas');
+
+    const payload = payloadOf(clicked);
+    expect(getGuildDailyStats).toHaveBeenCalledWith('guild-1', 7);
+    expect(fieldValue(payload, 'Mensajes')).toBe('250');
+    expect(fieldValue(payload, 'Comandos')).toBe('50');
+    expect(fieldValue(payload, 'Coins creadas')).toBe('+1.200');
+    expect(fieldValue(payload, 'Coins destruidas')).toBe('-150');
+    expect(fieldValue(payload, 'XP distribuida')).toBe('700');
+    expect(getGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('Estadísticas sin ningún día registrado todavía muestra 0, no un error ni datos inventados', async () => {
+    getGuildDailyStats.mockResolvedValue([]);
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_estadisticas');
+
+    expect(fieldValue(payloadOf(clicked), 'Mensajes')).toBe('0');
   });
 });
