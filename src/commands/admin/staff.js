@@ -26,6 +26,17 @@
 // castigo, y el mismo logConfigChange() (exportado de config.js para esto) para que
 // el canal de logs de actividad vea auditado un cambio hecho desde /staff exactamente
 // igual que uno hecho desde /config — nunca un bypass silencioso del audit trail.
+//
+// FASE 3 (Economía, solo lectura — sin escritura nueva): la preview HTML original
+// (y el plan de trabajo inicial) asumía toggles por-comando (daily/work/crime/rob/
+// casino/banco) — investigado a fondo, esos toggles NO EXISTEN en el modelo real:
+// guild_config nunca tuvo columnas de features para economía (el toggle "Economía"
+// se sacó de /setup en 2026-08-29 explícitamente porque no gateaba nada — ver
+// setup.js). No se inventa esa capacidad acá: la economía es siempre activa, punto,
+// y el panel lo dice así en vez de simular un interruptor que no hace nada. Lo que sí
+// se conecta es circulante real (sum_guild_balances, RPC de Fase 2C) y top de
+// balances reales (mismo criterio ya usado por dashboard/queries.js, ahora también
+// disponible del lado del bot vía economyStore.js).
 import {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -39,6 +50,7 @@ import {
   MessageFlags,
 } from 'discord.js';
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
+import { getGuildCirculatingBalance, getTopBalances } from '../../utils/economyStore.js';
 import { isStaff, getDangerousRolePermission } from '../../utils/permissions.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
@@ -231,12 +243,67 @@ function buildPunishRoleEditView() {
   return { embeds: [embed], components: [selectRow, cancelRow] };
 }
 
-function buildEconomiaScreen() {
+async function buildEconomiaScreen(guildId) {
+  const circulating = await getGuildCirculatingBalance(guildId);
   const embed = baseEmbed('economia')
     .setDescription('El sistema económico de NEXO está **siempre activo** — a diferencia de moderación/XP, no tiene un interruptor propio.')
-    .addFields({ name: 'Comandos disponibles', value: '`/daily` `/work` `/crime` `/rob` `/coinflip` `/dado` `/slots` `/ruleta` `/bank` `/shop`' });
-  embed.setFooter({ text: 'Panorama económico en vivo (balances, circulante) llega en la próxima fase.' });
-  return { embeds: [embed], components: [navRow('economia')] };
+    .addFields(
+      { name: 'Coins en circulación', value: `${circulating.toLocaleString('es-AR')}`, inline: true },
+      { name: 'Comandos disponibles', value: '`/daily` `/work` `/crime` `/rob` `/coinflip` `/dado` `/slots` `/ruleta` `/bank` `/shop`' },
+    );
+  embed.setFooter({ text: BRAND_NAME });
+  const buttonsRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_econ_ver').setLabel('Ver economía').setEmoji('📊').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('staff_econ_limites').setLabel('Límites').setEmoji('📏').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('staff_econ_staff').setLabel('Staff').setEmoji('👮').setStyle(ButtonStyle.Secondary),
+  );
+  return { embeds: [embed], components: [buttonsRow, navRow('economia')] };
+}
+
+// ---------- Sub-vistas de Economía (Fase 3, todas de solo lectura) ----------
+
+async function buildEconomiaVerView(guildId) {
+  const [circulating, top] = await Promise.all([getGuildCirculatingBalance(guildId), getTopBalances(guildId, 5)]);
+  const embed = baseEmbed('economia').setTitle('💰 Economía — panorama').addFields({
+    name: 'Coins en circulación',
+    value: `${circulating.toLocaleString('es-AR')}`,
+  });
+  embed.addFields({
+    name: 'Top balances',
+    value: top.length ? top.map((u, i) => `**#${i + 1}** <@${u.userId}> — ${u.balance.toLocaleString('es-AR')}`).join('\n') : 'Todavía nadie tiene balance en este servidor.',
+  });
+  const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+  return { embeds: [embed], components: [backRow] };
+}
+
+function buildEconomiaStaffView() {
+  const embed = baseEmbed('economia')
+    .setTitle('👮 Economía — permisos de staff')
+    .setDescription('Modelo de 3 tiers de NEXO (PERM-1) aplicado a economía.')
+    .addFields(
+      { name: 'Tier 1 — Moderador', value: 'Moderación completa. No puede tocar economía de otros usuarios.' },
+      { name: 'Tier 2 — Administrador', value: 'Único tier (además del dueño) que puede usar `/economia-staff` y `/xp` para acreditar balance/XP sin límite.' },
+      { name: 'Tier 3 — Dueño / Administrator', value: '`/setup`, `/config`, y todo lo del Tier 2.' },
+    );
+  embed.setFooter({ text: 'Ver la sección "Permisos" de CLAUDE.md para el detalle completo de este modelo.' });
+  const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+  return { embeds: [embed], components: [backRow] };
+}
+
+function buildEconomiaLimitesView() {
+  const embed = baseEmbed('economia')
+    .setTitle('📏 Economía — límites')
+    .setDescription(
+      'Estos valores son **fijos en el código, iguales para todos los servidores** — no son un ajuste por-servidor en guild_config, ' +
+        'así que no hay nada que "guardar" acá. Mostrados solo como referencia rápida.',
+    )
+    .addFields(
+      { name: '/rob', value: 'Éxito 40% · roba 10-25% del wallet de la víctima (tope 5.000) · si falla, multa 5-15% (tope 2.000, va a la víctima) · escudo de víctima 3h · cooldown del atacante 1h', inline: false },
+      { name: '/crime', value: 'Éxito 60% · cooldown 45 min · paga 150-400 si sale bien · multa 50-150 si falla (se destruye, no va a nadie — sumidero real)', inline: false },
+    );
+  embed.setFooter({ text: 'Convertir esto en un ajuste por-servidor sería una feature nueva, no algo que este panel ya tenga para mostrar.' });
+  const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+  return { embeds: [embed], components: [backRow] };
 }
 
 function buildXpScreen(cfg) {
@@ -336,11 +403,11 @@ async function buildScreen(screen, interaction) {
   if (screen === 'home') return buildHomeScreen(interaction);
   if (screen === 'config') return buildConfigScreen();
   if (screen === 'sistema') return buildSistemaScreen(interaction);
+  if (screen === 'economia') return buildEconomiaScreen(interaction.guildId); // no depende de guild_config — sin toggle propio
   if (PLACEHOLDER_SCREENS.has(screen)) return buildPlaceholderScreen(screen);
 
   const cfg = await getGuildConfig(interaction.guildId);
   if (screen === 'moderacion') return buildModeracionScreen(cfg, interaction);
-  if (screen === 'economia') return buildEconomiaScreen();
   if (screen === 'xp') return buildXpScreen(cfg);
   if (screen === 'roles') return buildRolesScreen(cfg);
   if (screen === 'digest') return buildDigestScreen(cfg);
@@ -422,11 +489,27 @@ registerButtonPrefix('staff_edit_punish_role', async (i) => {
   await i.update(buildPunishRoleEditView());
 });
 
-// Sale de la sub-vista de edición SIN guardar nada — vuelve a la Moderación real
-// (nunca al tope del stack de navegación: esta sub-vista nunca lo empujó).
+// Vuelve de una sub-vista transitoria (edición o info) a la pantalla REAL que estaba
+// en el tope del stack — nunca la sub-vista misma lo empujó, así que "volver" acá es
+// simplemente re-renderizar el stack tal cual está. Genérico a propósito: lo usan
+// tanto los 2 flujos de edición de Moderación (Fase 2) como las 3 vistas de
+// información de Economía (Fase 3), y cualquier sub-vista futura del mismo tipo.
 registerButtonPrefix('staff_edit_cancel', async (i) => {
-  const cfg = await getGuildConfig(i.guildId);
-  await i.update(buildModeracionScreen(cfg, i));
+  const key = sessionKey(i.guildId, i.user.id);
+  const stack = getStack(key) || ['home'];
+  await i.update(await buildScreen(stack[stack.length - 1], i));
+});
+
+registerButtonPrefix('staff_econ_ver', async (i) => {
+  await i.update(await buildEconomiaVerView(i.guildId));
+});
+
+registerButtonPrefix('staff_econ_staff', async (i) => {
+  await i.update(buildEconomiaStaffView());
+});
+
+registerButtonPrefix('staff_econ_limites', async (i) => {
+  await i.update(buildEconomiaLimitesView());
 });
 
 registerSelectPrefix('staff_modlog_channel_select', async (i) => {

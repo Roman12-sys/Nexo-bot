@@ -20,6 +20,15 @@ vi.mock('../src/supabaseClient.js', () => ({ pingSupabase }));
 const getMissingBotPermissions = vi.fn();
 vi.mock('../src/utils/botPermissions.js', () => ({ getMissingBotPermissions }));
 
+// Fase 3 (Economía) — economyStore.js real pega a Supabase; se mockea completo acá
+// porque staff.js solo necesita estas 2 lecturas (circulante + top balances), mismo
+// criterio que el resto de los mocks de este archivo: probar que /staff LAS LLAMA y
+// MUESTRA lo que devuelven, no la implementación de la RPC en sí (ya cubierta en
+// economyStore.test.js).
+const getGuildCirculatingBalance = vi.fn();
+const getTopBalances = vi.fn();
+vi.mock('../src/utils/economyStore.js', () => ({ getGuildCirculatingBalance, getTopBalances }));
+
 // logConfigChange (Fase 2) — auditoría de escrituras hecha desde /staff, exportada de
 // config.js para reusar el mismo formato. Se mockea acá para no depender de
 // getGuildLogChannel/createBotConfigLogEmbed reales — lo que importa probar es que
@@ -121,6 +130,11 @@ beforeEach(() => {
   getDangerousRolePermission.mockReturnValue(null);
   setGuildConfig.mockResolvedValue(undefined);
   logConfigChange.mockResolvedValue(undefined);
+  getGuildCirculatingBalance.mockResolvedValue(48_200);
+  getTopBalances.mockResolvedValue([
+    { userId: 'user-rico', balance: 10_000 },
+    { userId: 'user-medio', balance: 4_500 },
+  ]);
 });
 
 describe('/staff — gate de permisos', () => {
@@ -279,13 +293,15 @@ describe('/staff — contenido real por módulo (sin inventar datos)', () => {
     expect(fieldValue(payload, 'Bienvenida')).toBe('<#chan-welcome>');
   });
 
-  it('Economía muestra la nota de "siempre activa" sin depender de ningún feature flag', async () => {
+  it('Economía muestra la nota de "siempre activa" sin depender de ningún feature flag, y el circulante real', async () => {
     const interaction = makeInteraction();
     await execute(interaction);
     const clicked = await nav(interaction, 'staff_nav_economia');
 
     const payload = payloadOf(clicked);
     expect(payload.embeds[0].data.description).toContain('siempre activo');
+    expect(fieldValue(payload, 'Coins en circulación')).toBe('48.200');
+    expect(getGuildConfig).not.toHaveBeenCalled(); // economía no depende de guild_config
   });
 
   it('los módulos sin datos conectados todavía (Sorteos, Anuncios, etc.) muestran el placeholder honesto, sin ni siquiera pedir guild_config', async () => {
@@ -448,5 +464,65 @@ describe('/staff — Fase 2: editar Moderación (primera escritura real)', () =>
     expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { punish_role_id: 'role-safe' });
     expect(logConfigChange).toHaveBeenCalledWith(selected, expect.stringContaining('role-safe'));
     expect(fieldValue(payloadOf(selected), 'Rol de castigo')).toBe('<@&role-safe>');
+  });
+});
+
+describe('/staff — Fase 3: Economía (solo lectura, sin toggles inventados)', () => {
+  it('"Ver economía" muestra circulante real y el top de balances real, con menciones reales', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_economia');
+    const clicked = await nav(interaction, 'staff_econ_ver');
+
+    const payload = payloadOf(clicked);
+    expect(fieldValue(payload, 'Coins en circulación')).toBe('48.200');
+    const topValue = fieldValue(payload, 'Top balances');
+    expect(topValue).toContain('<@user-rico>');
+    expect(topValue).toContain('10.000');
+    expect(topValue).toContain('<@user-medio>');
+  });
+
+  it('"Ver economía" con un server sin economía todavía no inventa un top vacío como error', async () => {
+    getTopBalances.mockResolvedValue([]);
+    const interaction = makeInteraction();
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_economia');
+    const clicked = await nav(interaction, 'staff_econ_ver');
+
+    expect(fieldValue(payloadOf(clicked), 'Top balances')).toContain('nadie tiene balance');
+  });
+
+  it('"Staff" muestra el modelo de 3 tiers, sin ninguna llamada a datos (es texto fijo)', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_economia');
+    const clicked = await nav(interaction, 'staff_econ_staff');
+
+    const payload = payloadOf(clicked);
+    expect(payload.embeds[0].data.fields.map((f) => f.name)).toEqual(
+      expect.arrayContaining(['Tier 1 — Moderador', 'Tier 2 — Administrador', 'Tier 3 — Dueño / Administrator']),
+    );
+  });
+
+  it('"Límites" muestra los valores reales de /rob y /crime, aclarando que son fijos por código', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_economia');
+    const clicked = await nav(interaction, 'staff_econ_limites');
+
+    const payload = payloadOf(clicked);
+    expect(payload.embeds[0].data.description).toContain('fijos en el código');
+    expect(fieldValue(payload, '/rob')).toContain('40%');
+    expect(fieldValue(payload, '/crime')).toContain('60%');
+  });
+
+  it('"Volver" desde cualquier sub-vista de Economía usa el mismo botón genérico que Moderación y regresa a Economía', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_economia');
+    await nav(interaction, 'staff_econ_limites');
+
+    const back = await nav(interaction, 'staff_edit_cancel');
+    expect(payloadOf(back).embeds[0].data.title).toContain('Economía');
   });
 });

@@ -11,7 +11,10 @@ import { eventBus } from '../src/utils/eventBus.js';
 const supabaseMock = createSupabaseMock();
 vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMock; } }));
 
-const { addBalance, deductBalanceIfSufficient, transferBalance, setBalance, setRobCooldowns, recordTransaction, getUserEconomy } = await import('../src/utils/economyStore.js');
+const {
+  addBalance, deductBalanceIfSufficient, transferBalance, setBalance, setRobCooldowns, recordTransaction, getUserEconomy,
+  getGuildCirculatingBalance, getTopBalances,
+} = await import('../src/utils/economyStore.js');
 
 beforeEach(() => {
   // clearAllMocks limpia el historial de llamadas de TODOS los vi.fn() vivos —
@@ -300,6 +303,70 @@ describe('recordTransaction — COINS_DESTROYED (Fase A)', () => {
     await recordTransaction('guild-1', 'user-1', { type: 'rob_fine', amount: -30, balanceAfter: 70 });
 
     expect(emitSpy).not.toHaveBeenCalled();
+  });
+});
+
+// Fase 3 del Staff Control Center (/staff → Economía) — mismas 2 consultas que ya
+// usaba dashboard/queries.js (fetchTotalBalance/fetchTopBalances), ahora también
+// disponibles del lado del bot. Circulante vía RPC (sum_guild_balances, Fase 2C);
+// top de balances vía select ordenado y acotado (sin RPC — ya está limitado con
+// .limit(), mismo criterio que "Reglas de arquitectura" de esa fase).
+describe('getGuildCirculatingBalance', () => {
+  it('llama a la RPC sum_guild_balances con el guildId y devuelve un número', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: 48200, error: null });
+
+    const result = await getGuildCirculatingBalance('guild-1');
+
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('sum_guild_balances', { p_guild_id: 'guild-1' });
+    expect(result).toBe(48200);
+  });
+
+  it('sin filas (RPC devuelve null/0), da 0 en vez de NaN', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: null, error: null });
+
+    const result = await getGuildCirculatingBalance('guild-vacio');
+
+    expect(result).toBe(0);
+  });
+
+  it('si la RPC falla, el error se propaga', async () => {
+    const dbError = { message: 'connection refused' };
+    supabaseMock.rpc.mockResolvedValue({ data: null, error: dbError });
+
+    await expect(getGuildCirculatingBalance('guild-1')).rejects.toBe(dbError);
+  });
+});
+
+describe('getTopBalances', () => {
+  it('consulta economy ordenado por balance descendente, acotado al límite pedido', async () => {
+    supabaseMock.getBuilder('economy').__setResult({
+      data: [{ user_id: 'user-rico', balance: 10000 }, { user_id: 'user-medio', balance: 4500 }],
+      error: null,
+    });
+
+    const result = await getTopBalances('guild-1', 5);
+
+    const builder = supabaseMock.getBuilder('economy');
+    expect(builder.eq).toHaveBeenCalledWith('guild_id', 'guild-1');
+    expect(builder.order).toHaveBeenCalledWith('balance', { ascending: false });
+    expect(builder.limit).toHaveBeenCalledWith(5);
+    expect(result).toEqual([{ userId: 'user-rico', balance: 10000 }, { userId: 'user-medio', balance: 4500 }]);
+  });
+
+  it('sin ningún balance todavía, devuelve un array vacío en vez de null/undefined', async () => {
+    supabaseMock.getBuilder('economy').__setResult({ data: null, error: null });
+
+    const result = await getTopBalances('guild-vacio');
+
+    expect(result).toEqual([]);
+  });
+
+  it('el límite por defecto es 5 si no se especifica', async () => {
+    supabaseMock.getBuilder('economy').__setResult({ data: [], error: null });
+
+    await getTopBalances('guild-1');
+
+    expect(supabaseMock.getBuilder('economy').limit).toHaveBeenCalledWith(5);
   });
 });
 

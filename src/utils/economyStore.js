@@ -511,3 +511,26 @@ export async function getUserTransactions(guildId, userId, limit = 10) {
     timestamp: new Date(row.created_at).getTime(),
   }));
 }
+
+// Fase 3 del Staff Control Center (/staff → Economía) — mismas dos consultas que el
+// dashboard ya usa (dashboard/queries.js: fetchTotalBalance/fetchTopBalances), pero
+// el bot no tenía todavía un wrapper propio del lado de src/. sum_guild_balances es la
+// RPC de Fase 2C (agrega en Postgres, cero filas transferidas de más); el top de
+// balances no necesita RPC porque ya viene acotado con un .limit() consciente — mismo
+// criterio de las "Reglas de arquitectura" de esa fase.
+export async function getGuildCirculatingBalance(guildId) {
+  const { data, error } = await supabase.rpc('sum_guild_balances', { p_guild_id: guildId });
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
+export async function getTopBalances(guildId, limit = 5) {
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('user_id, balance')
+    .eq('guild_id', guildId)
+    .order('balance', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []).map((row) => ({ userId: row.user_id, balance: row.balance }));
+}
