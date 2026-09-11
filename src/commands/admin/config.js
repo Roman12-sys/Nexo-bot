@@ -479,7 +479,10 @@ export async function buildConfigSummaryEmbed(guildId) {
       { name: '🎮 Canal de patch notes de LoL', value: channel(cfg.lol_announce_channel_id), inline: true },
       { name: '📊 Digest semanal', value: toggle(cfg.weekly_digest_enabled), inline: true },
     )
-    .setFooter({ text: BRAND_NAME })
+    // Puente mínimo con /staff (Fase 2, post-auditoría 2026-09-11): la mayoría de estos
+    // campos ya se puede tocar con botones desde ahí — antes ninguno de los dos
+    // comandos mencionaba al otro, así que un admin tenía que descubrirlos por separado.
+    .setFooter({ text: `${BRAND_NAME} • La mayoría de esto también se edita con botones desde /staff` })
     .setTimestamp();
 
   if (cfg.setup_completed_at) {

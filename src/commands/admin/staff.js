@@ -270,6 +270,12 @@ function buildHomeScreen(interaction) {
 
 function buildConfigScreen() {
   const embed = baseEmbed('config').setDescription('Elegí qué querés configurar. Cada opción abre su propio panel.');
+  // Puente mínimo con /config (Fase 2, post-auditoría 2026-09-11): lo que todavía no
+  // tiene pantalla propia acá (revisión previa de confesiones, impulso de XP de finde,
+  // canal de patch notes de LoL, separar rol de administrador) sigue siendo solo texto
+  // a propósito — no ameritan un panel visual por ahora — pero un admin nuevo no tenía
+  // ninguna pista de que existen desde este menú.
+  embed.setFooter({ text: `${BRAND_NAME} • \`/config ver\` muestra todo, incluido lo que todavía no tiene panel acá` });
   return { embeds: [embed], components: [...moduleButtonRows(CONFIG_ITEMS, 5), navRow('config')] };
 }
 
@@ -328,6 +334,56 @@ function buildPunishRoleEditView() {
   );
   const selectRow = new ActionRowBuilder().addComponents(
     new RoleSelectMenuBuilder().setCustomId('staff_punish_role_select').setPlaceholder('Elegí un rol (opcional)').setMinValues(0).setMaxValues(1),
+  );
+  const cancelRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Cancelar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+  );
+  return { embeds: [embed], components: [selectRow, cancelRow] };
+}
+
+// Fase 2 (post-auditoría, 2026-09-11): mismo patrón exacto que el edit view de canal de
+// logs de moderación de arriba — un select de canal + cancelar — repetido para los 3
+// canales que quedaron pendientes ("edición disponible en la próxima fase"). Cada uno
+// tiene su propia función (en vez de una sola parametrizada) para que el embed quede
+// coloreado según la pantalla real desde la que se entró (bienvenida=magenta,
+// canales=violeta), mismo criterio de estilo que el resto del archivo.
+function buildWelcomeChannelEditView() {
+  const embed = baseEmbed('bienvenida').setDescription('Elegí el canal donde se manda el mensaje de bienvenida a cada miembro nuevo. Dejalo vacío para desactivarlo.');
+  const selectRow = new ActionRowBuilder().addComponents(
+    new ChannelSelectMenuBuilder().setCustomId('staff_welcome_channel_select').setPlaceholder('Elegí un canal de texto (opcional)').addChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1),
+  );
+  const cancelRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Cancelar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+  );
+  return { embeds: [embed], components: [selectRow, cancelRow] };
+}
+
+function buildConfessionChannelEditView() {
+  const embed = baseEmbed('canales').setDescription('Elegí el canal donde se publican las confesiones anónimas. Dejalo vacío para desactivar el sistema.');
+  const selectRow = new ActionRowBuilder().addComponents(
+    new ChannelSelectMenuBuilder().setCustomId('staff_confession_channel_select').setPlaceholder('Elegí un canal de texto (opcional)').addChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1),
+  );
+  const cancelRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Cancelar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+  );
+  return { embeds: [embed], components: [selectRow, cancelRow] };
+}
+
+function buildActivityLogChannelEditView() {
+  const embed = baseEmbed('canales').setDescription('Elegí el canal donde se registran los cambios de configuración y la actividad general del servidor. Dejalo vacío para desactivarlo.');
+  const selectRow = new ActionRowBuilder().addComponents(
+    new ChannelSelectMenuBuilder().setCustomId('staff_activitylog_channel_select').setPlaceholder('Elegí un canal de texto (opcional)').addChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1),
+  );
+  const cancelRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Cancelar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+  );
+  return { embeds: [embed], components: [selectRow, cancelRow] };
+}
+
+function buildEconomyLogChannelEditView() {
+  const embed = baseEmbed('canales').setDescription('Elegí el canal donde se registran los movimientos de economía (compras, ajustes de staff). Dejalo vacío para desactivarlo.');
+  const selectRow = new ActionRowBuilder().addComponents(
+    new ChannelSelectMenuBuilder().setCustomId('staff_economylog_channel_select').setPlaceholder('Elegí un canal de texto (opcional)').addChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1),
   );
   const cancelRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Cancelar').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
@@ -544,16 +600,26 @@ function buildDigestScreen(cfg, interaction) {
   return { embeds: [embed], components: [editRow, navRow('digest')] };
 }
 
-function buildBienvenidaScreen(cfg) {
+function buildBienvenidaScreen(cfg, interaction) {
+  const canEdit = isOwnerOrAdmin(interaction);
   const embed = baseEmbed('bienvenida').addFields({
     name: 'Canal',
     value: cfg.welcome_channel_id ? `<#${cfg.welcome_channel_id}>` : '❌ Sin configurar',
   });
-  embed.setFooter({ text: 'Edición disponible en la próxima fase — usá /setup (extra "Bienvenida") o /config canal-bienvenida mientras tanto.' });
-  return { embeds: [embed], components: [navRow('bienvenida')] };
+  embed.setFooter({ text: canEdit ? BRAND_NAME : '🔒 Editar requiere ser dueño o Administrator.' });
+  const editRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_edit_welcome_channel').setLabel('Canal de bienvenida').setEmoji('👋').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+  );
+  return { embeds: [embed], components: [editRow, navRow('bienvenida')] };
 }
 
-function buildCanalesScreen(cfg) {
+// Fase 2 (post-auditoría, 2026-09-11): antes solo Moderación tenía botón de edición acá
+// — los otros 4 canales decían "próxima fase" desde que se escribió esta pantalla. El
+// de logs de moderación se deja SOLO de lectura acá (con nota apuntando a Moderación)
+// en vez de duplicar un segundo botón para el mismo campo con otro customId — ya tiene
+// su edición real un click más allá, en el módulo al que pertenece.
+function buildCanalesScreen(cfg, interaction) {
+  const canEdit = isOwnerOrAdmin(interaction);
   const ch = (id) => (id ? `<#${id}>` : '❌ Sin configurar');
   const embed = baseEmbed('canales')
     .setDescription('Todos los canales que NEXO usa en este servidor, en un solo lugar.')
@@ -564,8 +630,15 @@ function buildCanalesScreen(cfg) {
       { name: 'Bienvenida', value: ch(cfg.welcome_channel_id), inline: true },
       { name: 'Confesiones', value: ch(cfg.confession_channel_id), inline: true },
     );
-  embed.setFooter({ text: 'Cambiar un canal estará disponible en la próxima fase — usá /config mientras tanto.' });
-  return { embeds: [embed], components: [navRow('canales')] };
+  embed.setFooter({
+    text: canEdit ? 'Logs de moderación se edita desde el módulo Moderación.' : '🔒 Editar requiere ser dueño o Administrator.',
+  });
+  const editRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_edit_activitylog_channel').setLabel('Logs de actividad').setEmoji('📋').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+    new ButtonBuilder().setCustomId('staff_edit_economylog_channel').setLabel('Logs de economía').setEmoji('💰').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+    new ButtonBuilder().setCustomId('staff_edit_confession_channel').setLabel('Confesiones').setEmoji('🤫').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+  );
+  return { embeds: [embed], components: [editRow, navRow('canales')] };
 }
 
 // Único módulo con datos 100% reales desde esta misma fase: es puramente de lectura
@@ -728,8 +801,8 @@ async function buildScreen(screen, interaction) {
   if (screen === 'xp') return buildXpScreen(cfg, interaction);
   if (screen === 'roles') return buildRolesScreen(cfg, interaction);
   if (screen === 'digest') return buildDigestScreen(cfg, interaction);
-  if (screen === 'bienvenida') return buildBienvenidaScreen(cfg);
-  if (screen === 'canales') return buildCanalesScreen(cfg);
+  if (screen === 'bienvenida') return buildBienvenidaScreen(cfg, interaction);
+  if (screen === 'canales') return buildCanalesScreen(cfg, interaction);
 
   return buildPlaceholderScreen(screen); // seguro contra un customId inesperado — nunca debería alcanzarse
 }
@@ -869,6 +942,103 @@ registerSelectPrefix('staff_punish_role_select', async (i) => {
     flags: MessageFlags.Ephemeral,
   });
   await logConfigChange(i, roleId ? `🚫 Rol de castigo → <@&${roleId}> (desde /staff)` : '🚫 Rol de castigo desactivado (desde /staff)');
+});
+
+// Fase 2 (post-auditoría, 2026-09-11): los 3 canales que quedaron en "próxima fase" —
+// mismo par botón+select que Moderación, mismo re-chequeo de isOwnerOrAdmin server-side
+// en AMBOS extremos (el botón que abre el select ya viene disabled del lado del
+// cliente si no puede editar, pero nunca alcanza como única defensa).
+
+registerButtonPrefix('staff_edit_welcome_channel', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  await i.update(buildWelcomeChannelEditView());
+});
+
+registerButtonPrefix('staff_edit_confession_channel', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  await i.update(buildConfessionChannelEditView());
+});
+
+registerButtonPrefix('staff_edit_activitylog_channel', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  await i.update(buildActivityLogChannelEditView());
+});
+
+registerButtonPrefix('staff_edit_economylog_channel', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  await i.update(buildEconomyLogChannelEditView());
+});
+
+registerSelectPrefix('staff_welcome_channel_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const channelId = i.values[0] ?? null;
+  await setGuildConfig(i.guildId, { welcome_channel_id: channelId });
+
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildBienvenidaScreen(cfg, i));
+  await i.followUp({
+    content: channelId ? `✅ Canal de bienvenida actualizado a <#${channelId}>.` : '✅ Canal de bienvenida desactivado.',
+    flags: MessageFlags.Ephemeral,
+  });
+  await logConfigChange(i, channelId ? `👋 Canal de bienvenida → <#${channelId}> (desde /staff)` : '👋 Canal de bienvenida desactivado (desde /staff)');
+});
+
+registerSelectPrefix('staff_confession_channel_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const channelId = i.values[0] ?? null;
+  await setGuildConfig(i.guildId, { confession_channel_id: channelId });
+
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildCanalesScreen(cfg, i));
+  await i.followUp({
+    content: channelId ? `✅ Canal de confesiones actualizado a <#${channelId}>.` : '✅ Canal de confesiones desactivado.',
+    flags: MessageFlags.Ephemeral,
+  });
+  await logConfigChange(i, channelId ? `🤫 Canal de confesiones → <#${channelId}> (desde /staff)` : '🤫 Canal de confesiones desactivado (desde /staff)');
+});
+
+registerSelectPrefix('staff_activitylog_channel_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const channelId = i.values[0] ?? null;
+  await setGuildConfig(i.guildId, { log_channel_activity_id: channelId });
+
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildCanalesScreen(cfg, i));
+  await i.followUp({
+    content: channelId ? `✅ Canal de logs de actividad actualizado a <#${channelId}>.` : '✅ Canal de logs de actividad desactivado.',
+    flags: MessageFlags.Ephemeral,
+  });
+  await logConfigChange(i, channelId ? `📋 Canal de logs de actividad → <#${channelId}> (desde /staff)` : '📋 Canal de logs de actividad desactivado (desde /staff)');
+});
+
+registerSelectPrefix('staff_economylog_channel_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const channelId = i.values[0] ?? null;
+  await setGuildConfig(i.guildId, { log_channel_economy_id: channelId });
+
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildCanalesScreen(cfg, i));
+  await i.followUp({
+    content: channelId ? `✅ Canal de logs de economía actualizado a <#${channelId}>.` : '✅ Canal de logs de economía desactivado.',
+    flags: MessageFlags.Ephemeral,
+  });
+  await logConfigChange(i, channelId ? `💰 Canal de logs de economía → <#${channelId}> (desde /staff)` : '💰 Canal de logs de economía desactivado (desde /staff)');
 });
 
 // ---------- Fase 4: edición de XP y Roles ----------

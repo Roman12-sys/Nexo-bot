@@ -1105,3 +1105,145 @@ describe('/staff — Fase 10: canal de anuncio de nivel (a pedido explícito del
     expect(setGuildConfig).not.toHaveBeenCalled();
   });
 });
+
+// Fase 2 post-auditoría (2026-09-11): los 3 canales que hasta acá decían "edición
+// disponible en la próxima fase" — mismo patrón exacto que el resto de las ediciones de
+// canal del archivo (botón deshabilitado si no puede editar, revalidación server-side
+// en botón Y select, refresco de la pantalla real con el valor nuevo).
+describe('/staff — Fase 2 (post-auditoría): edición de bienvenida y canales pendientes', () => {
+  it('Bienvenida muestra el canal real y el botón de editar', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_bienvenida');
+
+    expect(fieldValue(payloadOf(clicked), 'Canal')).toBe('<#chan-welcome>');
+    const button = payloadOf(clicked).components[0].components.find((b) => b.data.custom_id === 'staff_edit_welcome_channel');
+    expect(button.data.disabled).toBe(false);
+  });
+
+  it('elegir un canal de bienvenida guarda welcome_channel_id, audita y refresca', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_bienvenida');
+    await nav(interaction, 'staff_edit_welcome_channel');
+
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, welcome_channel_id: 'chan-nuevo' });
+    const selected = await navSelect(interaction, 'staff_welcome_channel_select', { values: ['chan-nuevo'] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { welcome_channel_id: 'chan-nuevo' });
+    expect(logConfigChange).toHaveBeenCalledWith(selected, expect.stringContaining('chan-nuevo'));
+    expect(fieldValue(payloadOf(selected), 'Canal')).toBe('<#chan-nuevo>');
+  });
+
+  it('el botón de bienvenida está deshabilitado para quien no es dueño ni Administrator', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_bienvenida');
+
+    const button = payloadOf(clicked).components[0].components.find((b) => b.data.custom_id === 'staff_edit_welcome_channel');
+    expect(button.data.disabled).toBe(true);
+  });
+
+  it('Canales muestra los 5 canales reales, con botones de editar para los 3 pendientes', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_canales');
+
+    const payload = payloadOf(clicked);
+    expect(fieldValue(payload, 'Logs de moderación')).toBe('<#chan-modlog>');
+    expect(fieldValue(payload, 'Logs de actividad')).toBe('<#chan-activity>');
+    expect(fieldValue(payload, 'Logs de economía')).toBe('<#chan-ecolog>');
+    expect(fieldValue(payload, 'Bienvenida')).toBe('<#chan-welcome>');
+    expect(fieldValue(payload, 'Confesiones')).toBe('<#chan-confess>');
+
+    const customIds = payload.components[0].components.map((b) => b.data.custom_id);
+    expect(customIds).toEqual(['staff_edit_activitylog_channel', 'staff_edit_economylog_channel', 'staff_edit_confession_channel']);
+  });
+
+  it('elegir un canal de confesiones guarda confession_channel_id, audita y refresca Canales', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_canales');
+    await nav(interaction, 'staff_edit_confession_channel');
+
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, confession_channel_id: 'chan-nueva-confess' });
+    const selected = await navSelect(interaction, 'staff_confession_channel_select', { values: ['chan-nueva-confess'] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { confession_channel_id: 'chan-nueva-confess' });
+    expect(fieldValue(payloadOf(selected), 'Confesiones')).toBe('<#chan-nueva-confess>');
+  });
+
+  it('elegir un canal de logs de actividad guarda log_channel_activity_id, audita y refresca Canales', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_canales');
+    await nav(interaction, 'staff_edit_activitylog_channel');
+
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, log_channel_activity_id: 'chan-nuevo-activity' });
+    const selected = await navSelect(interaction, 'staff_activitylog_channel_select', { values: ['chan-nuevo-activity'] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { log_channel_activity_id: 'chan-nuevo-activity' });
+    expect(fieldValue(payloadOf(selected), 'Logs de actividad')).toBe('<#chan-nuevo-activity>');
+  });
+
+  it('elegir un canal de logs de economía guarda log_channel_economy_id, audita y refresca Canales', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_canales');
+    await nav(interaction, 'staff_edit_economylog_channel');
+
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, log_channel_economy_id: 'chan-nuevo-ecolog' });
+    const selected = await navSelect(interaction, 'staff_economylog_channel_select', { values: ['chan-nuevo-ecolog'] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { log_channel_economy_id: 'chan-nuevo-ecolog' });
+    expect(fieldValue(payloadOf(selected), 'Logs de economía')).toBe('<#chan-nuevo-ecolog>');
+  });
+
+  it('dejar cualquiera de los 3 selects vacío desactiva el canal (null), no lo deja como estaba', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_canales');
+    await nav(interaction, 'staff_edit_confession_channel');
+
+    await navSelect(interaction, 'staff_confession_channel_select', { values: [] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { confession_channel_id: null });
+  });
+
+  it('los 3 botones de Canales están deshabilitados para quien no es dueño ni Administrator', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_canales');
+
+    const editRow = payloadOf(clicked).components[0];
+    expect(editRow.components.every((b) => b.data.disabled)).toBe(true);
+  });
+
+  it('revalidación server-side: los 3 botones y sus 3 selects rechazan a un no-admin igual', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+
+    for (const customId of ['staff_edit_welcome_channel', 'staff_edit_confession_channel', 'staff_edit_activitylog_channel', 'staff_edit_economylog_channel']) {
+      const clickedButton = { ...interaction, customId, reply: vi.fn().mockResolvedValue(undefined), update: vi.fn().mockResolvedValue(undefined) };
+      await routeButton(clickedButton);
+      expect(clickedButton.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    }
+
+    for (const customId of ['staff_welcome_channel_select', 'staff_confession_channel_select', 'staff_activitylog_channel_select', 'staff_economylog_channel_select']) {
+      const selected = await navSelect(interaction, customId, { values: ['chan-x'] });
+      expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    }
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('"Cancelar" desde cualquiera de las 3 vuelve a Canales sin llamar a setGuildConfig', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_canales');
+    await nav(interaction, 'staff_edit_economylog_channel');
+
+    const cancelled = await nav(interaction, 'staff_edit_cancel');
+
+    expect(payloadOf(cancelled).embeds[0].data.title).toContain('Canales');
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+});
