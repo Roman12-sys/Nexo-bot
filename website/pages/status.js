@@ -73,7 +73,7 @@ export async function renderStatusPage() {
   <div class="wrap" style="max-width:760px">
     <div class="section-head" data-reveal>
       <span class="eyebrow">Estado</span>
-      <h2>Estado de NEXO</h2>
+      <h1>Estado de NEXO</h1>
       <p>Los servicios propios (bot, dashboard, base de datos) todavía no tienen monitoreo público automático — usá <code>/estado</code> dentro de Discord para un diagnóstico real en cualquier momento.</p>
     </div>
     <div data-reveal>${rows.join('')}</div>

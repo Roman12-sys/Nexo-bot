@@ -49,7 +49,7 @@ export function renderCommandsPage() {
   // — un chip que siempre da "0 resultados" es peor que no mostrarlo.
   const categoryChips = Object.entries(CATEGORY_META)
     .filter(([id]) => id !== 'voz')
-    .map(([id, meta]) => `<button type="button" class="chip" data-filter-category="${id}">${meta.emoji} ${escapeHtml(meta.name)}</button>`)
+    .map(([id, meta]) => `<button type="button" class="chip" data-filter-category="${id}" aria-pressed="false">${meta.emoji} ${escapeHtml(meta.name)}</button>`)
     .join('');
 
   return `
@@ -57,15 +57,15 @@ export function renderCommandsPage() {
   <div class="wrap">
     <div class="section-head" data-reveal>
       <span class="eyebrow">Referencia</span>
-      <h2>Explorador de comandos</h2>
+      <h1>Explorador de comandos</h1>
       <p>${COMMANDS.length} comandos, generados directo desde el código del bot${COMMANDS_GENERATED_AT ? ` — última actualización ${new Date(COMMANDS_GENERATED_AT).toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })}` : ''}.</p>
     </div>
     <div class="cmd-search-row" data-reveal>
       <input type="search" id="cmd-search" class="cmd-search" placeholder="Buscar un comando..." aria-label="Buscar un comando">
-      <span id="cmd-count" class="cmd-count">${COMMANDS.length} comandos</span>
+      <span id="cmd-count" class="cmd-count" aria-live="polite">${COMMANDS.length} comandos</span>
     </div>
-    <div class="chip-row" data-reveal>
-      <button type="button" class="chip is-active" data-filter-category="">Todas</button>
+    <div class="chip-row" data-reveal role="group" aria-label="Filtrar por categoría">
+      <button type="button" class="chip is-active" data-filter-category="" aria-pressed="true">Todas</button>
       ${categoryChips}
     </div>
     <div id="cmd-list" class="cmd-list" data-reveal>
@@ -100,8 +100,9 @@ export function renderCommandsPage() {
   search.addEventListener('input', applyFilter);
   chips.forEach(function (chip) {
     chip.addEventListener('click', function () {
-      chips.forEach(function (c) { c.classList.remove('is-active'); });
+      chips.forEach(function (c) { c.classList.remove('is-active'); c.setAttribute('aria-pressed', 'false'); });
       chip.classList.add('is-active');
+      chip.setAttribute('aria-pressed', 'true');
       activeCategory = chip.getAttribute('data-filter-category');
       applyFilter();
     });

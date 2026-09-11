@@ -45,7 +45,15 @@ const GLOBAL_STYLES = `
     --border: #2a2440;
     --text: #ede9f7;
     --text-muted: #978fb4;
-    --text-dim: #756e91;
+    /* #756e91 (valor original) daba 4.14:1 contra --bg y hasta 3.86:1 contra --surface —
+       por debajo del mínimo WCAG AA (4.5:1) para texto de tamaño normal, y este color se
+       usa en textos chicos (badges, labels, fechas) que NO califican como "texto grande"
+       (18px+ o 14px+ negrita) para bajar el umbral a 3:1. Encontrado y corregido en la
+       revisión de accesibilidad de Fase 5 (medido con la fórmula de luminancia relativa
+       de WCAG, no a ojo). #837b9f dobla el margen: 5.00:1 / 4.66:1 / 4.75:1 contra
+       --bg/--surface/--bg-raised respectivamente — sigue leyéndose más apagado que
+       --text-muted, pero ya no falla el mínimo en ningún fondo real del sitio. */
+    --text-dim: #837b9f;
     --brand: ${BRAND_COLOR};
     --brand-soft: ${BRAND_COLOR_SOFT};
     --radius: 14px;
@@ -106,7 +114,7 @@ const GLOBAL_STYLES = `
   section.tight { padding: 3.5rem 0; }
   .eyebrow { display: inline-block; font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brand-soft); margin-bottom: 0.9rem; }
   .section-head { max-width: 640px; margin: 0 auto 3rem; text-align: center; }
-  .section-head h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); margin: 0 0 0.85rem; }
+  .section-head h1, .section-head h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); margin: 0 0 0.85rem; }
   .section-head p { color: var(--text-muted); font-size: 1.02rem; margin: 0; }
 
   /* Hero */
@@ -255,7 +263,11 @@ const GLOBAL_STYLES = `
   /* /docs */
   .docs-layout { display: grid; grid-template-columns: 220px 1fr; gap: 3rem; align-items: start; }
   .docs-sidebar { position: sticky; top: 5.5rem; display: flex; flex-direction: column; gap: 1.6rem; }
-  .docs-nav-group h4 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin: 0 0 0.5rem; }
+  /* <p>, no <hN> — mismo motivo que .footer-heading: es un rótulo de navegación, no
+     forma parte del esquema de encabezados de la página (el sidebar se renderiza antes
+     que el encabezado h1 real del contenido, así que un h-tag acá quedaría antes de que exista
+     cualquier encabezado de nivel 1). */
+  .docs-nav-group .docs-nav-title { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin: 0 0 0.5rem; font-weight: 700; }
   .docs-nav-group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
   .docs-nav-group a { text-decoration: none; color: var(--text-muted); font-size: 0.88rem; display: block; padding: 0.15rem 0; }
   .docs-nav-group a:hover, .docs-nav-group a.is-active { color: var(--brand-soft); }
@@ -293,7 +305,7 @@ const GLOBAL_STYLES = `
   .timeline-entry { position: relative; }
   .timeline-entry::before { content: ''; position: absolute; left: -2.35rem; top: 0.3rem; width: 11px; height: 11px; border-radius: 50%; background: var(--brand); border: 2px solid var(--bg); }
   .timeline-date { color: var(--text-dim); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
-  .timeline-entry h3 { margin: 0.3rem 0 0.6rem; font-size: 1.05rem; }
+  .timeline-entry h2 { margin: 0.3rem 0 0.6rem; font-size: 1.05rem; }
   .timeline-entry ul { margin: 0; padding-left: 1.1rem; color: var(--text-muted); font-size: 0.9rem; display: flex; flex-direction: column; gap: 0.3rem; }
 
   @media (max-width: 900px) {
@@ -305,7 +317,11 @@ const GLOBAL_STYLES = `
   footer.site-footer { border-top: 1px solid var(--border); padding: 3.5rem 0 2rem; }
   .footer-grid { display: grid; grid-template-columns: 1.3fr repeat(3, 1fr); gap: 2rem; margin-bottom: 2.5rem; }
   .footer-brand p { color: var(--text-muted); font-size: 0.88rem; max-width: 32ch; margin-top: 0.6rem; }
-  .footer-col h4 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin: 0 0 0.9rem; }
+  /* No es un <hN> real a propósito — el pie de página no forma parte del esquema de
+     encabezados del documento, mismo motivo por el que <nav>/<footer> ya tienen su
+     propio landmark; usar h4 acá generaba un salto real h2->h4 en TODAS las páginas
+     (encontrado en la revisión de accesibilidad de Fase 5, corregido acá). */
+  .footer-col .footer-heading { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); margin: 0 0 0.9rem; font-weight: 700; }
   .footer-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
   .footer-col a { text-decoration: none; color: var(--text-muted); font-size: 0.88rem; }
   .footer-col a:hover { color: var(--text); }
@@ -378,7 +394,7 @@ function renderFooter() {
         <p>La plataforma para administrar y hacer crecer tu comunidad de Discord — moderación, economía, progresión y gestión, todo en un solo bot.</p>
       </div>
       <div class="footer-col">
-        <h4>Producto</h4>
+        <p class="footer-heading">Producto</p>
         <ul>
           <li><a href="/#funciones">Funciones</a></li>
           ${dashboardHref ? `<li><a href="${escapeHtml(dashboardHref)}" target="_blank" rel="noopener">Dashboard</a></li>` : ''}
@@ -390,14 +406,14 @@ function renderFooter() {
         </ul>
       </div>
       <div class="footer-col">
-        <h4>Soporte</h4>
+        <p class="footer-heading">Soporte</p>
         <ul>
           <li><a href="/faq">FAQ</a></li>
           ${websiteConfig.supportContact ? `<li>${escapeHtml(websiteConfig.supportContact)}</li>` : ''}
         </ul>
       </div>
       <div class="footer-col">
-        <h4>Legal</h4>
+        <p class="footer-heading">Legal</p>
         <ul>
           <li><a href="https://claude.ai/code/artifact/8f9bbee4-665a-4245-93f3-e0329c8760a4" target="_blank" rel="noopener">Términos de servicio</a></li>
           <li><a href="https://claude.ai/code/artifact/89a893fb-8fa2-40d6-8b42-cf3e9fb7c646" target="_blank" rel="noopener">Política de privacidad</a></li>

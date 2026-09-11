@@ -52,7 +52,7 @@ export function renderFaqPage() {
   <div class="wrap" style="max-width:760px">
     <div class="section-head" data-reveal>
       <span class="eyebrow">FAQ</span>
-      <h2>Preguntas frecuentes</h2>
+      <h1>Preguntas frecuentes</h1>
     </div>
     <div data-reveal>
       ${items.map((item, i) => `<details class="faq-item"${i === 0 ? ' open' : ''}>

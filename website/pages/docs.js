@@ -42,7 +42,7 @@ function renderSidebar() {
   return `<nav class="docs-sidebar" aria-label="Documentación">
     ${NAV.map((group) => `
       <div class="docs-nav-group">
-        <h4>${escapeHtml(group.title)}</h4>
+        <p class="docs-nav-title">${escapeHtml(group.title)}</p>
         <ul>${group.items.map((item) => `<li><a href="#${item.id}">${escapeHtml(item.label)}</a></li>`).join('')}</ul>
       </div>`).join('')}
   </nav>`;
@@ -122,6 +122,7 @@ export function renderDocsPage() {
   <div class="wrap docs-layout">
     ${renderSidebar()}
     <div class="docs-content">
+      <h1 class="visually-hidden">Documentación de NEXO</h1>
       ${renderIntro()}
       ${renderConfiguracion()}
       ${renderFunciones()}
