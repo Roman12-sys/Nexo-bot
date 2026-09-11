@@ -29,6 +29,13 @@ const getGuildCirculatingBalance = vi.fn();
 const getTopBalances = vi.fn();
 vi.mock('../src/utils/economyStore.js', () => ({ getGuildCirculatingBalance, getTopBalances }));
 
+// Fase 4 (Roles autoasignables) — mismo criterio: resolveLiveSelfRoles() ya tiene su
+// propia batería de tests en selfRoles.test.js (roles borrados/peligrosos/por encima
+// del bot); acá solo importa que /staff LA LLAME y construya el select con lo que
+// devuelve, no reimplementar esa revalidación.
+const resolveLiveSelfRoles = vi.fn();
+vi.mock('../src/utils/selfRoles.js', () => ({ resolveLiveSelfRoles }));
+
 // logConfigChange (Fase 2) — auditoría de escrituras hecha desde /staff, exportada de
 // config.js para reusar el mismo formato. Se mockea acá para no depender de
 // getGuildLogChannel/createBotConfigLogEmbed reales — lo que importa probar es que
@@ -47,9 +54,21 @@ function makeInteraction({
   guildName = 'Comunidad de prueba',
   ownerId = 'owner-1',
   isAdministrator = false,
+  botCanManageRoles = true,
+  botRolePosition = 100,
 } = {}) {
   return {
-    guild: { id: guildId, name: guildName, ownerId },
+    guild: {
+      id: guildId,
+      name: guildName,
+      ownerId,
+      members: {
+        me: {
+          permissions: { has: vi.fn(() => botCanManageRoles) },
+          roles: { highest: { position: botRolePosition } },
+        },
+      },
+    },
     guildId,
     user: { id: userId, tag: `${userId}#0001` },
     member: { permissions: { has: vi.fn(() => isAdministrator) } },
@@ -69,7 +88,7 @@ function makeInteraction({
 // hace falta encadenar los clicks entre sí: alcanza con partir siempre de la
 // interaction base de ESE guild+usuario y leer el payload de ESE click puntual.
 async function nav(base, customId) {
-  const clicked = { ...base, customId, update: vi.fn().mockResolvedValue(undefined) };
+  const clicked = { ...base, customId, update: vi.fn().mockResolvedValue(undefined), followUp: vi.fn().mockResolvedValue(undefined) };
   await routeButton(clicked);
   return clicked;
 }
@@ -134,6 +153,10 @@ beforeEach(() => {
   getTopBalances.mockResolvedValue([
     { userId: 'user-rico', balance: 10_000 },
     { userId: 'user-medio', balance: 4_500 },
+  ]);
+  resolveLiveSelfRoles.mockResolvedValue([
+    { id: 'role-gaming', name: 'Gaming' },
+    { id: 'role-anime', name: 'Anime' },
   ]);
 });
 
@@ -524,5 +547,167 @@ describe('/staff — Fase 3: Economía (solo lectura, sin toggles inventados)', 
 
     const back = await nav(interaction, 'staff_edit_cancel');
     expect(payloadOf(back).embeds[0].data.title).toContain('Economía');
+  });
+});
+
+function makeRole(id, { position = 1, permissions = { has: () => false } } = {}) {
+  return { id, position, permissions, toString: () => `<@&${id}>` };
+}
+
+describe('/staff — Fase 4: XP (modo de roles) y Roles (autoasignables)', () => {
+  it('bug de Fase 1 corregido: level_roles_mode="replace" ahora se muestra bien (antes comparaba contra un valor que no existía)', async () => {
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, level_roles_mode: 'replace' });
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_xp');
+
+    expect(fieldValue(payloadOf(clicked), 'Modo de roles')).toContain('Reemplazar');
+  });
+
+  it('"Cambiar modo de roles" alterna cumulative -> replace -> ... y audita el cambio', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_xp'); // FULL_CONFIG arranca en 'cumulative'
+
+    // Misma distinción de las otras pruebas de escritura: la lectura ANTES de guardar
+    // (para decidir a qué modo alternar) tiene que ver el modo viejo ('cumulative',
+    // el default), y la de DESPUÉS (refresco) ya con 'replace'.
+    getGuildConfig
+      .mockResolvedValueOnce({ ...FULL_CONFIG })
+      .mockResolvedValueOnce({ ...FULL_CONFIG, level_roles_mode: 'replace' });
+    const clicked = await nav(interaction, 'staff_xp_toggle_mode');
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { level_roles_mode: 'replace' });
+    expect(fieldValue(payloadOf(clicked), 'Modo de roles')).toContain('Reemplazar');
+    expect(logConfigChange).toHaveBeenCalledWith(clicked, expect.stringContaining('Reemplazar'));
+  });
+
+  it('revalidación server-side: cambiar el modo sin ser admin se rechaza', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    const clicked = { ...interaction, customId: 'staff_xp_toggle_mode', reply: vi.fn().mockResolvedValue(undefined), update: vi.fn().mockResolvedValue(undefined) };
+    await routeButton(clicked);
+
+    expect(clicked.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('"Quitar autoasignable" está deshabilitado cuando no hay ninguno configurado', async () => {
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, selfassignable_roles: [] });
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_roles');
+
+    const editRow = payloadOf(clicked).components[0];
+    const removeButton = editRow.components.find((b) => b.data.custom_id === 'staff_selfrole_remove');
+    expect(removeButton.data.disabled).toBe(true);
+  });
+
+  it('agregar un rol autoasignable seguro: se guarda, se audita, la pantalla refrescada lo muestra', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_roles');
+    await nav(interaction, 'staff_selfrole_add');
+
+    const safeRole = makeRole('role-nuevo');
+    // 2 lecturas distintas dentro del mismo handler: la 1ra (chequeo de duplicado,
+    // ANTES de guardar) tiene que ver la lista vieja; la 2da (refresco de pantalla,
+    // DESPUÉS de guardar) tiene que ver la lista ya con el rol nuevo.
+    getGuildConfig
+      .mockResolvedValueOnce({ ...FULL_CONFIG })
+      .mockResolvedValueOnce({ ...FULL_CONFIG, selfassignable_roles: [...FULL_CONFIG.selfassignable_roles, 'role-nuevo'] });
+    const selected = await navSelect(interaction, 'staff_selfrole_add_select', { values: ['role-nuevo'], role: safeRole });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { selfassignable_roles: ['role-gaming', 'role-anime', 'role-nuevo'] });
+    expect(logConfigChange).toHaveBeenCalledWith(selected, expect.stringContaining('role-nuevo'));
+    expect(fieldsOf(payloadOf(selected)).find((f) => f.name.startsWith('Autoasignables'))?.value).toContain('<@&role-nuevo>');
+  });
+
+  it('agregar un rol peligroso como autoasignable se rechaza sin guardar nada', async () => {
+    getDangerousRolePermission.mockReturnValue('Administrador');
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_roles');
+    await nav(interaction, 'staff_selfrole_add');
+
+    const dangerousRole = makeRole('role-peligroso');
+    const selected = await navSelect(interaction, 'staff_selfrole_add_select', { values: ['role-peligroso'], role: dangerousRole });
+
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Administrador') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('agregar un rol que el bot no puede asignar (posición igual/superior) se rechaza sin guardar nada', async () => {
+    const interaction = makeInteraction({ isAdministrator: true, botRolePosition: 5 });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_roles');
+    await nav(interaction, 'staff_selfrole_add');
+
+    const tooHighRole = makeRole('role-alto', { position: 10 });
+    const selected = await navSelect(interaction, 'staff_selfrole_add_select', { values: ['role-alto'], role: tooHighRole });
+
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('posición igual o superior') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('agregar un rol ya existente en la lista avisa sin duplicarlo', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_roles');
+    await nav(interaction, 'staff_selfrole_add');
+
+    const already = makeRole('role-gaming');
+    const selected = await navSelect(interaction, 'staff_selfrole_add_select', { values: ['role-gaming'], role: already });
+
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('ya está') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('"Quitar autoasignable" muestra el select con los roles reales revalidados (resolveLiveSelfRoles)', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_roles');
+    const clicked = await nav(interaction, 'staff_selfrole_remove');
+
+    const payload = payloadOf(clicked);
+    const options = payload.components[0].components[0].options;
+    expect(options.map((o) => o.data.value)).toEqual(['role-gaming', 'role-anime']);
+  });
+
+  it('quitar un rol autoasignable: se guarda, se audita, y quienes ya lo tenían lo conservan (mensaje lo aclara)', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_roles');
+    await nav(interaction, 'staff_selfrole_remove');
+
+    // Mismo criterio que el test de "agregar": la lectura ANTES de guardar (para
+    // calcular el filtro) tiene que ver la lista completa todavía, y la de DESPUÉS
+    // (para refrescar la pantalla) ya con el rol sacado — si no se distinguen los dos
+    // reads, el test podría pasar por casualidad sin probar la transición real.
+    getGuildConfig
+      .mockResolvedValueOnce({ ...FULL_CONFIG })
+      .mockResolvedValueOnce({ ...FULL_CONFIG, selfassignable_roles: ['role-anime'] });
+    const selected = await navSelect(interaction, 'staff_selfrole_remove_select', { values: ['role-gaming'] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { selfassignable_roles: ['role-anime'] });
+    expect(selected.followUp).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('conservan') }));
+    expect(logConfigChange).toHaveBeenCalledWith(selected, expect.stringContaining('role-gaming'));
+  });
+
+  it('revalidación server-side: agregar/quitar autoasignable sin ser admin se rechaza en el select también', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    const selected = await navSelect(interaction, 'staff_selfrole_remove_select', { values: ['role-gaming'] });
+
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('sin roles autoasignables válidos (todos borrados/peligrosos), el select de quitar muestra el mensaje honesto en vez de una lista vacía', async () => {
+    resolveLiveSelfRoles.mockResolvedValue([]);
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_roles');
+    const clicked = await nav(interaction, 'staff_selfrole_remove');
+
+    expect(payloadOf(clicked).embeds[0].data.description).toContain('Ya no queda');
   });
 });

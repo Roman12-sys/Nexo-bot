@@ -37,6 +37,15 @@
 // se conecta es circulante real (sum_guild_balances, RPC de Fase 2C) y top de
 // balances reales (mismo criterio ya usado por dashboard/queries.js, ahora también
 // disponible del lado del bot vía economyStore.js).
+//
+// FASE 4 (XP/Roles funcional): modo de roles de nivel (toggle simple, cumulative ⇄
+// replace) y agregar/quitar roles autoasignables — este último reusa
+// resolveLiveSelfRoles() de selfRoles.js TAL CUAL (la misma revalidación en vivo que
+// ya protege el menú real de "Mis roles"), en vez de una versión propia. Agregar un
+// rol de nivel puntual (rol-nivel, nivel+rol juntos) queda FUERA de esta fase — Discord
+// no permite combinar un select de rol con un input numérico fuera de un modal, y un
+// modal no admite selects: necesita un flujo de 2 pasos que se diseña con más cuidado
+// en una fase propia, no se improvisa acá.
 import {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -45,6 +54,8 @@ import {
   ButtonStyle,
   ChannelSelectMenuBuilder,
   RoleSelectMenuBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   ChannelType,
   PermissionFlagsBits,
   MessageFlags,
@@ -52,6 +63,7 @@ import {
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildCirculatingBalance, getTopBalances } from '../../utils/economyStore.js';
 import { isStaff, getDangerousRolePermission } from '../../utils/permissions.js';
+import { resolveLiveSelfRoles } from '../../utils/selfRoles.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
@@ -306,28 +318,84 @@ function buildEconomiaLimitesView() {
   return { embeds: [embed], components: [backRow] };
 }
 
-function buildXpScreen(cfg) {
+// FASE 4 (XP/Roles funcional) — bug real corregido de paso: el valor real de
+// level_roles_mode es 'cumulative' | 'replace' (ver config.js modo-roles-nivel), NO
+// 'highest_only' — la Fase 1 comparaba contra un valor que nunca existió, así que
+// SIEMPRE mostraba "Acumulativo" sin importar el modo real configurado.
+function levelRolesModeLabel(mode) {
+  return mode === 'replace' ? 'Reemplazar (solo el más alto)' : 'Acumulativo (te quedás con todos)';
+}
+
+function buildXpScreen(cfg, interaction) {
   const levelRolesCount = Object.keys(cfg.level_roles || {}).length;
+  const canEdit = isOwnerOrAdmin(interaction);
   const embed = baseEmbed('xp').addFields(
     { name: 'Módulo', value: cfg.features?.xp ? '🟢 Activado' : '🔴 Desactivado', inline: true },
     { name: 'Roles por nivel', value: `${levelRolesCount} configurado(s)`, inline: true },
-    { name: 'Modo de roles', value: cfg.level_roles_mode === 'highest_only' ? 'Solo el más alto' : 'Acumulativo', inline: true },
+    { name: 'Modo de roles', value: levelRolesModeLabel(cfg.level_roles_mode), inline: true },
     { name: 'Boost de fin de semana', value: cfg.xp_weekend_boost ? '🟢 Activado' : '🔴 Desactivado', inline: true },
   );
-  embed.setFooter({ text: 'Edición disponible en la próxima fase — usá /rol-nivel y /modo-roles-nivel mientras tanto.' });
-  return { embeds: [embed], components: [navRow('xp')] };
+  embed.setFooter({
+    text: canEdit
+      ? 'Agregar/quitar un rol de nivel puntual: usá /config rol-nivel mientras tanto (llega a este panel más adelante).'
+      : '🔒 Cambiar el modo requiere ser dueño o Administrator.',
+  });
+  const editRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_xp_toggle_mode').setLabel('Cambiar modo de roles').setEmoji('🔁').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+  );
+  return { embeds: [embed], components: [editRow, navRow('xp')] };
 }
 
-function buildRolesScreen(cfg) {
+function buildRolesScreen(cfg, interaction) {
   const selfRoles = cfg.selfassignable_roles || [];
   const levelRolesCount = Object.keys(cfg.level_roles || {}).length;
+  const canEdit = isOwnerOrAdmin(interaction);
   const embed = baseEmbed('roles').addFields(
     { name: `Autoasignables (${selfRoles.length})`, value: selfRoles.length ? selfRoles.map((id) => `<@&${id}>`).join(', ').slice(0, 1000) : '❌ Ninguno configurado' },
     { name: 'Por nivel', value: `${levelRolesCount} configurado(s)`, inline: true },
     { name: 'Rol automático', value: cfg.auto_role_id ? `<@&${cfg.auto_role_id}>` : '❌ Sin configurar', inline: true },
   );
-  embed.setFooter({ text: 'Edición disponible en la próxima fase — usá /config rol-autoasignable-agregar mientras tanto.' });
-  return { embeds: [embed], components: [navRow('roles')] };
+  embed.setFooter({
+    text: canEdit
+      ? 'Agregar/quitar un rol de nivel puntual: usá /config rol-nivel mientras tanto (llega a este panel más adelante).'
+      : '🔒 Agregar/quitar autoasignables requiere ser dueño o Administrator.',
+  });
+  const editRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_selfrole_add').setLabel('Agregar autoasignable').setEmoji('➕').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+    new ButtonBuilder().setCustomId('staff_selfrole_remove').setLabel('Quitar autoasignable').setEmoji('➖').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit || selfRoles.length === 0),
+  );
+  return { embeds: [embed], components: [editRow, navRow('roles')] };
+}
+
+// ---------- Sub-vistas de edición: XP/Roles (Fase 4) ----------
+
+function buildSelfRoleAddView() {
+  const embed = baseEmbed('roles').setDescription('Elegí el rol que los miembros van a poder elegirse solos desde `/help` ("Mis roles") o el mensaje de bienvenida.');
+  const selectRow = new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId('staff_selfrole_add_select').setPlaceholder('Elegí un rol').setMinValues(1).setMaxValues(1));
+  const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+  return { embeds: [embed], components: [selectRow, backRow] };
+}
+
+// Mismo criterio que el menú real de "Mis roles" (selfRoles.js): nunca ofrece los IDs
+// crudos de guild_config tal cual — revalida contra el servidor real (roles borrados,
+// que se volvieron peligrosos, o que quedaron por encima del bot) antes de mostrar la
+// lista para quitar.
+async function buildSelfRoleRemoveView(guild, cfg) {
+  const liveRoles = await resolveLiveSelfRoles(guild, cfg);
+  if (liveRoles.length === 0) {
+    const embed = baseEmbed('roles').setDescription('Ya no queda ningún rol autoasignable válido para quitar (puede que se hayan borrado o hayan dejado de ser seguros).');
+    const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+    return { embeds: [embed], components: [backRow] };
+  }
+  const embed = baseEmbed('roles').setDescription('Elegí cuál rol autoasignable sacar de la lista. Quienes ya lo tengan lo conservan.');
+  const selectRow = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('staff_selfrole_remove_select')
+      .setPlaceholder('Elegí un rol para quitar')
+      .addOptions(liveRoles.map((r) => new StringSelectMenuOptionBuilder().setLabel(r.name.slice(0, 100)).setValue(r.id))),
+  );
+  const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+  return { embeds: [embed], components: [selectRow, backRow] };
 }
 
 function buildDigestScreen(cfg) {
@@ -408,8 +476,8 @@ async function buildScreen(screen, interaction) {
 
   const cfg = await getGuildConfig(interaction.guildId);
   if (screen === 'moderacion') return buildModeracionScreen(cfg, interaction);
-  if (screen === 'xp') return buildXpScreen(cfg);
-  if (screen === 'roles') return buildRolesScreen(cfg);
+  if (screen === 'xp') return buildXpScreen(cfg, interaction);
+  if (screen === 'roles') return buildRolesScreen(cfg, interaction);
   if (screen === 'digest') return buildDigestScreen(cfg);
   if (screen === 'bienvenida') return buildBienvenidaScreen(cfg);
   if (screen === 'canales') return buildCanalesScreen(cfg);
@@ -552,4 +620,97 @@ registerSelectPrefix('staff_punish_role_select', async (i) => {
     flags: MessageFlags.Ephemeral,
   });
   await logConfigChange(i, roleId ? `🚫 Rol de castigo → <@&${roleId}> (desde /staff)` : '🚫 Rol de castigo desactivado (desde /staff)');
+});
+
+// ---------- Fase 4: edición de XP y Roles ----------
+
+// Toggle simple de 2 valores — a diferencia del canal/rol de Moderación, no hace
+// falta ningún select: un click alterna directo entre los dos únicos modos válidos
+// (mismo par que ofrece /config modo-roles-nivel).
+registerButtonPrefix('staff_xp_toggle_mode', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const cfg = await getGuildConfig(i.guildId);
+  const newMode = cfg.level_roles_mode === 'replace' ? 'cumulative' : 'replace';
+  await setGuildConfig(i.guildId, { level_roles_mode: newMode });
+
+  const freshCfg = await getGuildConfig(i.guildId);
+  await i.update(buildXpScreen(freshCfg, i));
+  await i.followUp({ content: `✅ Modo de roles de nivel: **${levelRolesModeLabel(newMode)}**.`, flags: MessageFlags.Ephemeral });
+  await logConfigChange(i, `✨ Modo de roles de nivel → ${levelRolesModeLabel(newMode)} (desde /staff)`);
+});
+
+registerButtonPrefix('staff_selfrole_add', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  await i.update(buildSelfRoleAddView());
+});
+
+registerButtonPrefix('staff_selfrole_remove', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(await buildSelfRoleRemoveView(i.guild, cfg));
+});
+
+// Mismas 4 validaciones que /config rol-autoasignable-agregar, en el mismo orden —
+// nunca una versión más laxa solo porque se entra desde el panel.
+registerSelectPrefix('staff_selfrole_add_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const role = i.roles.first();
+
+  const dangerousPermission = getDangerousRolePermission(role);
+  if (dangerousPermission) {
+    return i.reply({
+      content: `❌ ${role} tiene el permiso **${dangerousPermission}**, así que no se puede ofrecer como autoasignable — cualquier miembro podría dárselo a sí mismo. Elegí (o creá) un rol sin privilegios administrativos.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const me = i.guild.members.me;
+  if (!me.permissions.has(PermissionFlagsBits.ManageRoles) || me.roles.highest.position <= role.position) {
+    return i.reply({
+      content: `❌ NEXO no podría asignar ${role} — está en una posición igual o superior al rol más alto del bot. Subí el rol de NEXO por encima en *Ajustes del servidor → Roles*, o elegí otro rol.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const cfg = await getGuildConfig(i.guildId);
+  const current = cfg.selfassignable_roles || [];
+  if (current.includes(role.id)) {
+    return i.reply({ content: `ℹ️ ${role} ya está en la lista de autoasignables.`, flags: MessageFlags.Ephemeral });
+  }
+  if (current.length >= 25) {
+    return i.reply({
+      content: '❌ Ya hay 25 roles autoasignables — es el máximo que entra en un solo menú. Sacá alguno antes de agregar otro.',
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  await setGuildConfig(i.guildId, { selfassignable_roles: [...current, role.id] });
+
+  const freshCfg = await getGuildConfig(i.guildId);
+  await i.update(buildRolesScreen(freshCfg, i));
+  await i.followUp({ content: `✅ ${role} agregado a los roles autoasignables.`, flags: MessageFlags.Ephemeral });
+  await logConfigChange(i, `🎭 Rol autoasignable agregado → ${role} (desde /staff)`);
+});
+
+registerSelectPrefix('staff_selfrole_remove_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const roleId = i.values[0];
+  const cfg = await getGuildConfig(i.guildId);
+  const current = cfg.selfassignable_roles || [];
+  await setGuildConfig(i.guildId, { selfassignable_roles: current.filter((id) => id !== roleId) });
+
+  const freshCfg = await getGuildConfig(i.guildId);
+  await i.update(buildRolesScreen(freshCfg, i));
+  await i.followUp({ content: `✅ <@&${roleId}> sacado de los roles autoasignables. Quienes ya lo tenían lo conservan.`, flags: MessageFlags.Ephemeral });
+  await logConfigChange(i, `🎭 Rol autoasignable quitado → <@&${roleId}> (desde /staff)`);
 });
