@@ -24,15 +24,18 @@ const listManagedGuilds = vi.fn();
 vi.mock('../dashboard/queries.js', () => ({ checkGuildAccess, loadGuildDashboardData, listManagedGuilds }));
 
 const resolveUsers = vi.fn().mockResolvedValue(new Map());
+const buildAuthorizeUrl = vi.fn((state) => `https://discord.com/oauth2/authorize?state=${state}`);
+const exchangeCodeForToken = vi.fn();
+const fetchDiscordUser = vi.fn();
 vi.mock('../dashboard/discordApi.js', () => ({
-  resolveUsers,
-  buildAuthorizeUrl: vi.fn(),
-  exchangeCodeForToken: vi.fn(),
-  fetchDiscordUser: vi.fn(),
+  resolveUsers: (...a) => resolveUsers(...a),
+  buildAuthorizeUrl: (...a) => buildAuthorizeUrl(...a),
+  exchangeCodeForToken: (...a) => exchangeCodeForToken(...a),
+  fetchDiscordUser: (...a) => fetchDiscordUser(...a),
 }));
 
 const { app } = await import('../dashboard/server.js');
-const { createSessionCookie } = await import('../dashboard/session.js');
+const { createSessionCookie, createStateCookie } = await import('../dashboard/session.js');
 
 let server;
 let baseUrl;
@@ -56,6 +59,10 @@ beforeEach(() => {
 // etc.) no aplican a la cabecera Cookie de un request saliente.
 function sessionCookieFor(userId) {
   return createSessionCookie(userId).split(';')[0];
+}
+
+function stateCookieFor(state) {
+  return createStateCookie(state).split(';')[0];
 }
 
 function get(path, { cookie } = {}) {
@@ -208,5 +215,113 @@ describe('Headers de seguridad — DASH-1', () => {
 
     expect(res.headers.get('cache-control')).toContain('no-store');
     expect(res.headers.get('x-frame-options')).toBe('DENY');
+  });
+});
+
+// Auditoría completa NEXO (2026-09-11): el flujo de login OAuth nunca se ejercitó de
+// punta a punta — ni /auth/login ni /auth/callback tenían un test, pese a ser la zona
+// donde ya hubo un bug de seguridad real (Fase 1: /spotify/callback compartía la MISMA
+// cookie de state que /auth/login, permitiendo un TOCTOU sobre el owner de Spotify; ese
+// endpoint ya no existe, pero el mecanismo de state que sigue vivo acá nunca quedó
+// cubierto). exchangeCodeForToken/fetchDiscordUser están mockeados (discordApi.js) —
+// esto prueba el GATE del callback (validación de state, creación de sesión, manejo de
+// errores), no la lógica interna de esas dos funciones (cubierta aparte en
+// dashboardDiscordApi.test.js).
+describe('GET /auth/login', () => {
+  it('genera un state aleatorio, lo guarda en cookie, y redirige a la URL de autorización real', async () => {
+    const res = await get('/auth/login');
+
+    expect(res.status).toBe(302);
+    expect(buildAuthorizeUrl).toHaveBeenCalledTimes(1);
+    const [stateUsed] = buildAuthorizeUrl.mock.calls[0];
+    expect(res.headers.get('location')).toContain(stateUsed);
+
+    const setCookie = res.headers.getSetCookie().find((c) => c.startsWith('oauth_state='));
+    expect(setCookie).toContain(`oauth_state=${stateUsed}`);
+  });
+
+  it('dos logins seguidos generan states DISTINTOS (no reusa el mismo valor)', async () => {
+    await get('/auth/login');
+    const first = buildAuthorizeUrl.mock.calls[0][0];
+    await get('/auth/login');
+    const second = buildAuthorizeUrl.mock.calls[1][0];
+
+    expect(first).not.toBe(second);
+  });
+});
+
+describe('GET /auth/callback', () => {
+  it('sin code ni state: 400, nunca llega a intercambiar nada con Discord', async () => {
+    const res = await get('/auth/callback');
+
+    expect(res.status).toBe(400);
+    expect(exchangeCodeForToken).not.toHaveBeenCalled();
+  });
+
+  it('state del query NO coincide con la cookie (CSRF): 400, nunca intercambia el code', async () => {
+    const res = await get('/auth/callback?code=abc&state=state-falso', { cookie: stateCookieFor('state-real') });
+
+    expect(res.status).toBe(400);
+    expect(exchangeCodeForToken).not.toHaveBeenCalled();
+  });
+
+  it('sin cookie de state (llegó directo, nunca pasó por /auth/login): 400', async () => {
+    const res = await get('/auth/callback?code=abc&state=cualquiera');
+
+    expect(res.status).toBe(400);
+    expect(exchangeCodeForToken).not.toHaveBeenCalled();
+  });
+
+  it('caso exitoso: state coincide, intercambia el code, crea la sesión y redirige a "/"', async () => {
+    exchangeCodeForToken.mockResolvedValue({ access_token: 'tok-123' });
+    fetchDiscordUser.mockResolvedValue({ id: 'user-42', username: 'facu' });
+
+    const res = await get('/auth/callback?code=code-real&state=state-valido', { cookie: stateCookieFor('state-valido') });
+
+    expect(exchangeCodeForToken).toHaveBeenCalledWith('code-real');
+    expect(fetchDiscordUser).toHaveBeenCalledWith('tok-123');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/');
+
+    const cookies = res.headers.getSetCookie();
+    expect(cookies.some((c) => c.startsWith('nexo_dashboard_session='))).toBe(true);
+    expect(cookies.some((c) => c.startsWith('oauth_state=;'))).toBe(true); // se limpia la cookie de state usada
+  });
+
+  it('la sesión creada identifica al usuario correcto (no un ID inventado ni el de otro test)', async () => {
+    exchangeCodeForToken.mockResolvedValue({ access_token: 'tok-456' });
+    fetchDiscordUser.mockResolvedValue({ id: 'user-99', username: 'otro' });
+
+    const res = await get('/auth/callback?code=code-2&state=state-2', { cookie: stateCookieFor('state-2') });
+    const sessionCookie = res.headers.getSetCookie().find((c) => c.startsWith('nexo_dashboard_session='));
+
+    // Reutiliza esa cookie real contra una ruta protegida y confirma que resuelve al
+    // usuario correcto — más fuerte que inspeccionar el payload firmado a mano.
+    checkGuildAccess.mockResolvedValue(null);
+    const protectedRes = await get(`/guild/${REAL_GUILD_ID}`, { cookie: sessionCookie.split(';')[0] });
+    expect(checkGuildAccess).toHaveBeenCalledWith(REAL_GUILD_ID, 'user-99');
+    expect(protectedRes.status).toBe(403); // llegó autenticado (si no, sería 302 a /auth/login)
+  });
+
+  it('Discord rechaza el intercambio del code (ej. code ya usado o vencido): 500 genérico, nunca expone el error crudo', async () => {
+    exchangeCodeForToken.mockRejectedValue(new Error('Discord OAuth token exchange falló: 400'));
+
+    const res = await get('/auth/callback?code=code-vencido&state=state-3', { cookie: stateCookieFor('state-3') });
+    const body = await res.text();
+
+    expect(res.status).toBe(500);
+    expect(body).not.toContain('Discord OAuth token exchange falló');
+    expect(fetchDiscordUser).not.toHaveBeenCalled();
+  });
+
+  it('fetchDiscordUser falla después de un intercambio exitoso: 500 genérico, no crea sesión', async () => {
+    exchangeCodeForToken.mockResolvedValue({ access_token: 'tok-789' });
+    fetchDiscordUser.mockRejectedValue(new Error('No se pudo obtener el usuario de Discord: 401'));
+
+    const res = await get('/auth/callback?code=code-4&state=state-4', { cookie: stateCookieFor('state-4') });
+
+    expect(res.status).toBe(500);
+    const cookies = res.headers.getSetCookie();
+    expect(cookies.some((c) => c.startsWith('nexo_dashboard_session='))).toBe(false);
   });
 });
