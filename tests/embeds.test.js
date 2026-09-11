@@ -3,25 +3,31 @@ import { buildProgressBar, progressPercent } from '../src/utils/embeds.js';
 
 describe('buildProgressBar', () => {
   it('barra vacía cuando current=0', () => {
-    expect(buildProgressBar(0, 100, 10)).toBe('□□□□□□□□□□');
+    expect(buildProgressBar(0, 100, 10)).toBe('░░░░░░░░░░');
   });
 
   it('barra llena cuando current>=total', () => {
-    expect(buildProgressBar(100, 100, 10)).toBe('■■■■■■■■■■');
+    expect(buildProgressBar(100, 100, 10)).toBe('██████████');
   });
 
   it('barra a la mitad', () => {
-    expect(buildProgressBar(50, 100, 10)).toBe('■■■■■□□□□□');
+    expect(buildProgressBar(50, 100, 10)).toBe('█████░░░░░');
   });
 
   it('nunca se pasa de "length" segmentos aunque current > total', () => {
     const bar = buildProgressBar(500, 100, 10);
     expect(bar.length).toBe(10);
-    expect(bar).toBe('■■■■■■■■■■');
+    expect(bar).toBe('██████████');
   });
 
   it('total=0 no divide por cero, barra vacía', () => {
-    expect(buildProgressBar(5, 0, 10)).toBe('□□□□□□□□□□');
+    expect(buildProgressBar(5, 0, 10)).toBe('░░░░░░░░░░');
+  });
+
+  it('usa 20 segmentos por defecto (estándar visual NEXO)', () => {
+    const bar = buildProgressBar(4820, 5000);
+    expect(bar.length).toBe(20);
+    expect(bar).toBe('███████████████████░');
   });
 });
 

@@ -1,15 +1,27 @@
 import { EmbedBuilder } from 'discord.js';
 
 export const BRAND_NAME = 'Nexo Bot';
-export const BRAND_COLOR = '#7F5AF0';
-export const LOG_COLOR = '#E63946';
 
-// Barra de progreso tipo [■■■■■■□□□□] usada por /nivel para mostrar el avance
-// hacia el siguiente nivel de XP. length = cantidad de segmentos totales.
-export function buildProgressBar(current, total, length = 12) {
+// Sistema de diseño NEXO — un color por sistema, nunca uno por comando. Cada
+// constante es la ÚNICA fuente de verdad para su categoría; un embed nuevo de
+// esa categoría importa la constante, nunca un hex suelto. Ver la propuesta de
+// dirección visual (aprobada 2026-09-11) para el razonamiento de cada rol.
+export const BRAND_COLOR = '#7F5AF0'; // Nexo Violeta — marca, navegación, home, ayuda, config
+export const GOLD_COLOR = '#F2B84B'; // Nexo Oro — progresión: niveles, logros, misiones, minijuegos
+export const EMERALD_COLOR = '#2CB67D'; // Nexo Esmeralda — economía
+export const INDIGO_COLOR = '#5C6BC0'; // Nexo Índigo — moderación (estado, no alarma)
+export const MAGENTA_COLOR = '#C77DFF'; // Nexo Magenta — comunidad: sorteos, roles, bienvenida
+export const SKY_COLOR = '#4EA8DE'; // Nexo Cielo — comunicación: anuncios, digest
+export const LOG_COLOR = '#E63946'; // Alerta — errores, confirmaciones destructivas
+export const SUCCESS_COLOR = '#3DDC84';
+export const NEUTRAL_COLOR = '#8A8F9C'; // Estados vacíos
+
+// Barra de progreso tipo [████████████░░░░░░░░] — 20 segmentos, mismo criterio
+// en todo NEXO (antes eran 12 con ■/□; ver la dirección visual aprobada).
+export function buildProgressBar(current, total, length = 20) {
   const ratio = total > 0 ? Math.min(1, Math.max(0, current / total)) : 0;
   const filled = Math.round(ratio * length);
-  return `${'■'.repeat(filled)}${'□'.repeat(length - filled)}`;
+  return `${'█'.repeat(filled)}${'░'.repeat(length - filled)}`;
 }
 
 export function progressPercent(current, total) {

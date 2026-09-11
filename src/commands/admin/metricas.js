@@ -25,7 +25,7 @@ export async function execute(interaction) {
 
   const maxUses = top[0].uses;
   const lines = top.map((row, i) => {
-    const bar = buildProgressBar(row.uses, maxUses, 10);
+    const bar = buildProgressBar(row.uses, maxUses);
     return `**${i + 1}.** \`/${row.command_name}\` ${bar} — **${row.uses}** usos`;
   });
 

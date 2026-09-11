@@ -10,7 +10,7 @@ import {
   PermissionFlagsBits,
   MessageFlags,
 } from 'discord.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { BRAND_COLOR, BRAND_NAME, GOLD_COLOR, EMERALD_COLOR, INDIGO_COLOR, MAGENTA_COLOR } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { ESSENTIAL_BOT_PERMISSIONS } from '../../utils/botPermissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
@@ -115,7 +115,7 @@ export function buildAdministracionEmbed() {
 
 export function buildModeracionEmbed() {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(INDIGO_COLOR)
     .setTitle('🧹 Moderación')
     .addFields(
       { name: '/clear <cantidad>', value: 'Elimina mensajes del canal (1-100).' },
@@ -137,7 +137,7 @@ export function buildModeracionEmbed() {
 
 export function buildAdvertenciasEmbed() {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(INDIGO_COLOR)
     .setTitle('⚠️ Advertencias y sanciones')
     .addFields(
       { name: '/warn <usuario> <motivo>', value: 'Aplica una advertencia a un usuario.' },
@@ -167,7 +167,7 @@ export function buildSorteosAnunciosEmbed() {
 
 export function buildEconomiaEmbed() {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('💰 Economía (staff)')
     .addFields(
       { name: '/economia-staff balance <usuario>', value: 'Ver el balance de cualquiera.' },
@@ -185,7 +185,7 @@ export function buildEconomiaEmbed() {
 
 export function buildRolesEmbed() {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(MAGENTA_COLOR)
     .setTitle('🎭 Roles')
     .addFields({ name: '/roles', value: 'Lista todos los roles del servidor, agrupados por categoría, con su cantidad de miembros.' })
     .setFooter({ text: BRAND_NAME })
@@ -194,7 +194,7 @@ export function buildRolesEmbed() {
 
 export function buildXpEmbed() {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle('⭐ XP y niveles (staff)')
     .addFields(
       { name: '/xp agregar <usuario> <cantidad> [motivo]', value: 'Agrega XP. Si el usuario sube de nivel, se procesan roles automáticos, anuncio y log igual que si lo hubiera ganado jugando.' },

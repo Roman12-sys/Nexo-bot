@@ -124,7 +124,7 @@ import { joinWithOverflow } from '../../utils/logEmbeds.js';
 import { startBuilder as startAnuncioBuilder } from '../anuncios/anuncio.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { BRAND_COLOR, BRAND_NAME, GOLD_COLOR, EMERALD_COLOR, INDIGO_COLOR, MAGENTA_COLOR, SKY_COLOR } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
 import { registerModalPrefix } from '../../components/modals.js';
@@ -170,23 +170,29 @@ function setDraft(key, draft) {
 
 // ---------- Mapa de pantallas ----------
 
+// `color` identifica de qué SISTEMA es cada pantalla, no si es "de configuración" —
+// moderación/economía/etc. llevan su color aunque acá adentro solo se esté tocando un
+// ajuste (mismo criterio que la dirección visual aprobada: el color es del sistema, la
+// acción de configurarlo no le cambia la identidad). Home/config/sistema/estadísticas/
+// canales se quedan en BRAND_COLOR — son las pantallas "de infraestructura", sin un
+// sistema propio al que representar.
 const SCREEN_META = {
-  home: { icon: '🏠', label: 'NEXO STAFF' },
-  config: { icon: '⚙️', label: 'Configuración' },
-  moderacion: { icon: '🛡️', label: 'Moderación' },
-  economia: { icon: '💰', label: 'Economía' },
-  xp: { icon: '⭐', label: 'XP y niveles' },
-  roles: { icon: '🎭', label: 'Roles' },
-  sorteos: { icon: '🎁', label: 'Sorteos' },
-  anuncios: { icon: '📢', label: 'Anuncios' },
-  minijuegos: { icon: '🎮', label: 'Minijuegos' },
-  misiones: { icon: '🎯', label: 'Misiones' },
-  logros: { icon: '🏆', label: 'Logros' },
-  estadisticas: { icon: '📊', label: 'Estadísticas' },
-  sistema: { icon: '🔧', label: 'Sistema' },
-  bienvenida: { icon: '👋', label: 'Bienvenida' },
-  digest: { icon: '📈', label: 'Digest semanal' },
-  canales: { icon: '📺', label: 'Canales' },
+  home: { icon: '🏠', label: 'NEXO STAFF', color: BRAND_COLOR },
+  config: { icon: '⚙️', label: 'Configuración', color: BRAND_COLOR },
+  moderacion: { icon: '🛡️', label: 'Moderación', color: INDIGO_COLOR },
+  economia: { icon: '💰', label: 'Economía', color: EMERALD_COLOR },
+  xp: { icon: '⭐', label: 'XP y niveles', color: GOLD_COLOR },
+  roles: { icon: '🎭', label: 'Roles', color: MAGENTA_COLOR },
+  sorteos: { icon: '🎁', label: 'Sorteos', color: MAGENTA_COLOR },
+  anuncios: { icon: '📢', label: 'Anuncios', color: SKY_COLOR },
+  minijuegos: { icon: '🎮', label: 'Minijuegos', color: GOLD_COLOR },
+  misiones: { icon: '🎯', label: 'Misiones', color: GOLD_COLOR },
+  logros: { icon: '🏆', label: 'Logros', color: GOLD_COLOR },
+  estadisticas: { icon: '📊', label: 'Estadísticas', color: BRAND_COLOR },
+  sistema: { icon: '🔧', label: 'Sistema', color: BRAND_COLOR },
+  bienvenida: { icon: '👋', label: 'Bienvenida', color: MAGENTA_COLOR },
+  digest: { icon: '📈', label: 'Digest semanal', color: SKY_COLOR },
+  canales: { icon: '📺', label: 'Canales', color: BRAND_COLOR },
 };
 
 // Grilla del home — 12 módulos, 4 por fila (3 filas, dentro del límite de Discord de 5
@@ -235,7 +241,7 @@ function navRow(screen) {
 
 function baseEmbed(screen) {
   const meta = SCREEN_META[screen];
-  return new EmbedBuilder().setColor(BRAND_COLOR).setTitle(`${meta.icon} ${meta.label}`).setFooter({ text: BRAND_NAME });
+  return new EmbedBuilder().setColor(meta.color).setTitle(`${meta.icon} ${meta.label}`).setFooter({ text: BRAND_NAME });
 }
 
 // Mismo gate que /config exige para el comando ENTERO (config.js línea ~150) —

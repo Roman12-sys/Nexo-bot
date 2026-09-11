@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { BRAND_COLOR, BRAND_NAME, EMERALD_COLOR } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { buildInfoEmbed as buildUserInfoEmbed } from './info.js';
 import { buildServerEmbed, buildServerRow } from './servidor.js';
@@ -114,7 +114,7 @@ export function buildInfoEmbed() {
 
 export function buildEconomiaEmbed() {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('💰 Economía')
     .addFields(
       { name: '/balance [usuario]', value: 'Muestra cuántas monedas tenés.' },
@@ -138,7 +138,7 @@ export function buildEconomiaEmbed() {
 
 export function buildCasinoEmbed() {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('🎰 Casino')
     .setDescription('Todos apuestan monedas de tu wallet — usá `/bank depositar` para guardar lo que no querés arriesgar.')
     .addFields(
