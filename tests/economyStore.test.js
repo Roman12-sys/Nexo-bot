@@ -142,18 +142,52 @@ describe('setRobCooldowns', () => {
   });
 });
 
+// Auditoría adversarial round 2 (cierre de fase) — setBalance pasó de un
+// upsert()+lectura previa en JS a la RPC atómica set_balance (schema.sql): el clamp a
+// 0 y el "antes" ahora los calcula Postgres, bajo `for update`, para que el delta
+// registrado en economy_transactions sea siempre el real y no uno calculado sobre una
+// lectura stale hecha en JS sin ningún lock.
 describe('setBalance', () => {
-  it('un monto negativo se clampea a 0, nunca queda un balance negativo guardado', async () => {
-    supabaseMock.getBuilder('economy').__setResult({ data: { balance: 0, last_daily: 0, last_work: 0, inventory: {} }, error: null });
-    const upsert = supabaseMock.getBuilder('economy').upsert;
+  it('llama a la RPC set_balance con guildId/userId/amount y devuelve el balance nuevo (ya clampeado por la RPC)', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: [{ balance_before: 500, balance_after: 0 }], error: null });
 
     const result = await setBalance('guild-1', 'user-1', -50);
 
+    expect(supabaseMock.rpc).toHaveBeenCalledWith('set_balance', {
+      p_guild_id: 'guild-1',
+      p_user_id: 'user-1',
+      p_amount: -50,
+    });
     expect(result).toBe(0);
-    expect(upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ balance: 0 }),
-      expect.anything(),
+  });
+
+  it('con meta, registra la transacción usando el delta REAL que devuelve la RPC — no un valor leído aparte en JS', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: [{ balance_before: 300, balance_after: 1000 }], error: null });
+    const insert = supabaseMock.getBuilder('economy_transactions').insert;
+
+    await setBalance('guild-1', 'user-1', 1000, { type: 'admin_set' });
+
+    expect(insert).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'admin_set', amount: 700, balance_after: 1000 }),
     );
+  });
+
+  it('sin meta, no toca la tabla de transacciones', async () => {
+    supabaseMock.rpc.mockResolvedValue({ data: [{ balance_before: 100, balance_after: 200 }], error: null });
+    const insert = supabaseMock.getBuilder('economy_transactions').insert;
+
+    await setBalance('guild-1', 'user-1', 200);
+
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  it('si la RPC falla, el error se propaga y nunca se registra una transacción', async () => {
+    const dbError = { message: 'connection refused' };
+    supabaseMock.rpc.mockResolvedValue({ data: null, error: dbError });
+    const insert = supabaseMock.getBuilder('economy_transactions').insert;
+
+    await expect(setBalance('guild-1', 'user-1', 500, { type: 'admin_set' })).rejects.toBe(dbError);
+    expect(insert).not.toHaveBeenCalled();
   });
 });
 

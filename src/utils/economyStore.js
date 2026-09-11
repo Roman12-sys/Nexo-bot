@@ -293,24 +293,32 @@ export async function extendRobShield(guildId, userId, durationMs) {
   return newUntil;
 }
 
-// Fija el balance de un usuario a un valor exacto (a diferencia de addBalance, que suma/resta).
-// Lo usa el panel de staff para "establecer" una cantidad específica.
+// Fija el balance de un usuario a un valor exacto (a diferencia de addBalance, que
+// suma/resta). Lo usa el panel de staff para "establecer" una cantidad específica.
 //
-// A propósito NO usa saveUserEconomy (que reescribe la fila entera): el upsert de acá
-// abajo solo incluye la columna "balance" en el payload, así Postgres solo actualiza
-// ESA columna en el conflicto — si justo en el medio corre un /buy o un /daily
-// concurrente que tocó inventory/last_daily/last_work, esta escritura no los pisa.
+// Semántica INTENCIONAL, no accidental (auditoría adversarial round 2, cierre de
+// fase): "establecer" significa balance final = amount, punto — nunca intenta
+// preservar una ganancia concurrente (un /daily/robo/give que entre justo en el medio
+// se pisa a propósito, mismo criterio que un UPDATE ... SET directo). Lo que SÍ era un
+// bug real de concurrencia es que el "antes" para el registro en
+// economy_transactions se leía en JS sin ningún lock, ANTES de escribir — un
+// movimiento concurrente en esa ventana dejaba un delta incorrecto en el historial
+// (nunca corrompía el balance final en sí, que ya era un set absoluto correcto, pero
+// sí ensuciaba el audit trail y las métricas que lo consumen). La RPC set_balance
+// bloquea la fila (for update) ANTES de leer el balance previo, así que "antes" es
+// garantizado el valor real justo antes de esta escritura, sin importar qué otra RPC
+// de economía haya corrido en el medio — ver el comentario de la función en schema.sql.
 export async function setBalance(guildId, userId, amount, meta) {
-  const before = await getUserEconomy(guildId, userId);
-  const newBalance = Math.max(0, amount);
-
-  const { error } = await supabase
-    .from(TABLE)
-    .upsert({ guild_id: guildId, user_id: userId, balance: newBalance }, { onConflict: 'guild_id,user_id' });
+  const { data, error } = await supabase.rpc('set_balance', {
+    p_guild_id: guildId,
+    p_user_id: userId,
+    p_amount: amount,
+  });
   if (error) throw error;
 
-  if (meta) await recordTransaction(guildId, userId, { ...meta, amount: newBalance - before.balance, balanceAfter: newBalance });
-  return newBalance;
+  const { balance_before: before, balance_after: after } = data[0];
+  if (meta) await recordTransaction(guildId, userId, { ...meta, amount: after - before, balanceAfter: after });
+  return after;
 }
 
 // Descuenta "amount" del balance SOLO si alcanza, en una sola sentencia atómica (RPC

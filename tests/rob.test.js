@@ -133,6 +133,63 @@ describe('/rob — cierre de la race condition de cooldown/protección', () => {
     }
   });
 
+  it('auditoría adversarial round 2 (Bloque 3): dos ATACANTES DISTINTOS contra la MISMA víctima, casi simultáneos — solo uno completa el robo', async () => {
+    // El lock viejo (`rob:{guild}:{attackerId}`) solo serializaba ejecuciones del
+    // MISMO atacante — dos atacantes distintos apuntando a la misma víctima
+    // adquirían locks DISTINTOS y corrían en paralelo, cada uno releyendo el mismo
+    // estado "sin protección" antes de que el otro escribiera nada. El fix agrega un
+    // segundo lock por víctima (`rob-victim:{guild}:{victimId}`), siempre anidado
+    // dentro del de atacante — este test prueba exactamente ese escenario cruzado.
+    ensure('guild-1', 'victim-1').balance = 10_000;
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.01);
+    try {
+      const interactionA = makeInteraction({ userId: 'robber-A' });
+      const interactionB = makeInteraction({ userId: 'robber-B' });
+
+      await Promise.all([execute(interactionA), execute(interactionB)]);
+
+      // Solo uno de los dos atacantes distintos pudo robar de verdad — el otro tuvo
+      // que ver a la víctima ya protegida al releer en fresco dentro del lock.
+      expect(robWallet).toHaveBeenCalledTimes(1);
+
+      const replies = [...interactionA.editReply.mock.calls, ...interactionB.editReply.mock.calls].map(
+        (call) => call[0]?.embeds?.[0]?.data?.title || call[0]?.content || '',
+      );
+      const successCount = replies.filter((r) => r.includes('¡Robo exitoso!')).length;
+      const blockedCount = replies.filter((r) => r.includes('protegido')).length;
+      expect(successCount).toBe(1);
+      expect(blockedCount).toBe(1);
+
+      // La víctima perdió exactamente lo robado una vez, nunca el doble.
+      const finalVictim = ensure('guild-1', 'victim-1');
+      const finalA = ensure('guild-1', 'robber-A');
+      const finalB = ensure('guild-1', 'robber-B');
+      expect(finalA.balance + finalB.balance + finalVictim.balance).toBe(10_000);
+      expect(setRobCooldowns).toHaveBeenCalledTimes(1);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it('víctimas DISTINTAS no se bloquean innecesariamente entre sí (locks por víctima son independientes)', async () => {
+    ensure('guild-1', 'victim-A').balance = 10_000;
+    ensure('guild-1', 'victim-B').balance = 10_000;
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.01);
+    try {
+      const interactionA = makeInteraction({ userId: 'robber-A', targetUser: { id: 'victim-A', tag: 'victim-A#0001', bot: false } });
+      const interactionB = makeInteraction({ userId: 'robber-B', targetUser: { id: 'victim-B', tag: 'victim-B#0001', bot: false } });
+
+      await Promise.all([execute(interactionA), execute(interactionB)]);
+
+      // Dos víctimas distintas, dos atacantes distintos: las dos operaciones son
+      // independientes y las DOS tienen que completar el robo.
+      expect(robWallet).toHaveBeenCalledTimes(2);
+      expect(setRobCooldowns).toHaveBeenCalledTimes(2);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
   it('sin la carrera: un segundo /rob normal (no concurrente) sigue bloqueado por cooldown, como antes', async () => {
     ensure('guild-1', 'victim-1').balance = 10_000;
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.01);

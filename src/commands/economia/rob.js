@@ -66,92 +66,103 @@ export async function execute(interaction) {
 
   await interaction.deferReply();
 
-  await withLock(`rob:${guildId}:${userId}`, async () => {
-    // Chequeo AUTORITATIVO: el lock solo serializa las ejecuciones de ESTE atacante entre
-    // sí — no impide que dos /rob concurrentes (mismo atacante y víctima, o dos atacantes
-    // distintos contra la misma víctima) hayan pasado el pre-check de arriba con el mismo
-    // estado viejo antes de que cualquiera hubiera escrito nada. Sin releer y revalidar
-    // acá, la segunda ejecución (que solo espera su turno en el lock, nunca fue
-    // rechazada) terminaría robando de nuevo ignorando el cooldown/protección que la
-    // primera ejecución ya dejó escrito. Mismo patrón que /daily y /crime.
-    const [freshRobber, freshVictim] = await Promise.all([getUserEconomy(guildId, userId), getUserEconomy(guildId, targetUser.id)]);
-    const now = Date.now();
+  // Dos locks anidados, siempre en el MISMO orden (atacante afuera, víctima adentro):
+  // el lock del atacante (namespace `rob:`) solo serializaba ejecuciones del MISMO
+  // atacante entre sí — no protegía a la víctima contra DOS ATACANTES DISTINTOS
+  // robándole casi al mismo tiempo, que podían leer el mismo estado "sin protección"
+  // antes de que cualquiera de los dos escribiera el cooldown de víctima. El lock de
+  // víctima (namespace `rob-victim:`, siempre por dentro del de atacante) cierra ese
+  // hueco: cualquier /rob contra la MISMA víctima queda serializado sin importar quién
+  // ataque. Los dos namespaces nunca comparten string con el mismo id (prefijos
+  // distintos) y el orden de adquisición es siempre el mismo en todo el archivo, así
+  // que no puede formarse un ciclo de espera entre dos /rob concurrentes con roles
+  // cruzados (A ataca a B mientras B ataca a A) — ver auditoría adversarial round 2,
+  // Bloque 3.
+  await withLock(`rob:${guildId}:${userId}`, () =>
+    withLock(`rob-victim:${guildId}:${targetUser.id}`, async () => {
+      // Chequeo AUTORITATIVO: releído en fresco DENTRO de ambos locks — sin esto, la
+      // segunda ejecución en cola (nunca rechazada, solo esperando) terminaría
+      // robando de nuevo ignorando el cooldown/protección que la primera ya dejó
+      // escrito. Mismo patrón que /daily y /crime.
+      const [freshRobber, freshVictim] = await Promise.all([getUserEconomy(guildId, userId), getUserEconomy(guildId, targetUser.id)]);
+      const now = Date.now();
 
-    if (now - freshRobber.lastRob < ROB_COOLDOWN_MS) {
-      const readyTimestamp = Math.floor((freshRobber.lastRob + ROB_COOLDOWN_MS) / 1000);
-      await interaction.editReply({ content: `⏳ Todavía estás escondiéndote de tu último robo. Podés volver a intentar <t:${readyTimestamp}:R>.` });
-      return;
-    }
-    if (now - freshVictim.lastRobbed < VICTIM_PROTECTION_MS) {
-      await interaction.editReply({ content: `🛡️ ${targetUser.tag} está protegido — alguien ya intentó robarle hace poco.` });
-      return;
-    }
-    if (freshVictim.robShieldUntil > now) {
-      await interaction.editReply({ content: `🛡️ ${targetUser.tag} tiene un escudo anti-robo activo hasta <t:${Math.floor(freshVictim.robShieldUntil / 1000)}:R>.` });
-      return;
-    }
-
-    // Cooldowns se fijan SIEMPRE que hay un intento real (gane o pierda) — el
-    // acecho en sí ya "gasta" el turno, no solo un robo exitoso.
-    await setRobCooldowns(guildId, { robberId: userId, robberTimestamp: now, victimId: targetUser.id, victimTimestamp: now });
-
-    const exito = Math.random() < SUCCESS_CHANCE;
-
-    if (exito) {
-      const percent = STEAL_PERCENT_MIN + Math.random() * (STEAL_PERCENT_MAX - STEAL_PERCENT_MIN);
-      let result;
-      try {
-        result = await robWallet(guildId, userId, targetUser.id, percent, STEAL_MAX_AMOUNT);
-      } catch (error) {
-        if (error.code === 'nothing_to_steal') {
-          await interaction.editReply({ content: `❌ ${targetUser.tag} no tenía nada que robarle en el momento justo.` });
-          return;
-        }
-        throw error;
+      if (now - freshRobber.lastRob < ROB_COOLDOWN_MS) {
+        const readyTimestamp = Math.floor((freshRobber.lastRob + ROB_COOLDOWN_MS) / 1000);
+        await interaction.editReply({ content: `⏳ Todavía estás escondiéndote de tu último robo. Podés volver a intentar <t:${readyTimestamp}:R>.` });
+        return;
       }
-      await recordTransaction(guildId, userId, { type: 'rob_win', amount: result.stolen, balanceAfter: result.robberBalance, reason: `Le robaste a ${targetUser.tag}` });
-      await recordTransaction(guildId, targetUser.id, { type: 'rob_loss', amount: -result.stolen, balanceAfter: result.victimBalance, actorId: userId, reason: `${interaction.user.tag} te robó` });
+      if (now - freshVictim.lastRobbed < VICTIM_PROTECTION_MS) {
+        await interaction.editReply({ content: `🛡️ ${targetUser.tag} está protegido — alguien ya intentó robarle hace poco.` });
+        return;
+      }
+      if (freshVictim.robShieldUntil > now) {
+        await interaction.editReply({ content: `🛡️ ${targetUser.tag} tiene un escudo anti-robo activo hasta <t:${Math.floor(freshVictim.robShieldUntil / 1000)}:R>.` });
+        return;
+      }
+
+      // Cooldowns se fijan SIEMPRE que hay un intento real (gane o pierda) — el
+      // acecho en sí ya "gasta" el turno, no solo un robo exitoso.
+      await setRobCooldowns(guildId, { robberId: userId, robberTimestamp: now, victimId: targetUser.id, victimTimestamp: now });
+
+      const exito = Math.random() < SUCCESS_CHANCE;
+
+      if (exito) {
+        const percent = STEAL_PERCENT_MIN + Math.random() * (STEAL_PERCENT_MAX - STEAL_PERCENT_MIN);
+        let result;
+        try {
+          result = await robWallet(guildId, userId, targetUser.id, percent, STEAL_MAX_AMOUNT);
+        } catch (error) {
+          if (error.code === 'nothing_to_steal') {
+            await interaction.editReply({ content: `❌ ${targetUser.tag} no tenía nada que robarle en el momento justo.` });
+            return;
+          }
+          throw error;
+        }
+        await recordTransaction(guildId, userId, { type: 'rob_win', amount: result.stolen, balanceAfter: result.robberBalance, reason: `Le robaste a ${targetUser.tag}` });
+        await recordTransaction(guildId, targetUser.id, { type: 'rob_loss', amount: -result.stolen, balanceAfter: result.victimBalance, actorId: userId, reason: `${interaction.user.tag} te robó` });
+
+        const embed = new EmbedBuilder()
+          .setColor(BRAND_COLOR)
+          .setTitle('🥷 ¡Robo exitoso!')
+          .setDescription(`Le robaste **${result.stolen.toLocaleString('es-ES')}** monedas a ${targetUser}.\nTu wallet: **${result.robberBalance.toLocaleString('es-ES')}**.`)
+          .setFooter({ text: BRAND_NAME })
+          .setTimestamp();
+        await interaction.editReply({ embeds: [embed] });
+        return;
+      }
+
+      // Fallaste: pagás una multa a la víctima. Si ni siquiera te alcanza para la multa
+      // completa, transferBalance rechaza y simplemente no se cobra nada — ya perdiste
+      // el intento, no hace falta además dejarte en deuda.
+      const finePercent = FINE_PERCENT_MIN + Math.random() * (FINE_PERCENT_MAX - FINE_PERCENT_MIN);
+      const fine = Math.min(FINE_MAX_AMOUNT, Math.floor(freshRobber.balance * finePercent));
+
+      let fineCharged = 0;
+      if (fine > 0) {
+        try {
+          const transferResult = await transferBalance(guildId, userId, targetUser.id, fine);
+          fineCharged = fine;
+          await Promise.all([
+            recordTransaction(guildId, userId, { type: 'rob_fine', amount: -fine, balanceAfter: transferResult.senderBalance, reason: `Multa por intentar robarle a ${targetUser.tag}` }),
+            recordTransaction(guildId, targetUser.id, { type: 'rob_fine', amount: fine, balanceAfter: transferResult.receiverBalance, actorId: userId, reason: `Multa de ${interaction.user.tag} por intentar robarte` }),
+          ]);
+        } catch (error) {
+          if (error.code !== 'insufficient_funds') throw error;
+        }
+      }
 
       const embed = new EmbedBuilder()
-        .setColor(BRAND_COLOR)
-        .setTitle('🥷 ¡Robo exitoso!')
-        .setDescription(`Le robaste **${result.stolen.toLocaleString('es-ES')}** monedas a ${targetUser}.\nTu wallet: **${result.robberBalance.toLocaleString('es-ES')}**.`)
+        .setColor('#c22b3f')
+        .setTitle('🚨 Te agarraron')
+        .setDescription(
+          fineCharged > 0
+            ? `Te descubrieron robando a ${targetUser} — pagaste **${fineCharged.toLocaleString('es-ES')}** monedas de multa.`
+            : `Te descubrieron robando a ${targetUser}, pero no tenías nada para pagar de multa.`,
+        )
         .setFooter({ text: BRAND_NAME })
         .setTimestamp();
       await interaction.editReply({ embeds: [embed] });
-      return;
-    }
-
-    // Fallaste: pagás una multa a la víctima. Si ni siquiera te alcanza para la multa
-    // completa, transferBalance rechaza y simplemente no se cobra nada — ya perdiste
-    // el intento, no hace falta además dejarte en deuda.
-    const finePercent = FINE_PERCENT_MIN + Math.random() * (FINE_PERCENT_MAX - FINE_PERCENT_MIN);
-    const fine = Math.min(FINE_MAX_AMOUNT, Math.floor(freshRobber.balance * finePercent));
-
-    let fineCharged = 0;
-    if (fine > 0) {
-      try {
-        const transferResult = await transferBalance(guildId, userId, targetUser.id, fine);
-        fineCharged = fine;
-        await Promise.all([
-          recordTransaction(guildId, userId, { type: 'rob_fine', amount: -fine, balanceAfter: transferResult.senderBalance, reason: `Multa por intentar robarle a ${targetUser.tag}` }),
-          recordTransaction(guildId, targetUser.id, { type: 'rob_fine', amount: fine, balanceAfter: transferResult.receiverBalance, actorId: userId, reason: `Multa de ${interaction.user.tag} por intentar robarte` }),
-        ]);
-      } catch (error) {
-        if (error.code !== 'insufficient_funds') throw error;
-      }
-    }
-
-    const embed = new EmbedBuilder()
-      .setColor('#c22b3f')
-      .setTitle('🚨 Te agarraron')
-      .setDescription(
-        fineCharged > 0
-          ? `Te descubrieron robando a ${targetUser} — pagaste **${fineCharged.toLocaleString('es-ES')}** monedas de multa.`
-          : `Te descubrieron robando a ${targetUser}, pero no tenías nada para pagar de multa.`,
-      )
-      .setFooter({ text: BRAND_NAME })
-      .setTimestamp();
-    await interaction.editReply({ embeds: [embed] });
-  });
+    }),
+  );
 }

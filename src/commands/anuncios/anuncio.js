@@ -23,16 +23,24 @@ import { saveAnnouncementTemplate, getGuildAnnouncementTemplates, getAnnouncemen
 const HEX_REGEX = /^#?[0-9A-Fa-f]{6}$/;
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutos
 
-// Draft del panel en memoria, una entrada por usuario (un solo /anuncio activo a la vez).
-// El customId de los componentes no necesita el userId: un mensaje efímero solo puede
-// recibir interacciones del usuario que lo generó, Discord ya lo garantiza.
+// Draft del panel en memoria, una entrada por (guild, usuario) — un solo /anuncio
+// activo a la vez POR SERVIDOR. El customId de los componentes no necesita el userId:
+// un mensaje efímero solo puede recibir interacciones del usuario que lo generó,
+// Discord ya lo garantiza — pero la key del Map sí necesita el guildId: un admin/staff
+// con /anuncio abierto en dos servidores distintos (mismo usuario, ManageGuild en
+// ambos) pisaba silenciosamente el draft de uno con el del otro si la key era solo
+// userId. Ver auditoría adversarial round 2, Bloque 1.
 const sessions = new Map();
 
-function refreshSession(userId, draft) {
-  const existing = sessions.get(userId);
+function sessionKey(guildId, userId) {
+  return `${guildId}:${userId}`;
+}
+
+function refreshSession(key, draft) {
+  const existing = sessions.get(key);
   if (existing?.timeoutHandle) clearTimeout(existing.timeoutHandle);
-  const timeoutHandle = setTimeout(() => sessions.delete(userId), SESSION_TTL_MS);
-  sessions.set(userId, { draft, timeoutHandle });
+  const timeoutHandle = setTimeout(() => sessions.delete(key), SESSION_TTL_MS);
+  sessions.set(key, { draft, timeoutHandle });
 }
 
 function isValidUrl(value) {
@@ -436,7 +444,7 @@ async function sendDraft(interaction, draft) {
       embeds: [buildAnuncioEmbed(draft)],
       allowedMentions,
     });
-    sessions.delete(interaction.user.id);
+    sessions.delete(sessionKey(interaction.guildId, interaction.user.id));
     await interaction.update({ content: '✅ Anuncio enviado correctamente.', embeds: [], components: [] });
   } catch (error) {
     console.error('❌ Error al enviar el anuncio:', error);
@@ -469,7 +477,7 @@ export async function startBuilder(interaction, { colorPrefill, imagenPrefill, r
     mention: { rol: rol || null, usuario: usuario || null, everyone: Boolean(everyone) },
   };
 
-  refreshSession(interaction.user.id, draft);
+  refreshSession(sessionKey(interaction.guildId, interaction.user.id), draft);
   await interaction.reply({ ...buildPanelPayload(draft), flags: MessageFlags.Ephemeral });
 }
 
@@ -535,7 +543,7 @@ export async function execute(interaction) {
 // ---------- Registro en los routers de componentes ----------
 
 function requireSession(interaction) {
-  const session = sessions.get(interaction.user.id);
+  const session = sessions.get(sessionKey(interaction.guildId, interaction.user.id));
   return session || null;
 }
 
@@ -582,7 +590,7 @@ registerButtonPrefix('anuncio_toggle_timestamp', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   session.draft.timestamp = !session.draft.timestamp;
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildPanelPayload(session.draft));
 });
 
@@ -593,7 +601,7 @@ registerButtonPrefix('anuncio_send', async (i) => {
 });
 
 registerButtonPrefix('anuncio_cancel', async (i) => {
-  sessions.delete(i.user.id);
+  sessions.delete(sessionKey(i.guildId, i.user.id));
   await i.update({ content: '❌ Anuncio cancelado.', embeds: [], components: [] });
 });
 
@@ -608,7 +616,7 @@ registerSelectPrefix('anuncio_remove_field', async (i) => {
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   const index = parseInt(i.values[0], 10);
   session.draft.fields.splice(index, 1);
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildPanelPayload(session.draft));
 });
 
@@ -624,7 +632,7 @@ registerModalPrefix('modal_anuncio_content', async (i) => {
   session.draft.title = i.fields.getTextInputValue('titulo');
   session.draft.description = i.fields.getTextInputValue('descripcion');
   session.draft.url = url;
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildPanelPayload(session.draft));
 });
 
@@ -638,7 +646,7 @@ registerModalPrefix('modal_anuncio_color', async (i) => {
   }
 
   session.draft.color = normalizeHex(colorInput);
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildPanelPayload(session.draft));
 });
 
@@ -654,7 +662,7 @@ registerModalPrefix('modal_anuncio_author', async (i) => {
   session.draft.authorName = i.fields.getTextInputValue('nombre');
   session.draft.authorIconURL = icono;
   session.draft.authorURL = enlace;
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildPanelPayload(session.draft));
 });
 
@@ -669,7 +677,7 @@ registerModalPrefix('modal_anuncio_images', async (i) => {
 
   session.draft.thumbnailURL = thumbnail;
   session.draft.imageURL = imagen;
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildPanelPayload(session.draft));
 });
 
@@ -682,7 +690,7 @@ registerModalPrefix('modal_anuncio_footer', async (i) => {
 
   session.draft.footerText = i.fields.getTextInputValue('texto');
   session.draft.footerIconURL = icono;
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildPanelPayload(session.draft));
 });
 
@@ -699,7 +707,7 @@ registerModalPrefix('modal_anuncio_field', async (i) => {
     value: i.fields.getTextInputValue('valor'),
     inline: inlineRaw.startsWith('s') || inlineRaw === 'yes' || inlineRaw === 'true',
   });
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildPanelPayload(session.draft));
 });
 
@@ -714,7 +722,7 @@ registerModalPrefix('modal_anuncio_import_json', async (i) => {
     return i.reply({ content: `❌ ${result.error}`, flags: MessageFlags.Ephemeral });
   }
 
-  refreshSession(i.user.id, result.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), result.draft);
   await i.update(buildPanelPayload(result.draft));
 });
 
@@ -752,7 +760,7 @@ registerSelectPrefix('anuncio_mention_role_select', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   session.draft.mention.rol = i.roles.first() || null;
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildMentionEditorPayload(session.draft));
 });
 
@@ -760,7 +768,7 @@ registerSelectPrefix('anuncio_mention_user_select', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   session.draft.mention.usuario = i.users.first() || null;
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildMentionEditorPayload(session.draft));
 });
 
@@ -768,7 +776,7 @@ registerButtonPrefix('anuncio_mention_everyone_toggle', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   session.draft.mention.everyone = !session.draft.mention.everyone;
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildMentionEditorPayload(session.draft));
 });
 
@@ -856,7 +864,7 @@ registerSelectPrefix('anuncio_template_select', async (i) => {
   }
 
   session.draft = { ...session.draft, ...templateData };
-  refreshSession(i.user.id, session.draft);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
 
   await i.update({ content: `✅ Plantilla **${i.values[0]}** cargada.`, components: [] });
   // El panel original es OTRO mensaje (este select vive en uno propio) — no se puede

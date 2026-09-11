@@ -91,16 +91,27 @@ const EXTRAS = {
   },
 };
 
-// Sesión en memoria del panel interactivo, una por usuario (mismo patrón que
-// anuncio.js) — solo importa mientras dura la conversación de botones, nunca se
+// Sesión en memoria del panel interactivo, una por (guild, usuario) — mismo patrón
+// que anuncio.js — solo importa mientras dura la conversación de botones, nunca se
 // persiste. Lo que sí se persiste es guild_config, recién al confirmar.
+//
+// La key ES `${guildId}:${userId}`, nunca solo `userId`: un admin que administra
+// varios servidores (escenario esperado — Nexo es multi-tenant) puede tener /setup
+// abierto en Guild A y arrancar otro /setup en Guild B antes de confirmar el primero.
+// Con la key vieja (solo userId) la segunda sesión pisaba silenciosamente la primera
+// y "Confirmar" en el panel de A terminaba corriendo con los datos de B. Ver auditoría
+// adversarial round 2, Bloque 1.
 const sessions = new Map();
 
-function refreshSession(userId, state) {
-  const existing = sessions.get(userId);
+function sessionKey(guildId, userId) {
+  return `${guildId}:${userId}`;
+}
+
+function refreshSession(key, state) {
+  const existing = sessions.get(key);
   if (existing?.timeoutHandle) clearTimeout(existing.timeoutHandle);
-  const timeoutHandle = setTimeout(() => sessions.delete(userId), SESSION_TTL_MS);
-  sessions.set(userId, { state, timeoutHandle });
+  const timeoutHandle = setTimeout(() => sessions.delete(key), SESSION_TTL_MS);
+  sessions.set(key, { state, timeoutHandle });
 }
 
 export const data = new SlashCommandBuilder()
@@ -477,7 +488,7 @@ export async function execute(interaction) {
 }
 
 function requireSession(interaction) {
-  return sessions.get(interaction.user.id) || null;
+  return sessions.get(sessionKey(interaction.guildId, interaction.user.id)) || null;
 }
 
 const SESSION_EXPIRED = '❌ Esta sesión de /setup expiró. Iniciá de nuevo con `/setup`.';
@@ -492,7 +503,7 @@ registerButtonPrefix('setup_template_', async (i) => {
   if (!template) return i.reply({ content: '❌ Plantilla inválida.', flags: MessageFlags.Ephemeral });
 
   const state = { ...EXTRAS_DEFAULT_STATE, ...template.state, roleId: null };
-  refreshSession(i.user.id, state);
+  refreshSession(sessionKey(i.guildId, i.user.id), state);
   await i.update(buildSetupPanel(state));
 });
 
@@ -503,7 +514,7 @@ function registerToggle(customId, stateKey) {
     const session = requireSession(i);
     if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
     session.state[stateKey] = !session.state[stateKey];
-    refreshSession(i.user.id, session.state);
+    refreshSession(sessionKey(i.guildId, i.user.id), session.state);
     await i.update(buildSetupPanel(session.state));
   });
 }
@@ -518,7 +529,7 @@ registerSelectPrefix('setup_role_select', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   session.state.roleId = i.values[0] || null;
-  refreshSession(i.user.id, session.state);
+  refreshSession(sessionKey(i.guildId, i.user.id), session.state);
   await i.update(buildSetupPanel(session.state));
 });
 
@@ -530,7 +541,7 @@ registerButtonPrefix('setup_confirm', async (i) => {
 
   try {
     const summaryEmbed = await runSetup(i, session.state);
-    sessions.delete(i.user.id);
+    sessions.delete(sessionKey(i.guildId, i.user.id));
     await i.editReply({ content: null, embeds: [summaryEmbed], components: [] });
   } catch (error) {
     console.error('❌ Error al confirmar /setup:', error);
@@ -539,6 +550,6 @@ registerButtonPrefix('setup_confirm', async (i) => {
 });
 
 registerButtonPrefix('setup_cancel', async (i) => {
-  sessions.delete(i.user.id);
+  sessions.delete(sessionKey(i.guildId, i.user.id));
   await i.update({ content: '❌ /setup cancelado.', embeds: [], components: [] });
 });

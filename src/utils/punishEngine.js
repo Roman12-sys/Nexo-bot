@@ -29,9 +29,25 @@ function key(guildId, userId) {
 async function expirePunishment(client, { guildId, userId, roleId }) {
   activeTimeouts.delete(key(guildId, userId));
 
+  const guild = await client.guilds.fetch(guildId).catch(() => null);
+
+  // Auditoría adversarial round 2, Bloque 5: si el guild ya no existe (el bot fue
+  // expulsado, o guildDelete.js ya corrió) no hay nada que hacer en Discord y, sobre
+  // todo, no hay que insertar un registro nuevo en moderation_actions para un guild
+  // que guildDelete.js ya vació — sería resucitar exactamente el dato huérfano que
+  // ese handler existe para evitar. guildDelete.js ya cancela este timer
+  // proactivamente ANTES de borrar (ver cancelAllPunishExpiryForGuild); este chequeo
+  // es la red de respaldo para la carrera donde el timer ya había arrancado a
+  // ejecutarse en el instante en que guildDelete corrió.
+  if (!guild) {
+    await deleteActivePunishment(guildId, userId).catch((error) =>
+      console.error('❌ Error borrando restricción vencida de un guild que ya no existe:', error),
+    );
+    return;
+  }
+
   try {
-    const guild = await client.guilds.fetch(guildId).catch(() => null);
-    const member = guild ? await guild.members.fetch(userId).catch(() => null) : null;
+    const member = await guild.members.fetch(userId).catch(() => null);
 
     if (member?.roles.cache.has(roleId)) {
       await member.roles.remove(roleId, 'Restricción de /punish expirada automáticamente').catch((error) => {
@@ -98,6 +114,25 @@ export function cancelPunishExpiry(guildId, userId) {
   if (handle) {
     clearTimeout(handle);
     activeTimeouts.delete(key(guildId, userId));
+  }
+}
+
+// Cancela TODOS los timers en memoria de un guild de una — llamado por
+// guildDelete.js ANTES de borrar `active_punishments`. Sin esto, un timer ya
+// programado en este mismo proceso (por /punish o por rescheduleActivePunishments al
+// bootear) seguía vivo después de que el guild se limpiara, y al vencer podía
+// insertar una fila nueva en moderation_actions para un guild ya purgado (ver
+// expirePunishment, que además chequea de nuevo por las dudas si el guild sigue
+// existiendo). Recorre `activeTimeouts` directo en vez de volver a leer Supabase:
+// es la fuente de verdad real de qué timers siguen vivos EN ESTE PROCESO, sin
+// depender de que la fila en la base todavía coincida (ej. si ya se había borrado a
+// mano por otro camino). Ver auditoría adversarial round 2, Bloque 5.
+export function cancelAllPunishExpiryForGuild(guildId) {
+  const prefix = `${guildId}:`;
+  for (const k of [...activeTimeouts.keys()]) {
+    if (!k.startsWith(prefix)) continue;
+    clearTimeout(activeTimeouts.get(k));
+    activeTimeouts.delete(k);
   }
 }
 

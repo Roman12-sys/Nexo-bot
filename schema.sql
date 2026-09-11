@@ -520,6 +520,50 @@ begin
 end;
 $$;
 
+-- Auditoría adversarial round 2 (cierre de fase, /economia-staff establecer) — a
+-- diferencia de increment_balance (que SUMA/RESTA), esta fija el balance a un valor
+-- ABSOLUTO — semántica intencional: "establecer" significa "el balance final es
+-- exactamente p_amount, sin importar qué haya pasado antes o esté pasando en
+-- paralelo" (mismo criterio que usar UPDATE ... SET balance = X directo). Nunca debe
+-- "preservar" ganancias concurrentes — si un admin fija el balance de alguien a 0 por
+-- un exploit y justo en el medio le entra un /daily, el admin espera que quede en 0
+-- igual, no en 0+lo del /daily. Lo que SÍ tenía un bug real de concurrencia era el
+-- valor de "balance ANTES" que se usaba para calcular el delta que queda en
+-- economy_transactions (auditoría, historial, `guild_daily_stats`/economyOrigins):
+-- el código viejo lo leía en JS ANTES de la escritura, sin ningún lock — un
+-- /give / /daily / /rob concurrente que cambiara el balance en esa ventana quedaba
+-- reflejado con un delta incorrecto en el historial (nunca corrompía el balance real,
+-- que sigue siendo exactamente p_amount, pero sí ensuciaba el audit trail). Esta RPC
+-- bloquea la fila (`for update`) ANTES de leer el balance previo, así que el valor
+-- que devuelve como "antes" es garantizado el último valor real justo antes de esta
+-- escritura — cualquier otra RPC de economía que también tome `for update` sobre la
+-- misma fila (increment_balance, deduct_balance_if_sufficient, transfer_balance,
+-- rob_wallet) queda correctamente serializada contra esta, nunca intercalada.
+create or replace function set_balance(p_guild_id text, p_user_id text, p_amount bigint)
+returns table (balance_before bigint, balance_after bigint)
+language plpgsql
+as $$
+declare
+  v_before bigint;
+  v_after bigint;
+begin
+  insert into economy (guild_id, user_id) values (p_guild_id, p_user_id) on conflict do nothing;
+
+  select balance into v_before
+  from economy
+  where guild_id = p_guild_id and user_id = p_user_id
+  for update;
+
+  v_after := greatest(0, p_amount);
+
+  update economy
+  set balance = v_after
+  where guild_id = p_guild_id and user_id = p_user_id;
+
+  return query select coalesce(v_before, 0), v_after;
+end;
+$$;
+
 create or replace function deduct_balance_if_sufficient(p_guild_id text, p_user_id text, p_amount bigint)
 returns bigint
 language plpgsql
@@ -593,10 +637,33 @@ declare
   v_sender_balance bigint;
   v_receiver_balance bigint;
 begin
+  -- Asegura que las dos filas existan ANTES de bloquearlas — así el bloqueo
+  -- ordenado de abajo puede tomar ambas con UPDATEs simples, sin depender de un
+  -- upsert para la que todavía no existe.
+  insert into economy (guild_id, user_id) values (p_guild_id, p_sender_id) on conflict do nothing;
+  insert into economy (guild_id, user_id) values (p_guild_id, p_receiver_id) on conflict do nothing;
+
+  -- QUÉ CAMBIÓ (auditoría adversarial round 2, Bloque 4): antes esta función
+  -- bloqueaba primero al EMISOR (SELECT...FOR UPDATE) y recién después al RECEPTOR
+  -- (vía el UPSERT) — orden fijo por ROL, no por identidad de cuenta. Dos
+  -- transferencias cruzadas simultáneas entre el mismo par (A->B y B->A) tomaban
+  -- los locks en orden invertido y podían deadlockear (40P01) en Postgres; mismo
+  -- riesgo cruzado contra rob_wallet, que bloqueaba víctima-luego-robber. Fix:
+  -- bloquear SIEMPRE por orden de user_id, nunca por rol emisor/receptor — un
+  -- `SELECT ... ORDER BY ... FOR UPDATE` no sirve para esto (Postgres aplica el
+  -- LockRows del plan ANTES del Sort, así que el orden de bloqueo real no sigue el
+  -- ORDER BY) — se fuerza con dos sentencias secuenciales explícitas.
+  if p_sender_id < p_receiver_id then
+    perform 1 from economy where guild_id = p_guild_id and user_id = p_sender_id for update;
+    perform 1 from economy where guild_id = p_guild_id and user_id = p_receiver_id for update;
+  else
+    perform 1 from economy where guild_id = p_guild_id and user_id = p_receiver_id for update;
+    perform 1 from economy where guild_id = p_guild_id and user_id = p_sender_id for update;
+  end if;
+
   select balance into v_sender_balance
   from economy
-  where guild_id = p_guild_id and user_id = p_sender_id
-  for update;
+  where guild_id = p_guild_id and user_id = p_sender_id;
 
   if v_sender_balance is null or v_sender_balance < p_amount then
     raise exception 'insufficient_funds';
@@ -607,10 +674,9 @@ begin
   where guild_id = p_guild_id and user_id = p_sender_id
   returning balance into v_sender_balance;
 
-  insert into economy (guild_id, user_id, balance)
-  values (p_guild_id, p_receiver_id, p_amount)
-  on conflict (guild_id, user_id)
-  do update set balance = economy.balance + p_amount
+  update economy
+  set balance = balance + p_amount
+  where guild_id = p_guild_id and user_id = p_receiver_id
   returning balance into v_receiver_balance;
 
   return query select v_sender_balance, v_receiver_balance;
@@ -838,8 +904,17 @@ returns void
 language plpgsql
 as $$
 begin
-  update economy set last_rob = p_robber_ts where guild_id = p_guild_id and user_id = p_robber_id;
-  update economy set last_robbed = p_victim_ts where guild_id = p_guild_id and user_id = p_victim_id;
+  -- Mismo criterio de orden que transfer_balance/rob_wallet (auditoría adversarial
+  -- round 2, Bloque 4/6): actualizar SIEMPRE por orden de user_id, nunca por rol
+  -- robber/víctima — dos /rob concurrentes con roles cruzados (A ataca a B mientras
+  -- B ataca a A) podían tomar estos dos UPDATE en orden opuesto y deadlockear.
+  if p_robber_id < p_victim_id then
+    update economy set last_rob = p_robber_ts where guild_id = p_guild_id and user_id = p_robber_id;
+    update economy set last_robbed = p_victim_ts where guild_id = p_guild_id and user_id = p_victim_id;
+  else
+    update economy set last_robbed = p_victim_ts where guild_id = p_guild_id and user_id = p_victim_id;
+    update economy set last_rob = p_robber_ts where guild_id = p_guild_id and user_id = p_robber_id;
+  end if;
 end;
 $$;
 
@@ -852,10 +927,22 @@ declare
   v_robber_balance bigint;
   v_stolen bigint;
 begin
+  insert into economy (guild_id, user_id) values (p_guild_id, p_robber_id) on conflict do nothing;
+  insert into economy (guild_id, user_id) values (p_guild_id, p_victim_id) on conflict do nothing;
+
+  -- Mismo fix que transfer_balance (ver comentario ahí): bloquear SIEMPRE por
+  -- orden de user_id, no por rol robber/víctima.
+  if p_robber_id < p_victim_id then
+    perform 1 from economy where guild_id = p_guild_id and user_id = p_robber_id for update;
+    perform 1 from economy where guild_id = p_guild_id and user_id = p_victim_id for update;
+  else
+    perform 1 from economy where guild_id = p_guild_id and user_id = p_victim_id for update;
+    perform 1 from economy where guild_id = p_guild_id and user_id = p_robber_id for update;
+  end if;
+
   select balance into v_victim_balance
   from economy
-  where guild_id = p_guild_id and user_id = p_victim_id
-  for update;
+  where guild_id = p_guild_id and user_id = p_victim_id;
 
   if v_victim_balance is null or v_victim_balance <= 0 then
     raise exception 'nothing_to_steal';
@@ -871,10 +958,9 @@ begin
   where guild_id = p_guild_id and user_id = p_victim_id
   returning balance into v_victim_balance;
 
-  insert into economy (guild_id, user_id, balance)
-  values (p_guild_id, p_robber_id, v_stolen)
-  on conflict (guild_id, user_id)
-  do update set balance = economy.balance + v_stolen
+  update economy
+  set balance = balance + v_stolen
+  where guild_id = p_guild_id and user_id = p_robber_id
   returning balance into v_robber_balance;
 
   return query select v_stolen, v_robber_balance, v_victim_balance;

@@ -18,6 +18,7 @@
 import { supabase } from '../supabaseClient.js';
 import { invalidateGuildConfig } from '../utils/guildConfigStore.js';
 import { clearGuildAfk } from '../utils/afkStore.js';
+import { cancelAllPunishExpiryForGuild } from '../utils/punishEngine.js';
 
 export const GUILD_SCOPED_TABLES = [
   'guild_config',
@@ -53,6 +54,14 @@ export const once = false;
 // limpias — nunca falla ni afecta otros guilds, porque el filtro es siempre por
 // guild_id exacto.
 export async function execute(guild) {
+  // Auditoría adversarial round 2, Bloque 5: cancela cualquier timer de /punish con
+  // duración que siga vivo en memoria para este guild ANTES de borrar
+  // active_punishments — si esto fuera al revés (o directamente no existiera), un
+  // timer ya programado podía vencer después del DELETE de abajo y, vía
+  // expirePunishment, insertar una fila nueva en moderation_actions para un guild ya
+  // limpiado (exactamente el dato huérfano que este handler existe para evitar).
+  cancelAllPunishExpiryForGuild(guild.id);
+
   // Promise.allSettled en vez de Promise.all: que una tabla falle (ej. red) no debe
   // impedir que se limpien las demás — se loguea cada fallo individual con la
   // tabla y el guild afectados para poder reintentar a mano si hace falta.
