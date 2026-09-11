@@ -77,6 +77,16 @@
 // Supabase para esto, son las mismas constantes que ya usan missionsStore.js/
 // achievements.js. Con esto, TODAS las pantallas del panel muestran datos reales o
 // dicen honestamente "siempre activo/catálogo fijo" — ninguna queda en placeholder.
+//
+// FASE 9 (rol de nivel puntual): el único de los "fuera de alcance" originales que se
+// resuelve acá. Flujo de 2 pasos, como se documentó desde la Fase 4 que iba a
+// necesitar: botón → modal (pide el número de nivel, un TextInput es lo único que
+// entra en un modal) → al confirmar el modal, la MISMA interacción de submit puede
+// hacer i.update() mostrando un RoleSelectMenu (el nivel elegido se guarda un
+// instante en la sesión — primer uso real de `draft`, generalizado arriba) → al
+// elegir el rol, ahí sí se guarda. Mismo comportamiento exacto que /config rol-nivel:
+// dejar el rol vacío BORRA la entrada de ese nivel (no hay chequeo de rol peligroso
+// en el comando real tampoco — no se inventa uno acá).
 import {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -87,6 +97,9 @@ import {
   RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   ChannelType,
   PermissionFlagsBits,
   MessageFlags,
@@ -107,6 +120,7 @@ import { getMissingBotPermissions } from '../../utils/botPermissions.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
+import { registerModalPrefix } from '../../components/modals.js';
 import { logConfigChange } from './config.js';
 
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutos, mismo criterio que /setup y /anuncio
@@ -121,14 +135,30 @@ const sessions = new Map();
 function sessionKey(guildId, userId) {
   return `${guildId}:${userId}`;
 }
+// FASE 9: generalizado de "solo stack" a "stack + draft opcional" — necesario para
+// "Agregar rol de nivel" (modal pidiendo el número de nivel, DESPUÉS un select de rol
+// — Discord no permite combinar los dos en un solo paso) tiene que recordar el nivel
+// elegido en el modal hasta que llegue el select. setSession siempre MERGEA sobre lo
+// que ya había en vez de reemplazar el objeto entero — para todo lo que ya existía
+// antes de esta fase (que nunca tenía `draft`) el comportamiento es idéntico a antes.
+function setSession(key, patch) {
+  const existing = sessions.get(key) || { stack: ['home'] };
+  if (existing.timeoutHandle) clearTimeout(existing.timeoutHandle);
+  const next = { ...existing, ...patch };
+  next.timeoutHandle = setTimeout(() => sessions.delete(key), SESSION_TTL_MS);
+  sessions.set(key, next);
+}
 function getStack(key) {
   return sessions.get(key)?.stack || null;
 }
 function setStack(key, stack) {
-  const existing = sessions.get(key);
-  if (existing?.timeoutHandle) clearTimeout(existing.timeoutHandle);
-  const timeoutHandle = setTimeout(() => sessions.delete(key), SESSION_TTL_MS);
-  sessions.set(key, { stack, timeoutHandle });
+  setSession(key, { stack });
+}
+function getDraft(key) {
+  return sessions.get(key)?.draft || null;
+}
+function setDraft(key, draft) {
+  setSession(key, { draft });
 }
 
 // ---------- Mapa de pantallas ----------
@@ -372,13 +402,10 @@ function buildXpScreen(cfg, interaction) {
     { name: 'Modo de roles', value: levelRolesModeLabel(cfg.level_roles_mode), inline: true },
     { name: 'Boost de fin de semana', value: cfg.xp_weekend_boost ? '🟢 Activado' : '🔴 Desactivado', inline: true },
   );
-  embed.setFooter({
-    text: canEdit
-      ? 'Agregar/quitar un rol de nivel puntual: usá /config rol-nivel mientras tanto (llega a este panel más adelante).'
-      : '🔒 Cambiar el modo requiere ser dueño o Administrator.',
-  });
+  embed.setFooter({ text: canEdit ? BRAND_NAME : '🔒 Editar requiere ser dueño o Administrator.' });
   const editRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('staff_xp_toggle_mode').setLabel('Cambiar modo de roles').setEmoji('🔁').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+    new ButtonBuilder().setCustomId('staff_lvlrole_add').setLabel('Rol de nivel').setEmoji('✨').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
   );
   return { embeds: [embed], components: [editRow, navRow('xp')] };
 }
@@ -430,6 +457,31 @@ async function buildSelfRoleRemoveView(guild, cfg) {
       .setCustomId('staff_selfrole_remove_select')
       .setPlaceholder('Elegí un rol para quitar')
       .addOptions(liveRoles.map((r) => new StringSelectMenuOptionBuilder().setLabel(r.name.slice(0, 100)).setValue(r.id))),
+  );
+  const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+  return { embeds: [embed], components: [selectRow, backRow] };
+}
+
+// ---------- Sub-vista de edición: rol de nivel puntual (Fase 9) ----------
+
+function buildLevelRoleModal() {
+  const modal = new ModalBuilder().setCustomId('staff_lvlrole_modal').setTitle('Rol de nivel');
+  const nivel = new TextInputBuilder()
+    .setCustomId('nivel')
+    .setLabel('Nivel (número entero, 1 o más)')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('Ej: 10')
+    .setRequired(true);
+  modal.addComponents(new ActionRowBuilder().addComponents(nivel));
+  return modal;
+}
+
+function buildLevelRoleSelectView(nivel) {
+  const embed = baseEmbed('xp').setDescription(
+    `Elegí qué rol se entrega al llegar al **nivel ${nivel}**. Dejalo vacío para quitar el rol que ese nivel tuviera asignado.`,
+  );
+  const selectRow = new ActionRowBuilder().addComponents(
+    new RoleSelectMenuBuilder().setCustomId('staff_lvlrole_select').setPlaceholder('Elegí un rol (opcional)').setMinValues(0).setMaxValues(1),
   );
   const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
   return { embeds: [embed], components: [selectRow, backRow] };
@@ -905,4 +957,61 @@ registerButtonPrefix('staff_digest_toggle', async (i) => {
     flags: MessageFlags.Ephemeral,
   });
   await logConfigChange(i, `📊 Digest semanal → ${nuevoEstado ? 'activado' : 'desactivado'} (desde /staff)`);
+});
+
+// ---------- Fase 9: rol de nivel puntual ----------
+
+registerButtonPrefix('staff_lvlrole_add', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  await i.showModal(buildLevelRoleModal());
+});
+
+registerModalPrefix('staff_lvlrole_modal', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const raw = i.fields.getTextInputValue('nivel').trim();
+  const nivel = Number.parseInt(raw, 10);
+  if (!Number.isInteger(nivel) || nivel < 1 || String(nivel) !== raw) {
+    return i.reply({ content: `❌ "${raw}" no es un nivel válido — tiene que ser un número entero de 1 o más.`, flags: MessageFlags.Ephemeral });
+  }
+
+  // El nivel se guarda en la sesión un instante — el próximo paso (elegir el rol) es
+  // OTRA interacción (un select), que no tiene forma de recibir el número por sí
+  // sola. `staff_lvlrole_select` lo retoma de acá.
+  setDraft(sessionKey(i.guildId, i.user.id), { levelRoleNivel: nivel });
+  await i.update(buildLevelRoleSelectView(nivel));
+});
+
+// Mismo comportamiento exacto que /config rol-nivel: sin rol elegido, BORRA la
+// entrada de ese nivel (no la deja como estaba) — y sin ningún chequeo de rol
+// peligroso, porque el comando real tampoco lo tiene (no se inventa uno acá).
+registerSelectPrefix('staff_lvlrole_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const key = sessionKey(i.guildId, i.user.id);
+  const draft = getDraft(key);
+  if (!draft?.levelRoleNivel) {
+    return i.reply({ content: '❌ Esta selección expiró — volvé a apretar "Rol de nivel" desde XP.', flags: MessageFlags.Ephemeral });
+  }
+  const nivel = draft.levelRoleNivel;
+  const role = i.roles.first() || null;
+
+  const cfg = await getGuildConfig(i.guildId);
+  const levelRoles = { ...(cfg.level_roles || {}) };
+  if (role) levelRoles[nivel] = role.id;
+  else delete levelRoles[nivel];
+  await setGuildConfig(i.guildId, { level_roles: levelRoles });
+  setDraft(key, null);
+
+  const freshCfg = await getGuildConfig(i.guildId);
+  await i.update(buildXpScreen(freshCfg, i));
+  await i.followUp({
+    content: role ? `✅ A partir del nivel **${nivel}** se entrega ${role}.` : `✅ Se quitó el rol asignado al nivel **${nivel}** (si tenía uno).`,
+    flags: MessageFlags.Ephemeral,
+  });
+  await logConfigChange(i, role ? `✨ Rol de nivel ${nivel} → ${role} (desde /staff)` : `✨ Rol de nivel ${nivel} quitado (desde /staff)`);
 });

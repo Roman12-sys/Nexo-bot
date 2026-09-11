@@ -84,6 +84,7 @@ vi.mock('../src/commands/admin/config.js', () => ({ logConfigChange }));
 const { execute } = await import('../src/commands/admin/staff.js');
 const { routeButton } = await import('../src/components/buttons.js');
 const { routeSelect } = await import('../src/components/selects.js');
+const { routeModal } = await import('../src/components/modals.js');
 
 function makeInteraction({
   guildId = 'guild-1',
@@ -125,7 +126,13 @@ function makeInteraction({
 // hace falta encadenar los clicks entre sí: alcanza con partir siempre de la
 // interaction base de ESE guild+usuario y leer el payload de ESE click puntual.
 async function nav(base, customId) {
-  const clicked = { ...base, customId, update: vi.fn().mockResolvedValue(undefined), followUp: vi.fn().mockResolvedValue(undefined) };
+  const clicked = {
+    ...base,
+    customId,
+    update: vi.fn().mockResolvedValue(undefined),
+    followUp: vi.fn().mockResolvedValue(undefined),
+    showModal: vi.fn().mockResolvedValue(undefined),
+  };
   await routeButton(clicked);
   return clicked;
 }
@@ -142,6 +149,20 @@ async function navSelect(base, customId, { values = [], role = null } = {}) {
     followUp: vi.fn().mockResolvedValue(undefined),
   };
   await routeSelect(clicked);
+  return clicked;
+}
+// Fase 9 — simula el submit de un modal: `fields` mismo shape que anuncio.js ya usa
+// en sus propios tests (getTextInputValue por id de campo).
+async function navModal(base, customId, values) {
+  const clicked = {
+    ...base,
+    customId,
+    fields: { getTextInputValue: (id) => values[id] ?? '' },
+    update: vi.fn().mockResolvedValue(undefined),
+    reply: vi.fn().mockResolvedValue(undefined),
+    followUp: vi.fn().mockResolvedValue(undefined),
+  };
+  await routeModal(clicked);
   return clicked;
 }
 function payloadOf(interactionLike) {
@@ -912,5 +933,98 @@ describe('/staff — Fase 7: Minijuegos (siempre activo), Misiones y Logros (cat
     const value = fieldsOf(payload).find((f) => f.name.startsWith('Catálogo'))?.value;
     expect(value).toContain('Primeros pasos');
     expect(value).toContain('Millonario');
+  });
+});
+
+describe('/staff — Fase 9: rol de nivel puntual (flujo modal + select en 2 pasos)', () => {
+  it('botón "Rol de nivel" abre el modal pidiendo el número', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_xp');
+    const opened = await nav(clicked, 'staff_lvlrole_add');
+
+    expect(opened.showModal).toHaveBeenCalledTimes(1);
+    const modal = opened.showModal.mock.calls[0][0];
+    expect(modal.data.custom_id).toBe('staff_lvlrole_modal');
+  });
+
+  it('revalidación server-side: abrir el modal sin ser admin se rechaza', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    const clicked = { ...interaction, customId: 'staff_lvlrole_add', reply: vi.fn().mockResolvedValue(undefined), showModal: vi.fn().mockResolvedValue(undefined) };
+    await routeButton(clicked);
+
+    expect(clicked.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    expect(clicked.showModal).not.toHaveBeenCalled();
+  });
+
+  it('enviar el modal con un nivel válido muestra el select de rol', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_xp');
+
+    const submitted = await navModal(interaction, 'staff_lvlrole_modal', { nivel: '10' });
+
+    const payload = payloadOf(submitted);
+    expect(payload.embeds[0].data.description).toContain('nivel 10');
+    expect(payload.components[0].components[0].data.custom_id).toBe('staff_lvlrole_select');
+  });
+
+  it.each(['0', '-3', 'abc', '4.5', ''])('rechaza un nivel inválido ("%s") sin abrir el select', async (bad) => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_xp');
+
+    const submitted = await navModal(interaction, 'staff_lvlrole_modal', { nivel: bad });
+
+    expect(submitted.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('nivel válido') }));
+    expect(submitted.update).not.toHaveBeenCalled();
+  });
+
+  it('elegir un rol después del modal guarda level_roles[nivel], audita, y refresca XP', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_xp');
+    await navModal(interaction, 'staff_lvlrole_modal', { nivel: '15' });
+
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, level_roles: { ...FULL_CONFIG.level_roles, 15: 'role-nuevo-nivel' } });
+    const selected = await navSelect(interaction, 'staff_lvlrole_select', { values: ['role-nuevo-nivel'], role: makeRole('role-nuevo-nivel') });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { level_roles: expect.objectContaining({ 15: 'role-nuevo-nivel' }) });
+    expect(logConfigChange).toHaveBeenCalledWith(selected, expect.stringContaining('15'));
+    expect(fieldValue(payloadOf(selected), 'Roles por nivel')).toBe('3 configurado(s)');
+  });
+
+  it('dejar el rol vacío BORRA la entrada de ese nivel (mismo comportamiento que /config rol-nivel), no la deja como estaba', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_xp');
+    await navModal(interaction, 'staff_lvlrole_modal', { nivel: '5' }); // FULL_CONFIG ya tiene algo en el nivel 5
+
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, level_roles: { 10: 'role-lvl10' } }); // sin la clave "5"
+    const selected = await navSelect(interaction, 'staff_lvlrole_select', { values: [], role: null });
+
+    const savedArg = setGuildConfig.mock.calls.find((c) => 'level_roles' in c[1])[1].level_roles;
+    expect(savedArg).not.toHaveProperty('5');
+    expect(logConfigChange).toHaveBeenCalledWith(selected, expect.stringContaining('quitado'));
+  });
+
+  it('si la sesión se cortó entre el modal y el select (draft perdido), avisa en vez de guardar cualquier cosa', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_xp');
+    // Nunca se envió el modal — no hay draft con el nivel.
+
+    const selected = await navSelect(interaction, 'staff_lvlrole_select', { values: ['role-x'], role: makeRole('role-x') });
+
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('expiró') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('revalidación server-side: el select también rechaza a un no-admin', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    const selected = await navSelect(interaction, 'staff_lvlrole_select', { values: ['role-x'], role: makeRole('role-x') });
+
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
   });
 });
