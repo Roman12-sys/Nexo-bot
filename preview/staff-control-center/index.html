@@ -1,0 +1,1175 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NEXO Staff Control Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     NEXO STAFF CONTROL CENTER — preview visual/interactivo
+     Diseño comprometido a UN SOLO tema (oscuro), a propósito:
+     el pedido explícito es "oscura, minimalista, SaaS premium" —
+     no un toggle de tema. Colores pintados explícitamente para
+     que se vea igual sin importar el host.
+     ============================================================ */
+  :root{
+    --bg:#0a0a0e;
+    --surface:#131318;
+    --surface-2:#1b1b22;
+    --surface-hover:#202029;
+    --border:#242430;
+    --border-strong:#34343f;
+    --text:#eeeef2;
+    --muted:#95959f;
+    --muted-2:#6c6c78;
+    --accent:#7f5af0;         /* púrpura Nexo — BRAND_COLOR real usado en cada embed del bot */
+    --accent-strong:#9b7bf5;
+    --accent-soft:rgba(127,90,240,.14);
+    --accent-text:#c9b8fb;
+    --success:#3ddc84;
+    --success-soft:rgba(61,220,132,.13);
+    --warning:#f5a623;
+    --warning-soft:rgba(245,166,35,.13);
+    --danger:#f2545b;
+    --danger-soft:rgba(242,84,91,.13);
+    --shadow: 0 10px 30px -14px rgba(0,0,0,.6);
+    --radius-lg:16px;
+    --radius-md:12px;
+    --radius-sm:8px;
+    --font-display:'Sora', ui-sans-serif, system-ui, sans-serif;
+    --font-body:'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-mono:'IBM Plex Mono', ui-monospace, 'SF Mono', monospace;
+  }
+  *,*::before,*::after{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(1100px 520px at 12% -8%, rgba(127,90,240,.10), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(127,90,240,.06), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--font-body);
+    font-size:14.5px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3,h4{ font-family:var(--font-display); margin:0; text-wrap:balance; }
+  p{ margin:0; }
+  button{ font-family:inherit; }
+  ::selection{ background:var(--accent-soft); }
+  .mono{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .muted{ color:var(--muted); }
+  a{ color:inherit; }
+  :focus-visible{ outline:2px solid var(--accent-strong); outline-offset:2px; border-radius:6px; }
+
+  /* ---------- topbar ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:40;
+    display:flex; align-items:center; gap:14px;
+    padding:14px 26px;
+    background:rgba(10,10,14,.82);
+    backdrop-filter:blur(10px) saturate(140%);
+    border-bottom:1px solid var(--border);
+  }
+  .topbar__back{
+    display:inline-flex; align-items:center; gap:6px;
+    background:transparent; border:1px solid var(--border); color:var(--muted);
+    padding:7px 12px; border-radius:999px; font-size:12.5px; font-weight:600; cursor:pointer;
+    transition:border-color .15s ease, color .15s ease, background .15s ease;
+    visibility:hidden;
+  }
+  .topbar__back:hover{ border-color:var(--border-strong); color:var(--text); background:var(--surface-2); }
+  .topbar__crumb{ display:flex; align-items:center; gap:10px; min-width:0; }
+  .topbar__icon{ font-size:18px; line-height:1; }
+  .topbar__title{ font-family:var(--font-display); font-weight:700; font-size:16px; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .topbar__spacer{ flex:1; }
+  .topbar__right{ display:flex; align-items:center; gap:10px; }
+  .preview-badge{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family:var(--font-mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--accent-text); background:var(--accent-soft); border:1px solid rgba(127,90,240,.35);
+    padding:5px 10px; border-radius:999px;
+  }
+  .server-mini{
+    display:none; align-items:center; gap:8px; font-size:12px; color:var(--muted);
+    border:1px solid var(--border); padding:6px 12px; border-radius:999px; background:var(--surface);
+  }
+  @media (min-width:720px){ .server-mini{ display:inline-flex; } }
+  .status-dot{ width:7px; height:7px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px var(--success-soft); }
+
+  /* ---------- layout ---------- */
+  #app{ max-width:1180px; margin:0 auto; padding:28px 26px 90px; }
+  #app.enter{ animation:screenIn .28s ease both; }
+  @keyframes screenIn{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+  .screen-head{ margin-bottom:22px; }
+  .screen-head h1{ font-size:24px; font-weight:700; display:flex; align-items:center; gap:10px; }
+  .screen-head p{ color:var(--muted); margin-top:6px; font-size:13.5px; max-width:60ch; }
+
+  /* ---------- server card (home) ---------- */
+  .server-card{
+    display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap;
+    padding:24px 26px; margin-bottom:24px;
+  }
+  .eyebrow{ font-family:var(--font-mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted-2); }
+  .server-card h1{ font-size:22px; margin-top:6px; }
+  .server-card .mono{ font-size:12.5px; color:var(--muted); margin-top:4px; display:inline-block; }
+  .status-pill{
+    display:inline-flex; align-items:center; gap:8px;
+    font-family:var(--font-mono); font-size:12px; font-weight:600; letter-spacing:.04em;
+    padding:8px 16px; border-radius:999px;
+  }
+  .status-pill--on{ background:var(--success-soft); color:var(--success); border:1px solid rgba(61,220,132,.35); }
+  .status-pill--off{ background:var(--danger-soft); color:var(--danger); border:1px solid rgba(242,84,91,.35); }
+  .status-pill--warn{ background:var(--warning-soft); color:var(--warning); border:1px solid rgba(245,166,35,.35); }
+  .status-pill .dot{ width:7px; height:7px; border-radius:50%; background:currentColor; }
+
+  /* ---------- module grid ---------- */
+  .module-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(190px,1fr)); gap:14px; }
+  .module-card{
+    position:relative;
+    display:flex; flex-direction:column; align-items:flex-start; gap:12px;
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg);
+    padding:20px; text-align:left; cursor:pointer; color:var(--text);
+    transition:transform .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .module-card:hover{ transform:translateY(-2px); border-color:var(--border-strong); background:var(--surface-hover); }
+  .module-card__icon{
+    width:42px; height:42px; display:flex; align-items:center; justify-content:center;
+    font-size:20px; border-radius:12px; background:var(--accent-soft);
+  }
+  .module-card__label{ font-family:var(--font-display); font-weight:600; font-size:14.5px; }
+  .module-card__badge{
+    position:absolute; top:14px; right:14px; font-family:var(--font-mono); font-size:10.5px;
+    color:var(--muted); background:var(--surface-2); border:1px solid var(--border); padding:3px 8px; border-radius:999px;
+  }
+
+  /* ---------- generic card ---------- */
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:20px 22px; box-shadow:var(--shadow); }
+  .card + .card{ margin-top:14px; }
+  .card__head{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .card__title{ font-family:var(--font-display); font-weight:700; font-size:14px; letter-spacing:.03em; text-transform:uppercase; color:var(--text); }
+  .card__foot{ margin-top:16px; display:flex; gap:10px; flex-wrap:wrap; }
+  .cards-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(260px,1fr)); gap:14px; }
+
+  /* ---------- config menu list ---------- */
+  .menu-list{ display:flex; flex-direction:column; }
+  .menu-row{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:16px 4px; border-bottom:1px solid var(--border); cursor:pointer; background:none; border-left:none; border-right:none; border-top:none;
+    width:100%; text-align:left; color:var(--text);
+  }
+  .menu-row:last-child{ border-bottom:none; }
+  .menu-row:hover .menu-row__label{ color:var(--accent-text); }
+  .menu-row__left{ display:flex; align-items:center; gap:12px; }
+  .menu-row__icon{ font-size:17px; width:30px; height:30px; display:flex; align-items:center; justify-content:center; background:var(--surface-2); border-radius:9px; }
+  .menu-row__label{ font-weight:600; font-size:14px; transition:color .15s ease; }
+  .menu-row__sub{ font-size:12px; color:var(--muted); margin-top:2px; }
+  .menu-row__chev{ color:var(--muted-2); }
+
+  /* ---------- rows inside cards ---------- */
+  .row{ display:flex; align-items:center; justify-content:space-between; gap:14px; padding:13px 0; border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  .row:last-child{ border-bottom:none; }
+  .row__label{ font-weight:600; font-size:13.5px; }
+  .row__value{ font-family:var(--font-mono); font-size:13px; color:var(--muted); }
+  .row__right{ display:flex; align-items:center; gap:10px; }
+
+  /* ---------- buttons ---------- */
+  .btn{ display:inline-flex; align-items:center; justify-content:center; gap:7px; border-radius:10px; padding:10px 16px; font-family:var(--font-display); font-weight:600; font-size:13px; cursor:pointer; border:1px solid transparent; transition:filter .15s ease, background .15s ease, border-color .15s ease, color .15s ease; white-space:nowrap; }
+  .btn-primary{ background:var(--accent); color:#fff; }
+  .btn-primary:hover{ filter:brightness(1.08); }
+  .btn-ghost{ background:transparent; border-color:var(--border); color:var(--text); }
+  .btn-ghost:hover{ border-color:var(--border-strong); background:var(--surface-2); }
+  .btn-danger{ background:transparent; border-color:rgba(242,84,91,.4); color:var(--danger); }
+  .btn-danger:hover{ background:var(--danger-soft); }
+  .btn-sm{ padding:6px 12px; font-size:12px; border-radius:8px; }
+  .btn-block{ width:100%; }
+  .btn[disabled]{ opacity:.45; cursor:not-allowed; }
+
+  /* ---------- toggle switch ---------- */
+  .switch{ --w:40px; --h:22px; width:var(--w); height:var(--h); border-radius:999px; background:var(--surface-2); border:1px solid var(--border-strong); position:relative; cursor:pointer; flex:0 0 auto; transition:background .15s ease, border-color .15s ease; }
+  .switch::after{ content:''; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:var(--muted); transition:transform .18s ease, background .15s ease; }
+  .switch[data-on="true"]{ background:var(--accent-soft); border-color:rgba(127,90,240,.5); }
+  .switch[data-on="true"]::after{ transform:translateX(18px); background:var(--accent); }
+
+  /* ---------- chips ---------- */
+  .chip-list{ display:flex; flex-wrap:wrap; gap:10px; }
+  .chip{ display:inline-flex; align-items:center; gap:10px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:8px 8px 8px 14px; font-size:13px; font-weight:600; }
+  .chip__actions{ display:flex; gap:4px; }
+  .chip__icon-btn{ width:24px; height:24px; display:flex; align-items:center; justify-content:center; border-radius:6px; border:none; background:transparent; color:var(--muted); cursor:pointer; font-size:12px; }
+  .chip__icon-btn:hover{ background:var(--surface-hover); color:var(--text); }
+
+  /* ---------- metric tiles ---------- */
+  .metric-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:14px; }
+  .metric-tile{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:16px 18px; }
+  .metric-tile__label{ font-size:11.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; font-family:var(--font-mono); }
+  .metric-tile__value{ font-family:var(--font-display); font-size:24px; font-weight:700; margin-top:6px; }
+  .metric-tile__value.up{ color:var(--success); }
+  .metric-tile__value.down{ color:var(--danger); }
+
+  /* ---------- discord-style preview embed ---------- */
+  .embed-preview{ border-left:4px solid var(--accent); background:var(--surface-2); border-radius:0 10px 10px 0; padding:14px 16px; }
+  .embed-preview__title{ font-weight:700; font-size:14px; margin-bottom:6px; }
+  .embed-preview__desc{ font-size:13px; color:var(--muted); white-space:pre-line; }
+  .embed-preview__field{ margin-top:10px; font-size:12.5px; }
+  .embed-preview__field b{ display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted-2); margin-bottom:2px; }
+
+  /* ---------- forms ---------- */
+  .field{ margin-bottom:14px; }
+  .field label{ display:block; font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:6px; }
+  .field input[type=text], .field input[type=number], .field select, .field textarea{
+    width:100%; background:var(--surface-2); border:1px solid var(--border); color:var(--text);
+    padding:10px 12px; border-radius:10px; font-family:var(--font-body); font-size:13.5px;
+  }
+  .field textarea{ resize:vertical; min-height:76px; }
+  .field input:focus, .field select:focus, .field textarea:focus{ border-color:var(--accent); outline:none; }
+  .field-row{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .field input[type=color]{ width:44px; height:38px; padding:2px; border-radius:8px; background:var(--surface-2); border:1px solid var(--border); cursor:pointer; }
+  .field-hint{ font-size:11.5px; color:var(--muted-2); margin-top:5px; }
+
+  /* ---------- modal ---------- */
+  .modal-backdrop{ position:fixed; inset:0; background:rgba(6,6,10,.66); backdrop-filter:blur(3px); display:flex; align-items:center; justify-content:center; padding:20px; z-index:100; opacity:0; transition:opacity .18s ease; }
+  .modal-backdrop.show{ opacity:1; }
+  .modal-card{ width:min(520px,100%); max-height:86vh; overflow:auto; background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--radius-lg); padding:24px; transform:translateY(10px) scale(.98); transition:transform .18s ease; box-shadow:0 30px 60px -20px rgba(0,0,0,.7); }
+  .modal-backdrop.show .modal-card{ transform:none; }
+  .modal-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:18px; }
+  .modal-head h2{ font-size:17px; font-weight:700; display:flex; align-items:center; gap:8px; }
+  .modal-head p{ font-size:12.5px; color:var(--muted); margin-top:4px; }
+  .modal-close{ background:none; border:none; color:var(--muted); font-size:18px; cursor:pointer; line-height:1; padding:4px; }
+  .modal-close:hover{ color:var(--text); }
+  .modal-foot{ display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+
+  /* ---------- toasts ---------- */
+  #toast-region{ position:fixed; right:20px; bottom:20px; display:flex; flex-direction:column; gap:10px; z-index:200; width:min(340px,calc(100vw - 32px)); }
+  .toast{ display:flex; align-items:flex-start; gap:10px; background:var(--surface-2); border:1px solid var(--border-strong); border-radius:12px; padding:13px 15px; box-shadow:0 14px 34px -14px rgba(0,0,0,.65); opacity:0; transform:translateY(10px); transition:opacity .2s ease, transform .2s ease; font-size:13px; }
+  .toast.show{ opacity:1; transform:none; }
+  .toast__icon{ font-size:15px; margin-top:1px; }
+  .toast-success .toast__icon{ color:var(--success); }
+  .toast-warning .toast__icon{ color:var(--warning); }
+  .toast-info .toast__icon{ color:var(--accent-text); }
+
+  /* ---------- chart ---------- */
+  .chart-wrap{ overflow-x:auto; }
+  .chart-wrap svg{ display:block; min-width:520px; width:100%; height:auto; }
+  .chart-bar{ fill:var(--accent); opacity:.9; }
+  .chart-grid{ stroke:var(--border); stroke-width:1; }
+  .chart-label{ fill:var(--muted); font-family:var(--font-mono); font-size:10.5px; }
+  .chart-value{ fill:var(--text); font-family:var(--font-mono); font-size:10.5px; font-weight:600; }
+
+  /* ---------- empty / helper text ---------- */
+  .helper-note{ font-size:12.5px; color:var(--muted-2); margin-top:10px; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width:760px){
+    #app{ padding:20px 16px 80px; }
+    .server-card{ flex-direction:column; align-items:flex-start; }
+    .topbar{ padding:12px 16px; }
+    .field-row{ grid-template-columns:1fr; }
+  }
+  @media (max-width:480px){
+    #toast-region{ left:12px; right:12px; width:auto; bottom:12px; }
+    .module-grid{ grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); }
+    .modal-card{ padding:18px; }
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{ animation:none !important; transition:none !important; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <button class="topbar__back" id="back-btn" data-back>← Volver</button>
+    <div class="topbar__crumb">
+      <span class="topbar__icon" id="crumb-icon">🏠</span>
+      <span class="topbar__title" id="crumb-title">NEXO STAFF</span>
+    </div>
+    <div class="topbar__spacer"></div>
+    <div class="topbar__right">
+      <span class="server-mini"><span class="status-dot"></span> Comunidad Argenta</span>
+      <span class="preview-badge">● preview · datos ficticios</span>
+    </div>
+  </div>
+
+  <main id="app"></main>
+  <div id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div id="modal-root"></div>
+
+<script>
+(function(){
+  'use strict';
+
+  // ============================================================
+  // MOCK DATA — todo lo que se ve acá es ficticio. Nada de esto
+  // lee ni escribe en Supabase/Discord real. Los nombres de
+  // comandos y conceptos (rol-nivel, /economia-staff, tiers de
+  // permisos, etc.) sí son reales del producto, para que la
+  // preview se sienta fiel a NEXO — pero los NÚMEROS son inventados.
+  // ============================================================
+  const MOCK = {
+    server: { name: 'Comunidad Argenta', id: '1182874699169017987' },
+    moderation: {
+      warn: { enabled: true, channel: '#mod-logs' },
+      mute: { enabled: true, role: '@Muted' },
+      logs: { channel: '#registro-moderacion' },
+      recentActions: 42,
+    },
+    economy: {
+      enabled: true,
+      startingCoins: 1000,
+      daily: true, work: true, crime: true, rob: true, casino: true, bank: true,
+      circulating: 1284500,
+      limits: { dailyMin: 150, dailyMax: 400, robPercentMax: 25, cooldownRobHours: 1 },
+    },
+    xp: {
+      enabled: true, perMessage: 15, perVoiceMinute: 10,
+      levelRoles: [
+        { level: 5, name: '@Activo' },
+        { level: 10, name: '@Veterano' },
+        { level: 20, name: '@Élite' },
+      ],
+      leaderboard: [
+        { name: 'facu.dev', level: 34 },
+        { name: 'romi_', level: 29 },
+        { name: 'nachoo', level: 27 },
+        { name: 'valen.ok', level: 25 },
+        { name: 'tomigg', level: 22 },
+      ],
+    },
+    roles: {
+      selfAssignable: [
+        { name: '@Gaming', emoji: '🎮' },
+        { name: '@Anime', emoji: '🎌' },
+        { name: '@Warzone', emoji: '🔫' },
+      ],
+      rewardRoles: [
+        { name: '@Ganador de sorteo', source: 'Sorteos' },
+        { name: '@Top Trivia', source: 'Logros' },
+      ],
+    },
+    giveaways: {
+      active: [
+        { prize: 'Nitro Classic (1 mes)', entries: 84, endsIn: '4h 12m' },
+        { prize: '5.000 coins', entries: 31, endsIn: '1d 3h' },
+      ],
+      history: [
+        { prize: 'Rol VIP por 1 semana', winner: 'nachoo', date: 'hace 2 días' },
+        { prize: '2.000 coins', winner: 'valen.ok', date: 'hace 4 días' },
+        { prize: 'Steam Key sorpresa', winner: 'tomigg', date: 'hace 5 días' },
+      ],
+      finishedThisWeek: 7,
+      winners: 12,
+    },
+    announcements: {
+      templates: [
+        { name: 'Mantenimiento programado' },
+        { name: 'Nuevo evento semanal' },
+        { name: 'Bienvenida a nuevos mods' },
+        { name: 'Aviso de reglas' },
+      ],
+      lastSentHoursAgo: 2,
+      history: [
+        { title: 'Nuevo evento semanal', channel: '#anuncios', date: 'hace 2 horas' },
+        { title: 'Mantenimiento del bot', channel: '#anuncios', date: 'hace 1 día' },
+      ],
+    },
+    digest: {
+      enabled: true, day: 'Domingo', hour: '20:00', channel: '#estadisticas',
+      preview: { activeMembers: 1284, economyDelta: 124500, xpDistributed: 84200, giveaways: 3, moderationActions: 42 },
+    },
+    stats: {
+      activeMembers: 1284, messages: 18420, xpDistributed: 84200, coinsCreated: 250500, coinsDestroyed: 174300,
+      weekly: [
+        { day: 'Lun', value: 2180 }, { day: 'Mar', value: 2640 }, { day: 'Mié', value: 2990 },
+        { day: 'Jue', value: 2510 }, { day: 'Vie', value: 3320 }, { day: 'Sáb', value: 3840 }, { day: 'Dom', value: 2950 },
+      ],
+    },
+    minigames: {
+      trivia: { enabled: true, today: 34 },
+      guess: { enabled: true, today: 21 },
+      polls: { enabled: true, active: 1 },
+    },
+    missions: {
+      completionRate: 68,
+      list: [
+        { name: 'Enviar 20 mensajes', kind: 'Diaria', progressPct: 100 },
+        { name: 'Ganar 3 partidas de trivia', kind: 'Diaria', progressPct: 66 },
+        { name: 'Acumular 5.000 XP', kind: 'Semanal', progressPct: 40 },
+      ],
+    },
+    achievements: {
+      total: 13, unlockedThisWeek: 26,
+      list: [
+        { icon: '🎯', name: 'Primeros pasos' },
+        { icon: '💰', name: 'Millonario' },
+        { icon: '🧠', name: 'Cerebrito' },
+        { icon: '🍀', name: 'Con suerte' },
+        { icon: '🥷', name: 'Ladrón experto' },
+      ],
+    },
+    welcome: {
+      enabled: true, channel: '#bienvenida',
+      message: '¡Bienvenido/a {usuario} a {servidor}! Sos el miembro #{numero}. 🎉',
+    },
+    channels: {
+      modLog: '#registro-moderacion', activityLog: '#registro-actividad', economyLog: '#registro-economia',
+      welcome: '#bienvenida', confessions: '#confesiones', digest: '#estadisticas',
+    },
+    system: {
+      latencyMs: 47, uptimeDays: 12, supabase: 'ok',
+      permissions: [
+        'Ver canales', 'Enviar mensajes', 'Insertar enlaces', 'Ver historial',
+        'Gestionar mensajes', 'Gestionar canales', 'Gestionar roles', 'Expulsar miembros',
+        'Banear miembros', 'Aplicar timeout', 'Mover miembros de voz', 'Adjuntar archivos',
+      ],
+    },
+  };
+
+  const CHANNEL_OPTIONS = ['#registro-moderacion','#registro-actividad','#registro-economia','#mod-logs','#general','#staff-chat','#estadisticas','#bienvenida','#confesiones','#anuncios'];
+  const ROLE_OPTIONS = ['@Muted','@Silenciado','@Sancionado'];
+
+  function fmt(n){ return n.toLocaleString('es-AR'); }
+  function getPath(obj, path){ return path.split('.').reduce((o,k)=> (o==null?undefined:o[k]), obj); }
+  function setPath(obj, path, value){
+    const keys = path.split('.'); let o = obj;
+    for(let i=0;i<keys.length-1;i++) o = o[keys[i]];
+    o[keys[keys.length-1]] = value;
+  }
+  function esc(str){ return String(str).replace(/[&<>"']/g, (c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function pill(on, textOn, textOff){
+    return on
+      ? '<span class="status-pill status-pill--on"><span class="dot"></span> ' + (textOn || '🟢 Activado') + '</span>'
+      : '<span class="status-pill status-pill--off"><span class="dot"></span> ' + (textOff || '🔴 Desactivado') + '</span>';
+  }
+  function switchHtml(path, extra){
+    const on = !!getPath(MOCK, path);
+    return '<button class="switch" data-on="' + on + '" data-action="toggle" data-target="' + path + '"' + (extra||'') + ' aria-label="Activar o desactivar"></button>';
+  }
+
+  // ============================================================
+  // ROUTER
+  // ============================================================
+  const TITLES = {
+    home: ['🏠','NEXO STAFF'],
+    config: ['⚙️','Configuración'],
+    moderacion: ['🛡️','Moderación'],
+    economia: ['💰','Economía'],
+    xp: ['⭐','XP y niveles'],
+    roles: ['🎭','Roles'],
+    sorteos: ['🎁','Sorteos'],
+    anuncios: ['📢','Anuncios'],
+    minijuegos: ['🎮','Minijuegos'],
+    misiones: ['🎯','Misiones'],
+    logros: ['🏆','Logros'],
+    estadisticas: ['📊','Estadísticas'],
+    sistema: ['🔧','Sistema'],
+    bienvenida: ['👋','Bienvenida'],
+    canales: ['📺','Canales'],
+    digest: ['📈','Digest semanal'],
+  };
+
+  let stack = [];
+  let current = 'home';
+
+  function navigateTo(screen){
+    if(screen === current) return;
+    stack.push(current);
+    current = screen;
+    render();
+  }
+  function goBack(){
+    current = stack.pop() || 'home';
+    render();
+  }
+  function render(){
+    const app = document.getElementById('app');
+    app.classList.remove('enter');
+    void app.offsetWidth;
+    app.innerHTML = SCREENS[current] ? SCREENS[current]() : '<p>Pantalla no encontrada.</p>';
+    app.classList.add('enter');
+    const [icon, title] = TITLES[current] || ['🏠','NEXO STAFF'];
+    document.getElementById('crumb-icon').textContent = icon;
+    document.getElementById('crumb-title').textContent = title;
+    document.getElementById('back-btn').style.visibility = current === 'home' ? 'hidden' : 'visible';
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  // ============================================================
+  // MÓDULOS (grilla home)
+  // ============================================================
+  const MODULES = [
+    { id:'config', icon:'⚙️', label:'Configuración' },
+    { id:'moderacion', icon:'🛡️', label:'Moderación', badge: MOCK.moderation.recentActions + ' acciones' },
+    { id:'economia', icon:'💰', label:'Economía' },
+    { id:'xp', icon:'⭐', label:'XP y niveles' },
+    { id:'sorteos', icon:'🎁', label:'Sorteos', badge: MOCK.giveaways.active.length + ' activos' },
+    { id:'roles', icon:'🎭', label:'Roles' },
+    { id:'anuncios', icon:'📢', label:'Anuncios' },
+    { id:'minijuegos', icon:'🎮', label:'Minijuegos' },
+    { id:'misiones', icon:'🎯', label:'Misiones' },
+    { id:'logros', icon:'🏆', label:'Logros' },
+    { id:'estadisticas', icon:'📊', label:'Estadísticas' },
+    { id:'sistema', icon:'🔧', label:'Sistema' },
+  ];
+
+  // ============================================================
+  // SCREENS
+  // ============================================================
+  const SCREENS = {};
+
+  SCREENS.home = function(){
+    return ''
+      + '<section class="card server-card">'
+      + '  <div>'
+      + '    <span class="eyebrow">SERVIDOR</span>'
+      + '    <h1>' + esc(MOCK.server.name) + '</h1>'
+      + '    <span class="mono muted">ID ' + MOCK.server.id + '</span>'
+      + '  </div>'
+      + '  <div>' + pill(true, '🟢 NEXO ONLINE') + '</div>'
+      + '</section>'
+      + '<div class="module-grid">'
+      + MODULES.map(function(m){
+          return '<button class="module-card" data-nav="' + m.id + '">'
+            + '<span class="module-card__icon">' + m.icon + '</span>'
+            + '<span class="module-card__label">' + m.label + '</span>'
+            + (m.badge ? '<span class="module-card__badge">' + m.badge + '</span>' : '')
+            + '</button>';
+        }).join('')
+      + '</div>';
+  };
+
+  SCREENS.config = function(){
+    const items = [
+      ['moderacion','🛡️','Moderación','Warns, mute, canal de logs'],
+      ['economia','💰','Economía','Daily, crime, rob, casino, banco'],
+      ['xp','⭐','XP','XP por mensaje/voz, roles por nivel'],
+      ['roles','🎭','Roles','Autoasignables, nivel, recompensa'],
+      ['sorteos','🎁','Sorteos','Crear y administrar giveaways'],
+      ['anuncios','📢','Anuncios','Plantillas y constructor visual'],
+      ['bienvenida','👋','Bienvenida','Canal y mensaje de nuevos miembros'],
+      ['digest','📈','Digest semanal','Resumen automático de actividad'],
+      ['misiones','🎯','Misiones','Catálogo de misiones activas'],
+      ['canales','📺','Canales','Todos los canales configurados'],
+    ];
+    return ''
+      + '<div class="screen-head"><h1>⚙️ Configuración del servidor</h1><p>Elegí qué querés configurar. Cada sección abre su propio panel.</p></div>'
+      + '<div class="card" style="padding:6px 22px;">'
+      + '<div class="menu-list">'
+      + items.map(function(it){
+          return '<button class="menu-row" data-nav="' + it[0] + '">'
+            + '<span class="menu-row__left"><span class="menu-row__icon">' + it[1] + '</span>'
+            + '<span><span class="menu-row__label">' + it[2] + '</span><div class="menu-row__sub">' + it[3] + '</div></span></span>'
+            + '<span class="menu-row__chev">›</span></button>';
+        }).join('')
+      + '</div></div>';
+  };
+
+  SCREENS.moderacion = function(){
+    const m = MOCK.moderation;
+    return ''
+      + '<div class="screen-head"><h1>🛡️ Moderación</h1><p>Configuración de warns, mute y logs de moderación.</p></div>'
+      + '<div class="cards-grid">'
+      + card('WARN SYSTEM', ''
+          + row('Estado', pill(m.warn.enabled))
+          + row('Canal de logs', '<span class="row__value">' + m.warn.channel + '</span>')
+        , '<button class="btn btn-ghost btn-sm" data-modal="channel" data-target="moderation.warn.channel" data-title="Canal de logs de warns">Configurar</button>')
+      + card('MUTE', ''
+          + row('Estado', pill(m.mute.enabled))
+          + row('Rol', '<span class="row__value">' + m.mute.role + '</span>')
+        , '<button class="btn btn-ghost btn-sm" data-modal="role" data-target="moderation.mute.role" data-title="Rol de mute">Configurar</button>')
+      + card('LOGS', ''
+          + row('Canal', '<span class="row__value">' + m.logs.channel + '</span>')
+        , '<button class="btn btn-ghost btn-sm" data-modal="channel" data-target="moderation.logs.channel" data-title="Canal de logs de moderación">Cambiar canal</button>')
+      + '</div>'
+      + '<p class="helper-note">Últimas 24h: ' + m.recentActions + ' acciones de moderación registradas.</p>';
+  };
+
+  SCREENS.economia = function(){
+    const e = MOCK.economy;
+    return ''
+      + '<div class="screen-head"><h1>💰 Economía</h1><p>Sistema de wallet, banco y casino de NEXO.</p></div>'
+      + '<div class="card">'
+      + '<div class="card__head"><span class="card__title">Sistema económico</span>' + pill(e.enabled) + '</div>'
+      + row('Coins iniciales', '<span class="row__value mono">' + fmt(e.startingCoins) + '</span>')
+      + row('Daily', switchHtml('economy.daily'))
+      + row('Work', switchHtml('economy.work'))
+      + row('Crime', switchHtml('economy.crime'))
+      + row('Rob', switchHtml('economy.rob'))
+      + row('Casino', switchHtml('economy.casino'))
+      + row('Banco', switchHtml('economy.bank'))
+      + '<div class="card__foot">'
+      + '<button class="btn btn-ghost btn-sm" data-modal="economia-configurar">Configurar</button>'
+      + '<button class="btn btn-ghost btn-sm" data-modal="economia-ver">Ver economía</button>'
+      + '<button class="btn btn-ghost btn-sm" data-modal="economia-limites">Límites</button>'
+      + '<button class="btn btn-ghost btn-sm" data-modal="economia-staff">Staff</button>'
+      + '</div></div>';
+  };
+
+  SCREENS.xp = function(){
+    const x = MOCK.xp;
+    return ''
+      + '<div class="screen-head"><h1>⭐ XP y niveles</h1><p>Progresión de miembros por actividad en mensajes y voz.</p></div>'
+      + '<div class="card">'
+      + '<div class="card__head"><span class="card__title">Sistema de XP</span>' + pill(x.enabled) + '</div>'
+      + row('XP por mensaje', '<span class="row__value mono">' + x.perMessage + ' XP</span>')
+      + row('XP por minuto en voz', '<span class="row__value mono">' + x.perVoiceMinute + ' XP</span>')
+      + row('Roles por nivel', '<span class="row__value mono">' + x.levelRoles.length + ' configurados</span>')
+      + '<div class="card__foot">'
+      + '<button class="btn btn-ghost btn-sm" data-modal="xp-configurar">Configurar XP</button>'
+      + '<button class="btn btn-ghost btn-sm" data-modal="xp-roles">Roles por nivel</button>'
+      + '<button class="btn btn-ghost btn-sm" data-modal="xp-niveles">Ver niveles</button>'
+      + '</div></div>';
+  };
+
+  SCREENS.roles = function(){
+    const r = MOCK.roles;
+    return ''
+      + '<div class="screen-head"><h1>🎭 Roles</h1><p>Roles autoasignables, por nivel y de recompensa.</p></div>'
+      + card('Roles autoasignables · ' + r.selfAssignable.length + ' configurados', ''
+          + '<div class="chip-list">' + r.selfAssignable.map(function(role, i){ return roleChip(role.emoji + ' ' + role.name, 'roles.selfAssignable', i); }).join('') + '</div>'
+        , '<button class="btn btn-primary btn-sm" data-modal="crear-rol-auto">+ Crear rol autoasignable</button>')
+      + card('Roles por nivel · ' + MOCK.xp.levelRoles.length + ' configurados', ''
+          + '<div class="chip-list">' + MOCK.xp.levelRoles.map(function(role, i){ return roleChip('Nv.' + role.level + ' → ' + role.name, 'xp.levelRoles', i); }).join('') + '</div>'
+        , '<button class="btn btn-ghost btn-sm" data-nav="xp">Ir a XP</button>')
+      + card('Roles de recompensa · ' + r.rewardRoles.length + ' configurados', ''
+          + '<div class="chip-list">' + r.rewardRoles.map(function(role, i){ return roleChip(role.name + ' <span class="muted">· ' + role.source + '</span>', 'roles.rewardRoles', i); }).join('') + '</div>'
+        , '');
+  };
+  function roleChip(label, path, index){
+    return '<span class="chip">' + label
+      + '<span class="chip__actions">'
+      + '<button class="chip__icon-btn" data-modal="editar-rol" data-target="' + path + '" data-index="' + index + '" title="Editar">✏️</button>'
+      + '<button class="chip__icon-btn" data-action="delete-item" data-target="' + path + '" data-index="' + index + '" title="Eliminar">🗑️</button>'
+      + '</span></span>';
+  }
+
+  SCREENS.sorteos = function(){
+    const g = MOCK.giveaways;
+    return ''
+      + '<div class="screen-head"><h1>🎁 Sorteos</h1><p>Estado general de los giveaways del servidor.</p></div>'
+      + '<div class="metric-grid" style="margin-bottom:14px;">'
+      + metricTile('Sorteos activos', g.active.length)
+      + metricTile('Finalizados esta semana', g.finishedThisWeek)
+      + metricTile('Ganadores', g.winners)
+      + '</div>'
+      + '<div class="card__foot" style="margin-bottom:14px;">'
+      + '<button class="btn btn-primary btn-sm" data-modal="crear-sorteo">Crear sorteo</button>'
+      + '<button class="btn btn-ghost btn-sm" data-modal="sorteos-activos">Sorteos activos</button>'
+      + '<button class="btn btn-ghost btn-sm" data-modal="sorteos-historial">Historial</button>'
+      + '</div>';
+  };
+
+  SCREENS.anuncios = function(){
+    const a = MOCK.announcements;
+    return ''
+      + '<div class="screen-head"><h1>📢 Anuncios</h1><p>Constructor visual de anuncios con plantillas guardadas.</p></div>'
+      + '<div class="metric-grid" style="margin-bottom:14px;">'
+      + metricTile('Plantillas', a.templates.length)
+      + metricTile('Último anuncio', 'hace ' + a.lastSentHoursAgo + 'h')
+      + '</div>'
+      + '<div class="card__foot">'
+      + '<button class="btn btn-primary btn-sm" data-modal="crear-anuncio">Crear anuncio</button>'
+      + '<button class="btn btn-ghost btn-sm" data-modal="anuncios-plantillas">Plantillas</button>'
+      + '<button class="btn btn-ghost btn-sm" data-modal="anuncios-historial">Historial</button>'
+      + '</div>';
+  };
+
+  SCREENS.digest = function(){
+    const d = MOCK.digest;
+    return ''
+      + '<div class="screen-head"><h1>📈 Digest semanal</h1><p>Resumen automático de actividad, enviado una vez por semana.</p></div>'
+      + card('Configuración', ''
+          + row('Estado', pill(d.enabled))
+          + row('Día', '<span class="row__value">' + d.day + '</span>')
+          + row('Hora', '<span class="row__value mono">' + d.hour + '</span>')
+          + row('Canal', '<span class="row__value">' + d.channel + '</span>')
+        , '<button class="btn btn-ghost btn-sm" data-modal="digest-configurar">Configurar</button><button class="btn btn-ghost btn-sm" data-modal="digest-preview">Ver preview</button>')
+      + digestPreviewCard(d);
+  };
+  function digestPreviewCard(d){
+    const p = d.preview;
+    return '<div class="card"><div class="card__head"><span class="card__title">Preview del próximo informe</span></div>'
+      + '<div class="embed-preview">'
+      + '<div class="embed-preview__title">RESUMEN SEMANAL</div>'
+      + '<div class="embed-preview__field"><b>👥 Miembros activos</b>' + fmt(p.activeMembers) + '</div>'
+      + '<div class="embed-preview__field"><b>💰 Economía</b>+' + fmt(p.economyDelta) + ' coins</div>'
+      + '<div class="embed-preview__field"><b>⭐ XP distribuida</b>' + fmt(p.xpDistributed) + '</div>'
+      + '<div class="embed-preview__field"><b>🎁 Sorteos</b>' + p.giveaways + '</div>'
+      + '<div class="embed-preview__field"><b>🛡️ Moderación</b>' + p.moderationActions + ' acciones</div>'
+      + '</div></div>';
+  }
+
+  SCREENS.estadisticas = function(){
+    const s = MOCK.stats;
+    return ''
+      + '<div class="screen-head"><h1>📊 Estadísticas</h1><p>Actividad general del servidor, en vivo.</p></div>'
+      + '<div class="metric-grid" style="margin-bottom:16px;">'
+      + metricTile('Miembros activos', fmt(s.activeMembers))
+      + metricTile('Mensajes', fmt(s.messages))
+      + metricTile('XP distribuida', fmt(s.xpDistributed))
+      + metricTile('Coins creadas', fmt(s.coinsCreated), 'up')
+      + metricTile('Coins destruidas', fmt(s.coinsDestroyed), 'down')
+      + '</div>'
+      + '<div class="card"><div class="card__head"><span class="card__title">Actividad semanal (mensajes)</span></div>'
+      + '<div class="chart-wrap">' + weeklyChart(s.weekly) + '</div></div>';
+  };
+
+  function weeklyChart(data){
+    const W = 560, H = 200, padL = 34, padB = 26, padT = 18;
+    const max = Math.max.apply(null, data.map(function(d){ return d.value; }));
+    const barW = (W - padL - 16) / data.length - 10;
+    const scaleY = (H - padT - padB) / max;
+    let bars = '', labels = '', grid = '';
+    for(let g=0; g<=3; g++){
+      const y = padT + (H - padT - padB) * (g/3);
+      grid += '<line class="chart-grid" x1="' + padL + '" x2="' + (W-10) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" />';
+    }
+    data.forEach(function(d, i){
+      const x = padL + i * ((W - padL - 16) / data.length) + 5;
+      const h = d.value * scaleY;
+      const y = H - padB - h;
+      bars += '<rect class="chart-bar" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="4"></rect>';
+      bars += '<text class="chart-value" x="' + (x + barW/2).toFixed(1) + '" y="' + (y - 6).toFixed(1) + '" text-anchor="middle">' + (d.value/1000).toFixed(1) + 'k</text>';
+      labels += '<text class="chart-label" x="' + (x + barW/2).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle">' + d.day + '</text>';
+    });
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Mensajes por día, últimos 7 días">' + grid + bars + labels + '</svg>';
+  }
+
+  SCREENS.sistema = function(){
+    const s = MOCK.system;
+    return ''
+      + '<div class="screen-head"><h1>🔧 Sistema</h1><p>Salud del bot y del dashboard — equivalente visual de <span class="mono">/estado</span>.</p></div>'
+      + '<div class="metric-grid" style="margin-bottom:14px;">'
+      + metricTile('Latencia', s.latencyMs + ' ms')
+      + metricTile('Uptime', s.uptimeDays + ' días')
+      + metricTile('Supabase', 'OK', 'up')
+      + '</div>'
+      + card('Permisos esenciales del bot · ' + s.permissions.length + '/12 concedidos', ''
+          + '<div class="chip-list">' + s.permissions.map(function(p){ return '<span class="chip" style="cursor:default;">✅ ' + p + '</span>'; }).join('') + '</div>'
+        , '');
+  };
+
+  SCREENS.minijuegos = function(){
+    const m = MOCK.minigames;
+    return ''
+      + '<div class="screen-head"><h1>🎮 Minijuegos</h1><p>Trivia, adivinanzas y encuestas.</p></div>'
+      + '<div class="cards-grid">'
+      + card('TRIVIA', row('Estado', pill(m.trivia.enabled)) + row('Partidas hoy', '<span class="row__value mono">' + m.trivia.today + '</span>'), '')
+      + card('ADIVINAR NÚMERO', row('Estado', pill(m.guess.enabled)) + row('Partidas hoy', '<span class="row__value mono">' + m.guess.today + '</span>'), '')
+      + card('ENCUESTAS', row('Estado', pill(m.polls.enabled)) + row('Activas ahora', '<span class="row__value mono">' + m.polls.active + '</span>'), '')
+      + '</div>';
+  };
+
+  SCREENS.misiones = function(){
+    const m = MOCK.missions;
+    return ''
+      + '<div class="screen-head"><h1>🎯 Misiones</h1><p>Catálogo de misiones diarias y semanales.</p></div>'
+      + '<div class="card"><div class="card__head"><span class="card__title">Tasa de finalización</span><span class="mono">' + m.completionRate + '%</span></div>'
+      + '<div style="height:8px;background:var(--surface-2);border-radius:999px;overflow:hidden;"><div style="height:100%;width:' + m.completionRate + '%;background:var(--accent);"></div></div></div>'
+      + m.list.map(function(mi){
+          return card(mi.name + ' <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0;">· ' + mi.kind + '</span>', ''
+            + '<div style="height:6px;background:var(--surface-2);border-radius:999px;overflow:hidden;margin-top:4px;"><div style="height:100%;width:' + mi.progressPct + '%;background:' + (mi.progressPct>=100?'var(--success)':'var(--accent)') + ';"></div></div>'
+          , '');
+        }).join('');
+  };
+
+  SCREENS.logros = function(){
+    const a = MOCK.achievements;
+    return ''
+      + '<div class="screen-head"><h1>🏆 Logros</h1><p>Catálogo de logros desbloqueables por los miembros.</p></div>'
+      + '<div class="metric-grid" style="margin-bottom:14px;">'
+      + metricTile('Total en catálogo', a.total)
+      + metricTile('Desbloqueados esta semana', a.unlockedThisWeek, 'up')
+      + '</div>'
+      + '<div class="card"><div class="card__head"><span class="card__title">Más comunes</span></div>'
+      + '<div class="chip-list">' + a.list.map(function(x){ return '<span class="chip" style="cursor:default;">' + x.icon + ' ' + x.name + '</span>'; }).join('') + '</div></div>';
+  };
+
+  SCREENS.bienvenida = function(){
+    const w = MOCK.welcome;
+    return ''
+      + '<div class="screen-head"><h1>👋 Bienvenida</h1><p>Mensaje y canal para nuevos miembros.</p></div>'
+      + card('Configuración', ''
+          + row('Estado', pill(w.enabled))
+          + row('Canal', '<span class="row__value">' + w.channel + '</span>')
+        , '<button class="btn btn-ghost btn-sm" data-modal="bienvenida-configurar">Configurar</button>')
+      + '<div class="card"><div class="card__head"><span class="card__title">Vista previa del mensaje</span></div>'
+      + '<div class="embed-preview"><div class="embed-preview__desc">' + esc(w.message).replace('{usuario}','<b>@nuevo_miembro</b>').replace('{servidor}','<b>' + MOCK.server.name + '</b>').replace('{numero}','<b>1.285</b>') + '</div></div></div>';
+  };
+
+  SCREENS.canales = function(){
+    const c = MOCK.channels;
+    const rows = [
+      ['Logs de moderación','channels.modLog'],
+      ['Logs de actividad','channels.activityLog'],
+      ['Logs de economía','channels.economyLog'],
+      ['Bienvenida','channels.welcome'],
+      ['Confesiones','channels.confessions'],
+      ['Digest semanal','channels.digest'],
+    ];
+    return ''
+      + '<div class="screen-head"><h1>📺 Canales</h1><p>Todos los canales que NEXO usa en este servidor, en un solo lugar.</p></div>'
+      + '<div class="card">' + rows.map(function(r){
+          return row(r[0], '<span class="row__value">' + getPath(MOCK, r[1]) + '</span><button class="btn btn-ghost btn-sm" data-modal="channel" data-target="' + r[1] + '" data-title="' + r[0] + '">Cambiar</button>');
+        }).join('') + '</div>';
+  };
+
+  // ---- helpers de armado de tarjetas ----
+  function card(title, body, foot){
+    return '<div class="card"><div class="card__head"><span class="card__title">' + title + '</span></div>' + body + (foot ? '<div class="card__foot">' + foot + '</div>' : '') + '</div>';
+  }
+  function row(label, right){
+    return '<div class="row"><span class="row__label">' + label + '</span><span class="row__right">' + right + '</span></div>';
+  }
+  function metricTile(label, value, trend){
+    return '<div class="metric-tile"><div class="metric-tile__label">' + label + '</div><div class="metric-tile__value' + (trend ? ' ' + trend : '') + '">' + value + '</div></div>';
+  }
+
+  // ============================================================
+  // MODALES
+  // ============================================================
+  function openModal(html){
+    const root = document.getElementById('modal-root');
+    root.innerHTML = '<div class="modal-backdrop" data-close-modal><div class="modal-card" role="dialog" aria-modal="true">' + html + '</div></div>';
+    requestAnimationFrame(function(){ root.querySelector('.modal-backdrop').classList.add('show'); });
+  }
+  function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
+
+  function modalHead(icon, title, sub){
+    return '<div class="modal-head"><div><h2>' + icon + ' ' + title + '</h2>' + (sub ? '<p>' + sub + '</p>' : '') + '</div><button class="modal-close" data-modal-close aria-label="Cerrar">✕</button></div>';
+  }
+  function selectOptions(options, current){
+    return options.map(function(o){ return '<option value="' + o + '"' + (o===current?' selected':'') + '>' + o + '</option>'; }).join('');
+  }
+
+  function openModalFor(kind, ds){
+    if(kind === 'channel'){
+      const cur = getPath(MOCK, ds.target);
+      openModal(
+        modalHead('📺', ds.title || 'Elegir canal') +
+        '<div class="field"><label>Canal</label><select id="m-select">' + selectOptions(CHANNEL_OPTIONS, cur) + '</select></div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="save-path" data-target="' + ds.target + '" data-input="m-select">Guardar</button></div>'
+      );
+    } else if(kind === 'role'){
+      const cur = getPath(MOCK, ds.target);
+      openModal(
+        modalHead('🎭', ds.title || 'Elegir rol') +
+        '<div class="field"><label>Rol</label><select id="m-select">' + selectOptions(ROLE_OPTIONS, cur) + '</select></div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="save-path" data-target="' + ds.target + '" data-input="m-select">Guardar</button></div>'
+      );
+    } else if(kind === 'economia-configurar'){
+      const e = MOCK.economy;
+      openModal(
+        modalHead('💰','Configurar economía') +
+        '<div class="field"><label>Coins iniciales</label><input type="number" id="m-starting" value="' + e.startingCoins + '"></div>' +
+        '<div class="field"><label>Estado del sistema</label>' + switchHtml('economy.enabled') + '</div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="save-economia-config">Guardar</button></div>'
+      );
+    } else if(kind === 'economia-ver'){
+      openModal(
+        modalHead('💰','Panorama económico', 'Circulante total del servidor') +
+        '<div class="metric-grid" style="margin-bottom:4px;">' + metricTile('Coins en circulación', fmt(MOCK.economy.circulating)) + '</div>' +
+        '<div class="card" style="margin-top:14px;box-shadow:none;"><div class="card__head"><span class="card__title">Top balances</span></div>' +
+        MOCK.xp.leaderboard.slice(0,5).map(function(u,i){ return row('#' + (i+1) + ' ' + u.name, '<span class="row__value mono">' + fmt((5-i)*4200) + '</span>'); }).join('') +
+        '</div><div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cerrar</button></div>'
+      );
+    } else if(kind === 'economia-limites'){
+      const l = MOCK.economy.limits;
+      openModal(
+        modalHead('💰','Límites económicos') +
+        '<div class="field-row"><div class="field"><label>Daily mínimo</label><input type="number" id="m-dmin" value="' + l.dailyMin + '"></div>' +
+        '<div class="field"><label>Daily máximo</label><input type="number" id="m-dmax" value="' + l.dailyMax + '"></div></div>' +
+        '<div class="field-row"><div class="field"><label>Rob % máximo</label><input type="number" id="m-rob" value="' + l.robPercentMax + '"></div>' +
+        '<div class="field"><label>Cooldown de rob (h)</label><input type="number" id="m-cd" value="' + l.cooldownRobHours + '"></div></div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="save-generic" data-toast="✓ Límites guardados">Guardar</button></div>'
+      );
+    } else if(kind === 'economia-staff'){
+      openModal(
+        modalHead('💰','Permisos de staff sobre economía', 'Modelo de 3 tiers de NEXO') +
+        '<div class="field"><label>Tier 1 — Moderador</label><p class="muted" style="font-size:12.5px;">Moderación completa (warn, ban, kick, timeout). No puede tocar economía.</p></div>' +
+        '<div class="field"><label>Tier 2 — Administrador</label><p class="muted" style="font-size:12.5px;">Todo lo del Tier 1, más <span class="mono">/economia-staff</span> y <span class="mono">/xp</span> — únicos con permiso de acreditar balance/XP sin límite.</p></div>' +
+        '<div class="field"><label>Tier 3 — Dueño / Administrator</label><p class="muted" style="font-size:12.5px;"><span class="mono">/setup</span>, <span class="mono">/config</span>.</p></div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cerrar</button></div>'
+      );
+    } else if(kind === 'xp-configurar'){
+      const x = MOCK.xp;
+      openModal(
+        modalHead('⭐','Configurar XP') +
+        '<div class="field-row"><div class="field"><label>XP por mensaje</label><input type="number" id="m-msg" value="' + x.perMessage + '"></div>' +
+        '<div class="field"><label>XP por minuto en voz</label><input type="number" id="m-voice" value="' + x.perVoiceMinute + '"></div></div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="save-xp-config">Guardar</button></div>'
+      );
+    } else if(kind === 'xp-roles'){
+      openModal(
+        modalHead('⭐','Roles por nivel') +
+        MOCK.xp.levelRoles.map(function(r){ return row('Nivel ' + r.level, '<span class="row__value">' + r.name + '</span>'); }).join('') +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cerrar</button><button class="btn btn-primary" data-nav-modal="roles">Ir a Roles</button></div>'
+      );
+    } else if(kind === 'xp-niveles'){
+      openModal(
+        modalHead('⭐','Ranking de niveles') +
+        MOCK.xp.leaderboard.map(function(u,i){ return row('#' + (i+1) + ' ' + u.name, '<span class="row__value mono">Nv. ' + u.level + '</span>'); }).join('') +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cerrar</button></div>'
+      );
+    } else if(kind === 'crear-rol-auto'){
+      openModal(
+        modalHead('🎭','Crear rol autoasignable') +
+        '<div class="field-row"><div class="field"><label>Emoji</label><input type="text" id="m-emoji" placeholder="🎮" maxlength="2"></div>' +
+        '<div class="field"><label>Nombre del rol</label><input type="text" id="m-name" placeholder="@Nombre"></div></div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="add-role">Crear</button></div>'
+      );
+    } else if(kind === 'editar-rol'){
+      const item = getPath(MOCK, ds.target)[ds.index];
+      openModal(
+        modalHead('✏️','Editar rol') +
+        '<div class="field"><label>Nombre</label><input type="text" id="m-rename" value="' + (item.name || '') + '"></div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="rename-role" data-target="' + ds.target + '" data-index="' + ds.index + '">Guardar</button></div>'
+      );
+    } else if(kind === 'crear-sorteo'){
+      openModal(
+        modalHead('🎁','Crear sorteo') +
+        '<div class="field"><label>Premio</label><input type="text" id="m-prize" placeholder="Ej: Nitro Classic"></div>' +
+        '<div class="field-row"><div class="field"><label>Duración</label><input type="text" id="m-duration" placeholder="Ej: 24h"></div>' +
+        '<div class="field"><label>Ganadores</label><input type="number" id="m-winners" value="1"></div></div>' +
+        '<div class="field"><label>Canal</label><select id="m-channel">' + selectOptions(CHANNEL_OPTIONS, '#anuncios') + '</select></div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="create-giveaway">Publicar sorteo</button></div>'
+      );
+    } else if(kind === 'sorteos-activos'){
+      openModal(
+        modalHead('🎁','Sorteos activos') +
+        MOCK.giveaways.active.map(function(g){ return row(g.prize, '<span class="row__value mono">' + g.entries + ' participantes · ' + g.endsIn + '</span>'); }).join('') +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cerrar</button></div>'
+      );
+    } else if(kind === 'sorteos-historial'){
+      openModal(
+        modalHead('🎁','Historial de sorteos') +
+        MOCK.giveaways.history.map(function(g){ return row(g.prize, '<span class="row__value mono">🏆 ' + g.winner + ' · ' + g.date + '</span>'); }).join('') +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cerrar</button></div>'
+      );
+    } else if(kind === 'crear-anuncio'){
+      openModal(
+        modalHead('📢','Crear anuncio') +
+        '<div class="field"><label>Título</label><input type="text" id="m-title" placeholder="Título del anuncio"></div>' +
+        '<div class="field"><label>Descripción</label><textarea id="m-desc" placeholder="Escribí el contenido..."></textarea></div>' +
+        '<div class="field-row"><div class="field"><label>Canal</label><select id="m-chan">' + selectOptions(CHANNEL_OPTIONS, '#anuncios') + '</select></div>' +
+        '<div class="field"><label>Color</label><input type="color" id="m-color" value="#7f5af0"></div></div>' +
+        '<div class="field"><label>Imagen (URL, opcional)</label><input type="text" id="m-img" placeholder="https://..."></div>' +
+        '<div id="anuncio-live-preview"></div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-action="preview-anuncio">Vista previa</button>' +
+        '<button class="btn btn-primary" data-action="publish-anuncio">Publicar</button></div>'
+      );
+    } else if(kind === 'anuncios-plantillas'){
+      openModal(
+        modalHead('📢','Plantillas guardadas') +
+        MOCK.announcements.templates.map(function(t){ return row(t.name, '<button class="btn btn-ghost btn-sm" data-action="noop-toast" data-toast="✓ Plantilla cargada en el constructor">Usar</button>'); }).join('') +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cerrar</button></div>'
+      );
+    } else if(kind === 'anuncios-historial'){
+      openModal(
+        modalHead('📢','Historial de anuncios') +
+        MOCK.announcements.history.map(function(h){ return row(h.title, '<span class="row__value mono">' + h.channel + ' · ' + h.date + '</span>'); }).join('') +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cerrar</button></div>'
+      );
+    } else if(kind === 'digest-configurar'){
+      const d = MOCK.digest;
+      openModal(
+        modalHead('📈','Configurar digest semanal') +
+        '<div class="field-row"><div class="field"><label>Día</label><select id="m-day">' + selectOptions(['Lunes','Miércoles','Viernes','Domingo'], d.day) + '</select></div>' +
+        '<div class="field"><label>Hora</label><input type="text" id="m-hour" value="' + d.hour + '"></div></div>' +
+        '<div class="field"><label>Canal</label><select id="m-dchan">' + selectOptions(CHANNEL_OPTIONS, d.channel) + '</select></div>' +
+        '<div class="field"><label>Estado</label>' + switchHtml('digest.enabled') + '</div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="save-digest">Guardar</button></div>'
+      );
+    } else if(kind === 'digest-preview'){
+      openModal(modalHead('📈','Preview del informe') + digestPreviewCard(MOCK.digest) + '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cerrar</button></div>');
+    } else if(kind === 'bienvenida-configurar'){
+      const w = MOCK.welcome;
+      openModal(
+        modalHead('👋','Configurar bienvenida') +
+        '<div class="field"><label>Canal</label><select id="m-wchan">' + selectOptions(CHANNEL_OPTIONS, w.channel) + '</select></div>' +
+        '<div class="field"><label>Mensaje</label><textarea id="m-wmsg">' + esc(w.message) + '</textarea>' +
+        '<div class="field-hint">Variables: {usuario} {servidor} {numero}</div></div>' +
+        '<div class="field"><label>Estado</label>' + switchHtml('welcome.enabled') + '</div>' +
+        '<div class="modal-foot"><button class="btn btn-ghost" data-modal-close>Cancelar</button>' +
+        '<button class="btn btn-primary" data-action="save-welcome">Guardar</button></div>'
+      );
+    }
+  }
+
+  // ============================================================
+  // TOASTS
+  // ============================================================
+  function toast(msg, type){
+    type = type || 'success';
+    const icon = type === 'success' ? '✓' : type === 'warning' ? '⚠️' : 'ℹ️';
+    const el = document.createElement('div');
+    el.className = 'toast toast-' + type;
+    el.innerHTML = '<span class="toast__icon">' + icon + '</span><span>' + msg + '</span>';
+    document.getElementById('toast-region').appendChild(el);
+    requestAnimationFrame(function(){ el.classList.add('show'); });
+    setTimeout(function(){
+      el.classList.remove('show');
+      setTimeout(function(){ el.remove(); }, 250);
+    }, 3200);
+  }
+
+  // ============================================================
+  // ACCIONES (guardar, alternar, crear, borrar...)
+  // ============================================================
+  function handleAction(action, ds, el){
+    if(action === 'toggle'){
+      const cur = !!getPath(MOCK, ds.target);
+      setPath(MOCK, ds.target, !cur);
+      el.setAttribute('data-on', String(!cur));
+      toast(!cur ? '✓ Activado' : '✓ Desactivado');
+      return;
+    }
+    if(action === 'save-path'){
+      const value = document.getElementById(ds.input).value;
+      setPath(MOCK, ds.target, value);
+      closeModal();
+      render();
+      toast('✓ Configuración guardada');
+      return;
+    }
+    if(action === 'save-economia-config'){
+      MOCK.economy.startingCoins = Number(document.getElementById('m-starting').value) || 0;
+      closeModal(); render();
+      toast('✓ Configuración de economía guardada');
+      return;
+    }
+    if(action === 'save-xp-config'){
+      MOCK.xp.perMessage = Number(document.getElementById('m-msg').value) || 0;
+      MOCK.xp.perVoiceMinute = Number(document.getElementById('m-voice').value) || 0;
+      closeModal(); render();
+      toast('✓ Configuración de XP guardada');
+      return;
+    }
+    if(action === 'save-generic'){
+      closeModal();
+      toast(ds.toast || '✓ Guardado');
+      return;
+    }
+    if(action === 'noop-toast'){
+      toast(ds.toast || '✓ Listo');
+      return;
+    }
+    if(action === 'add-role'){
+      const emoji = (document.getElementById('m-emoji').value || '🏷️').trim();
+      const name = (document.getElementById('m-name').value || '').trim();
+      if(!name){ toast('⚠️ Poné un nombre para el rol', 'warning'); return; }
+      MOCK.roles.selfAssignable.push({ name: name.startsWith('@') ? name : '@' + name, emoji: emoji });
+      closeModal(); render();
+      toast('✓ Rol agregado correctamente');
+      return;
+    }
+    if(action === 'delete-item'){
+      const arr = getPath(MOCK, ds.target);
+      arr.splice(Number(ds.index), 1);
+      render();
+      toast('✓ Eliminado correctamente');
+      return;
+    }
+    if(action === 'rename-role'){
+      const arr = getPath(MOCK, ds.target);
+      const val = document.getElementById('m-rename').value.trim();
+      if(val) arr[Number(ds.index)].name = val;
+      closeModal(); render();
+      toast('✓ Rol actualizado');
+      return;
+    }
+    if(action === 'create-giveaway'){
+      const prize = document.getElementById('m-prize').value.trim() || 'Premio sorpresa';
+      const duration = document.getElementById('m-duration').value.trim() || '24h';
+      MOCK.giveaways.active.push({ prize: prize, entries: 0, endsIn: duration });
+      closeModal(); render();
+      toast('✓ Sorteo publicado correctamente');
+      return;
+    }
+    if(action === 'preview-anuncio'){
+      const title = esc(document.getElementById('m-title').value || 'Título del anuncio');
+      const desc = esc(document.getElementById('m-desc').value || 'Descripción del anuncio...');
+      const color = document.getElementById('m-color').value || '#7f5af0';
+      const box = document.getElementById('anuncio-live-preview');
+      box.innerHTML = '<div class="embed-preview" style="border-left-color:' + color + ';margin-top:6px;">'
+        + '<div class="embed-preview__title">' + title + '</div>'
+        + '<div class="embed-preview__desc">' + desc + '</div></div>';
+      return;
+    }
+    if(action === 'publish-anuncio'){
+      const title = document.getElementById('m-title').value.trim();
+      if(!title){ toast('⚠️ Completá al menos el título', 'warning'); return; }
+      MOCK.announcements.lastSentHoursAgo = 0;
+      closeModal(); render();
+      toast('✓ Preview: anuncio publicado correctamente');
+      return;
+    }
+    if(action === 'save-digest'){
+      MOCK.digest.day = document.getElementById('m-day').value;
+      MOCK.digest.hour = document.getElementById('m-hour').value;
+      MOCK.digest.channel = document.getElementById('m-dchan').value;
+      closeModal(); render();
+      toast('✓ Digest semanal actualizado');
+      return;
+    }
+    if(action === 'save-welcome'){
+      MOCK.welcome.channel = document.getElementById('m-wchan').value;
+      MOCK.welcome.message = document.getElementById('m-wmsg').value;
+      closeModal(); render();
+      toast('✓ Bienvenida actualizada');
+      return;
+    }
+  }
+
+  // ============================================================
+  // EVENTOS (delegación global)
+  // ============================================================
+  document.addEventListener('click', function(e){
+    const navEl = e.target.closest('[data-nav]');
+    if(navEl){ navigateTo(navEl.getAttribute('data-nav')); return; }
+
+    const backEl = e.target.closest('[data-back]');
+    if(backEl){ goBack(); return; }
+
+    const modalNavEl = e.target.closest('[data-nav-modal]');
+    if(modalNavEl){ closeModal(); navigateTo(modalNavEl.getAttribute('data-nav-modal')); return; }
+
+    const modalEl = e.target.closest('[data-modal]');
+    if(modalEl){ openModalFor(modalEl.getAttribute('data-modal'), modalEl.dataset); return; }
+
+    const closeBtn = e.target.closest('[data-modal-close]');
+    if(closeBtn){ closeModal(); return; }
+
+    if(e.target.classList && e.target.classList.contains('modal-backdrop') && e.target.hasAttribute('data-close-modal')){
+      closeModal(); return;
+    }
+
+    const actionEl = e.target.closest('[data-action]');
+    if(actionEl){ handleAction(actionEl.getAttribute('data-action'), actionEl.dataset, actionEl); return; }
+  });
+
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape') closeModal();
+  });
+
+  // ============================================================
+  // INIT
+  // ============================================================
+  render();
+})();
+</script>
+</body>
+</html>

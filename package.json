@@ -11,6 +11,8 @@
     "dev": "node --watch src/index.js",
     "dashboard": "node dashboard/server.js",
     "dashboard:dev": "node --watch dashboard/server.js",
+    "website": "node website/server.js",
+    "website:dev": "node --watch website/server.js",
     "deploy": "node src/deploy-commands.js",
     "test": "vitest run",
     "test:watch": "vitest"

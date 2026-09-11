@@ -73,6 +73,7 @@ src/
   components/             routers de botones/selects/modales por prefijo de customId
   utils/                  stores de datos (Supabase) + lógica de Discord separada
 dashboard/               panel web de solo lectura — proceso propio, ver más abajo
+website/                 sitio oficial (landing) — proceso propio, ver más abajo
 ```
 
 Cada comando/feature que necesita botones o modales se autorregistra en los routers de
@@ -91,6 +92,8 @@ feature nueva. Ver [`CLAUDE.md`](CLAUDE.md) para el resto de las decisiones de d
 | `npm run test:watch` | Tests en modo watch |
 | `npm run dashboard` | Arranca el panel web (proceso separado del bot) |
 | `npm run dashboard:dev` | Panel web con `--watch` |
+| `npm run website` | Arranca el sitio oficial (landing, proceso separado del bot y del dashboard) |
+| `npm run website:dev` | Sitio con `--watch` |
 
 ## Dashboard web
 
@@ -127,6 +130,39 @@ En Railway: crear un **segundo servicio** apuntando a este mismo repo, con start
 `npm run dashboard`. Railway define `PORT` solo; el resto de las variables (`DISCORD_TOKEN`,
 `CLIENT_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` + las 3 de arriba) hay que
 cargarlas en ese servicio igual que en el del bot.
+
+## Sitio web (`website/`)
+
+Landing oficial de NEXO — 3er proceso Express, separado del bot Y del dashboard (mismo
+repo, otro entry point, pensado para un 3er servicio de Railway). A propósito **no
+importa `src/config.js` ni `src/utils/errorReporter.js`**: ninguno de los dos necesita
+`DISCORD_TOKEN` ni `SUPABASE_SERVICE_ROLE_KEY` para nada, así que este proceso nunca los
+tiene en memoria — si algún día aparece una vulnerabilidad en una dependencia de este
+servicio, el radio de daño queda acotado a "se puede desfigurar la landing", nunca a
+"se filtró el token del bot o el acceso de escritura a la base".
+
+Todos los datos que muestra (cantidad de comandos, categorías, tests) se calculan al
+arrancar leyendo el filesystem real del repo (`website/data/stats.js`) — no están
+tipeados a mano, así que nunca quedan desactualizados como pasó con el Artifact de
+landing anterior ("70+ comandos", ya en 88). El catálogo de funciones
+(`website/data/features.js`) sí es curado a mano, pero cada número es verificable contra
+`src/commands/`.
+
+`/login` y "Abrir Dashboard" no reimplementan OAuth — enlazan al dashboard real
+(`DASHBOARD_BASE_URL`), que ya tiene todo el flujo. Sin esa variable configurada, esos
+links simplemente no aparecen (nunca un dominio inventado).
+
+**Puesta en marcha:**
+
+```bash
+npm run website       # producción, puerto 3100 en local (3000 ya lo usa el dashboard)
+npm run website:dev   # con --watch
+```
+
+En Railway: un 3er servicio sobre este mismo repo, start command `npm run website`. Solo
+necesita `CLIENT_ID` (público, ya está en el servicio del bot) y, opcionalmente,
+`DASHBOARD_BASE_URL`, `SUPPORT_CONTACT` y `WEBSITE_BASE_URL` (dominio propio del sitio,
+para canonical/OG/sitemap.xml — ver `.env.example`).
 
 ## Legal / publicación
 

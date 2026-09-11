@@ -1,0 +1,2532 @@
+{
+  "generatedAt": "2026-09-11T05:52:33.211Z",
+  "commands": [
+    {
+      "name": "8ball",
+      "description": "Le preguntás algo a la bola mágica.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "pregunta",
+          "description": "Tu pregunta",
+          "required": true,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "afk",
+      "description": "Te marca como ausente. Se te quita solo al escribir de nuevo (o con quitar:true).",
+      "category": "diversion",
+      "folder": "utilidad",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "motivo",
+          "description": "Por qué estás ausente (opcional)",
+          "required": false,
+          "type": "texto",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "quitar",
+          "description": "Quitarte el AFK ahora mismo, sin esperar a tu próximo mensaje",
+          "required": false,
+          "type": "sí/no",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "angry",
+      "description": "Mostrás que estás enojado/a.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "anuncio",
+      "description": "Abre el constructor de anuncios con vista previa en vivo.",
+      "category": "anuncios",
+      "folder": "anuncios",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageGuild"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "color_predefinido",
+          "description": "Elegí un color de la paleta (opcional, podés poner un HEX propio en el panel)",
+          "required": false,
+          "type": "texto",
+          "choices": [
+            "🟣 Púrpura Nexo (predeterminado)",
+            "🔴 Rojo",
+            "🟠 Naranja",
+            "🟡 Dorado",
+            "🟢 Verde",
+            "🔵 Azul",
+            "⚪ Blanco",
+            "⚫ Negro"
+          ]
+        },
+        {
+          "kind": "parameter",
+          "name": "imagen_archivo",
+          "description": "Subí una imagen desde tu computadora para el anuncio (opcional)",
+          "required": false,
+          "type": "archivo",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "mencionar_rol",
+          "description": "Rol a mencionar junto al anuncio (opcional)",
+          "required": false,
+          "type": "rol",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "mencionar_usuario",
+          "description": "Usuario a mencionar junto al anuncio (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "mencionar_everyone",
+          "description": "Mencionar a @everyone junto al anuncio (opcional)",
+          "required": false,
+          "type": "sí/no",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "avatar",
+      "description": "Muestra el avatar de un usuario en tamaño completo.",
+      "category": "informacion",
+      "folder": "informacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario del que querés ver el avatar (opcional, por defecto vos)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "baka",
+      "description": "Le decís baka a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "balance",
+      "description": "Muestra cuántas monedas tenés (o las de otro usuario).",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario a consultar (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "ban",
+      "description": "Banea a un usuario del servidor.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "BanMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario a banear",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "motivo",
+          "description": "Motivo",
+          "required": false,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "banana",
+      "description": "Comando sin ningún sentido, pero divertido.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "bank",
+      "description": "Guardá monedas en el banco — a salvo de /rob, y rinde interés.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "ver",
+          "description": "Muestra tu wallet y tu banco (cobra el interés acumulado).",
+          "options": []
+        },
+        {
+          "kind": "subcommand",
+          "name": "depositar",
+          "description": "Mueve monedas del wallet al banco.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "cantidad",
+              "description": "Cuánto depositar",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "retirar",
+          "description": "Mueve monedas del banco al wallet.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "cantidad",
+              "description": "Cuánto retirar",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "bite",
+      "description": "Le mordés a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "buy",
+      "description": "Comprá un ítem de la tienda.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "item",
+          "description": "Qué ítem querés comprar (escribí para buscar)",
+          "required": true,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "choose",
+      "description": "El bot elige una opción al azar por vos.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "opciones",
+          "description": "Separá las opciones con comas. Ej: pizza, sushi, milanesa",
+          "required": true,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "claps",
+      "description": "Le aplaudís a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "clear",
+      "description": "Elimina una cantidad de mensajes del canal actual.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageMessages"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "cantidad",
+          "description": "Cantidad de mensajes a eliminar (1-100)",
+          "required": true,
+          "type": "número entero",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "coinflip",
+      "description": "Apostá monedas a cara o cruz. 50/50, sin ventaja de la casa.",
+      "category": "casino",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "apuesta",
+          "description": "Cuántas monedas apostar",
+          "required": true,
+          "type": "número entero",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "eleccion",
+          "description": "A qué le apostás",
+          "required": true,
+          "type": "texto",
+          "choices": [
+            "Cara",
+            "Cruz"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "confession",
+      "description": "Enviá una confesión anónima al canal de confesiones.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "config",
+      "description": "Configura piezas sueltas del bot (rol de castigo, rol automático, canales especiales).",
+      "category": "administracion",
+      "folder": "admin",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "Administrator"
+      ],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "rol-admin",
+          "description": "Separa el rol de Administrador (economía/XP staff) del rol de Moderador — PERM-1.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "rol",
+              "description": "Rol que va a poder usar /economia-staff y /xp",
+              "required": true,
+              "type": "rol",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "rol-castigo",
+          "description": "Rol que usan /punish y /unpunish para restringir imágenes/enlaces.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "rol",
+              "description": "Rol a usar (dejalo vacío para desactivar)",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "rol-automatico",
+          "description": "Rol que se asigna solo a cada miembro nuevo que se une.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "rol",
+              "description": "Rol a asignar (dejalo vacío para desactivar)",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "rol-autoasignable-agregar",
+          "description": "Agrega un rol a la lista que los miembros pueden elegir solos (ver /help \"Mis roles\").",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "rol",
+              "description": "Rol a agregar",
+              "required": true,
+              "type": "rol",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "rol-autoasignable-quitar",
+          "description": "Saca un rol de la lista de autoasignables (los miembros que ya lo tenían lo conservan).",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "rol",
+              "description": "Rol a quitar",
+              "required": true,
+              "type": "rol",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "canal-bienvenida",
+          "description": "Canal donde se saluda a los miembros nuevos.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "canal",
+              "description": "Canal de texto (dejalo vacío para desactivar)",
+              "required": false,
+              "type": "canal",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "canal-confesiones",
+          "description": "Canal donde se publican las confesiones anónimas de /confession.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "canal",
+              "description": "Canal de texto (dejalo vacío para desactivar)",
+              "required": false,
+              "type": "canal",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "canal-anuncio-nivel",
+          "description": "Canal donde se anuncia cuando alguien sube de nivel.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "canal",
+              "description": "Canal de texto (dejalo vacío para desactivar)",
+              "required": false,
+              "type": "canal",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "rol-nivel",
+          "description": "Asigna (o quita) el rol que se entrega automáticamente al llegar a un nivel.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "nivel",
+              "description": "Nivel exacto",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "rol",
+              "description": "Rol a entregar (dejalo vacío para quitar el rol de ese nivel)",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "modo-roles-nivel",
+          "description": "Cómo se acumulan los roles de nivel al subir varios de una vez.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "modo",
+              "description": "Acumulativo: te quedás con todos. Reemplazar: solo el del nivel más alto.",
+              "required": true,
+              "type": "texto",
+              "choices": [
+                "Acumulativo (te quedás con todos)",
+                "Reemplazar (solo el más alto)"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "confesiones-revision",
+          "description": "Si está activo, las confesiones pasan por aprobación del staff antes de publicarse.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "activo",
+              "description": "Activar o desactivar la revisión previa",
+              "required": true,
+              "type": "sí/no",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "confesion-bloquear",
+          "description": "Impide que un usuario puntual use /confession en este servidor.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario a bloquear",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "confesion-desbloquear",
+          "description": "Le devuelve a un usuario el acceso a /confession.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario a desbloquear",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "xp-finde-boost",
+          "description": "Si está activo, sábado y domingo se gana el doble de XP por mensaje y por voz.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "activo",
+              "description": "Activar o desactivar el impulso de finde",
+              "required": true,
+              "type": "sí/no",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "xp-canal-ignorar",
+          "description": "Ese canal deja de dar XP por mensajes (ej. un canal de bots o de spam).",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "canal",
+              "description": "Canal a ignorar",
+              "required": true,
+              "type": "canal",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "xp-canal-permitir",
+          "description": "Ese canal vuelve a dar XP por mensajes normalmente.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "canal",
+              "description": "Canal a permitir de nuevo",
+              "required": true,
+              "type": "canal",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "canal-lol",
+          "description": "Canal donde se avisan los patch notes de League of Legends (opcional, apagado por defecto).",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "canal",
+              "description": "Canal de texto (dejalo vacío para desactivar)",
+              "required": false,
+              "type": "canal",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "digest-semanal",
+          "description": "Resumen semanal de actividad (mensajes, comandos, economía, XP) al canal de logs de actividad.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "activo",
+              "description": "Activar o desactivar el digest semanal",
+              "required": true,
+              "type": "sí/no",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "ver",
+          "description": "Muestra la configuración actual de estos campos.",
+          "options": []
+        },
+        {
+          "kind": "subcommand",
+          "name": "exportar",
+          "description": "Descarga la configuración actual como JSON (respaldo, o para clonarla a otro servidor).",
+          "options": []
+        }
+      ]
+    },
+    {
+      "name": "crime",
+      "description": "Alternativa a /work con más riesgo: mejor paga, cooldown más corto, chance de perder monedas.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "cuddle",
+      "description": "Te acurrucás con alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "dado",
+      "description": "Duelo de dados contra el bot (1-100). Quien saque más alto gana. Empate devuelve la apuesta.",
+      "category": "casino",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "apuesta",
+          "description": "Cuántas monedas apostar",
+          "required": true,
+          "type": "número entero",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "daily",
+      "description": "Reclamá tu recompensa diaria de monedas.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "economia-staff",
+      "description": "Panel de staff para gestionar y supervisar la economía del servidor.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageGuild"
+      ],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "balance",
+          "description": "Ver el balance de un usuario.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario a consultar",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "agregar",
+          "description": "Agrega monedas al balance de un usuario.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "cantidad",
+              "description": "Cuántas monedas agregar",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "motivo",
+              "description": "Motivo",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "quitar",
+          "description": "Quita monedas del balance de un usuario.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "cantidad",
+              "description": "Cuántas monedas quitar",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "motivo",
+              "description": "Motivo",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "establecer",
+          "description": "Fija el balance de un usuario a una cantidad exacta.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "cantidad",
+              "description": "Balance exacto a fijar",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "motivo",
+              "description": "Motivo",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "historial",
+          "description": "Muestra los últimos movimientos de economía de un usuario.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "cantidad",
+              "description": "Cuántos movimientos mostrar (por defecto 10)",
+              "required": false,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "exportar",
+              "description": "Adjuntar el historial completo (hasta 1000) como CSV en vez de mostrarlo",
+              "required": false,
+              "type": "sí/no",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "perfil",
+          "description": "Muestra balance, cooldowns e inventario de un usuario en un solo lugar.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "pendientes",
+          "description": "Últimas compras de ítems de entrega manual (cambio de apodo, etc).",
+          "options": []
+        }
+      ]
+    },
+    {
+      "name": "encuesta",
+      "description": "Crea una encuesta pública con reacciones.",
+      "category": "diversion",
+      "folder": "utilidad",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "pregunta",
+          "description": "La pregunta de la encuesta",
+          "required": true,
+          "type": "texto",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "opciones",
+          "description": "Separá las opciones con comas (2-10). Si la omitís, es 👍/👎",
+          "required": false,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "estado",
+      "description": "Estado técnico del bot: latencia, conexión a la base, sistemas activos en este servidor.",
+      "category": "administracion",
+      "folder": "admin",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "feed",
+      "description": "Le das de comer a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "give",
+      "description": "Transferí monedas a otro usuario.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién le transferís",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "cantidad",
+          "description": "Cuántas monedas",
+          "required": true,
+          "type": "número entero",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "guess",
+      "description": "Adiviná un número secreto entre 1 y 100.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "numero",
+          "description": "Tu número entre 1 y 100",
+          "required": true,
+          "type": "número entero",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "handholding",
+      "description": "Le agarrás la mano a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "help",
+      "description": "Muestra los comandos disponibles para todos los miembros.",
+      "category": "informacion",
+      "folder": "informacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "helpstaff",
+      "description": "Muestra los comandos disponibles para el staff/administración.",
+      "category": "informacion",
+      "folder": "informacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageGuild"
+      ],
+      "options": []
+    },
+    {
+      "name": "hi",
+      "description": "Saludás a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "highfive",
+      "description": "Chocás los cinco con alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "hug",
+      "description": "Le das un abrazo a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "info",
+      "description": "Muestra información de tu perfil o el de otro usuario en el servidor.",
+      "category": "informacion",
+      "folder": "informacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario del que querés ver la información (opcional, por defecto vos)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "inventory",
+      "description": "Muestra tu inventario (o el de otro usuario).",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario a consultar (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "kick",
+      "description": "Expulsa a un usuario del servidor.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "KickMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario a expulsar",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "motivo",
+          "description": "Motivo",
+          "required": false,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "kickbutt",
+      "description": "Le pegás una patada a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "kiss",
+      "description": "Le das un beso a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "kitty",
+      "description": "Muestra una foto random de un gato.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "laugh",
+      "description": "Te reís de alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "leaderboard",
+      "description": "Muestra el top de usuarios con más monedas.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "lock",
+      "description": "Bloquea el canal actual para que @everyone no pueda escribir.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageChannels"
+      ],
+      "options": []
+    },
+    {
+      "name": "lucky",
+      "description": "Consultá tu número y frase de la suerte del día.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "metricas",
+      "description": "Muestra los comandos más usados de este servidor.",
+      "category": "administracion",
+      "folder": "admin",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "mision",
+      "description": "Misiones diarias y semanales — se completan y pagan solas al cumplir el objetivo.",
+      "category": "progresion",
+      "folder": "progresion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "nivel",
+      "description": "Muestra tu nivel y progreso de XP (o el de otro usuario).",
+      "category": "progresion",
+      "folder": "xp",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario a consultar (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "pat",
+      "description": "Le hacés cariño a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "perfil",
+      "description": "Muestra tu perfil completo de Nexo Bot (o el de otro usuario).",
+      "category": "informacion",
+      "folder": "informacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario a consultar (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "ping",
+      "description": "Responde pong (test de que el bot está vivo).",
+      "category": "informacion",
+      "folder": "general",
+      "dmAllowed": true,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "poke",
+      "description": "Le picás a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "prestigio",
+      "description": "A partir del nivel 50, reseteá tu nivel a cambio de una insignia permanente (⭐).",
+      "category": "progresion",
+      "folder": "xp",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "punch",
+      "description": "Le pegás un puñetazo a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "punish",
+      "description": "Restringe a un usuario para que no pueda enviar imágenes ni enlaces.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "motivo",
+          "description": "Motivo",
+          "required": false,
+          "type": "texto",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "duracion",
+          "description": "Se quita sola después de este tiempo (sin elegir, queda indefinida hasta /unpunish)",
+          "required": false,
+          "type": "texto",
+          "choices": [
+            "1 hora",
+            "6 horas",
+            "1 día",
+            "7 días"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pupper",
+      "description": "Muestra una foto random de un perro.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "ranking",
+      "description": "Muestra el ranking de niveles/XP del servidor.",
+      "category": "progresion",
+      "folder": "xp",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "recordatorio",
+      "description": "Recordatorios personales, te avisa por DM.",
+      "category": "diversion",
+      "folder": "utilidad",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "crear",
+          "description": "Crea un recordatorio nuevo.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "tiempo",
+              "description": "Ej: 10m, 2h, 3d (máximo 30 días)",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "mensaje",
+              "description": "Qué querés que te recuerde",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "repetir",
+              "description": "Repetir automáticamente después del primer aviso (opcional)",
+              "required": false,
+              "type": "texto",
+              "choices": [
+                "Diario",
+                "Semanal"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "listar",
+          "description": "Muestra tus recordatorios pendientes.",
+          "options": []
+        },
+        {
+          "kind": "subcommand",
+          "name": "cancelar",
+          "description": "Cancela un recordatorio.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "id",
+              "description": "ID del recordatorio (escribí para buscar)",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rob",
+      "description": "Intentá robarle monedas del wallet a otro usuario. 40% de éxito, con riesgo de multa si fallás.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién intentás robarle",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "roles",
+      "description": "Lista todos los roles del servidor, agrupados por categoría, con su cantidad de miembros.",
+      "category": "informacion",
+      "folder": "informacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageRoles"
+      ],
+      "options": []
+    },
+    {
+      "name": "roll",
+      "description": "Tirá uno o varios dados.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "caras",
+          "description": "Cantidad de caras del dado (por defecto 6)",
+          "required": false,
+          "type": "número entero",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "cantidad",
+          "description": "Cuántos dados tirar (por defecto 1)",
+          "required": false,
+          "type": "número entero",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "ruleta",
+      "description": "Apostá a un color. Rojo/negro pagan x2, verde (el 0) paga x30.",
+      "category": "casino",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "apuesta",
+          "description": "Cuántas monedas apostar",
+          "required": true,
+          "type": "número entero",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "color",
+          "description": "A qué color apostás",
+          "required": true,
+          "type": "texto",
+          "choices": [
+            "🔴 Rojo (x2)",
+            "⚫ Negro (x2)",
+            "🟢 Verde — el 0 (x30)"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "sanciones",
+      "description": "Panel para ver y quitar sanciones activas, o el historial de un usuario puntual.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageGuild"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Si lo completás, muestra el historial de sanciones de ese usuario",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "say",
+      "description": "El bot repite tu mensaje.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageGuild"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "mensaje",
+          "description": "Qué querés que diga el bot",
+          "required": true,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "scared",
+      "description": "Mostrás que estás asustado/a.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "servidor",
+      "description": "Muestra información general sobre este servidor.",
+      "category": "informacion",
+      "folder": "informacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "setup",
+      "description": "Configura Nexo Bot para este servidor (roles, canales de log, features activas).",
+      "category": "administracion",
+      "folder": "admin",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "Administrator"
+      ],
+      "options": []
+    },
+    {
+      "name": "shoot",
+      "description": "Le disparás a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "shop",
+      "description": "Muestra los ítems disponibles en la tienda.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "shop-admin",
+      "description": "Administra el catálogo de la tienda de este servidor.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageGuild"
+      ],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "agregar",
+          "description": "Agrega un ítem nuevo a la tienda.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "nombre",
+              "description": "Nombre del ítem",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "precio",
+              "description": "Precio en monedas",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "descripcion",
+              "description": "Descripción que se ve en /shop",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "categoria",
+              "description": "Categoría para agrupar en /shop (default: General)",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "rol",
+              "description": "Si lo completás, el rol se asigna solo al comprarlo",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "entrega_manual",
+              "description": "Si es true, el staff recibe un aviso para entregarlo a mano en vez de ser automático",
+              "required": false,
+              "type": "sí/no",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "tipo",
+              "description": "Comportamiento especial al comprarlo (dejalo vacío para un ítem normal)",
+              "required": false,
+              "type": "texto",
+              "choices": [
+                "Impulso de XP (x2 por 24hs)",
+                "Caja misteriosa (monedas al azar)",
+                "Escudo anti-robo (protege de /rob por 2hs)"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "quitar",
+          "description": "Elimina un ítem de la tienda.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "item",
+              "description": "Qué ítem borrar (escribí para buscar)",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "listar",
+          "description": "Muestra el catálogo actual con los IDs internos.",
+          "options": []
+        },
+        {
+          "kind": "subcommand",
+          "name": "editar",
+          "description": "Corrige un ítem existente sin cambiar su id (no rompe el inventario de quien ya lo compró).",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "item",
+              "description": "Qué ítem editar (escribí para buscar)",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "nombre",
+              "description": "Nuevo nombre (opcional)",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "precio",
+              "description": "Nuevo precio (opcional)",
+              "required": false,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "descripcion",
+              "description": "Nueva descripción (opcional)",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "categoria",
+              "description": "Nueva categoría (opcional)",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "rol",
+              "description": "Nuevo rol a asignar (opcional)",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "slap",
+      "description": "Le das una cachetada a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "slots",
+      "description": "Tragamonedas: 3 símbolos iguales pagan según cuál sea, 2 iguales te devuelve la apuesta.",
+      "category": "casino",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "apuesta",
+          "description": "Cuántas monedas apostar",
+          "required": true,
+          "type": "número entero",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "sorteo",
+      "description": "Sistema de sorteos.",
+      "category": "sorteos",
+      "folder": "sorteos",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageGuild"
+      ],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "crear",
+          "description": "Crea un nuevo sorteo.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "premio",
+              "description": "Qué se sortea",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "duracion",
+              "description": "Duración del sorteo",
+              "required": true,
+              "type": "texto",
+              "choices": [
+                "5 minutos",
+                "10 minutos",
+                "30 minutos",
+                "1 hora",
+                "6 horas",
+                "12 horas",
+                "1 día",
+                "3 días",
+                "1 semana"
+              ]
+            },
+            {
+              "kind": "parameter",
+              "name": "ganadores",
+              "description": "Cantidad de ganadores (por defecto: 1)",
+              "required": false,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "rol-requerido",
+              "description": "Si lo elegís, solo puede participar quien tenga este rol",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "terminar",
+          "description": "Termina un sorteo antes de tiempo y elige ganadores ya mismo.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "mensaje_id",
+              "description": "ID del mensaje del sorteo (escribí para buscar)",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "reroll",
+          "description": "Vuelve a elegir ganador(es) de un sorteo ya finalizado.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "mensaje_id",
+              "description": "ID del mensaje del sorteo (escribí para buscar)",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "cancelar",
+          "description": "Cancela un sorteo activo sin elegir ganadores.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "mensaje_id",
+              "description": "ID del mensaje del sorteo (escribí para buscar)",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "stare",
+      "description": "Mirás fijo a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "tickle",
+      "description": "Le hacés cosquillas a alguien.",
+      "category": "accion",
+      "folder": "accion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "A quién va dirigido (opcional)",
+          "required": false,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "timeout",
+      "description": "Silencia temporalmente a un usuario.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "duracion",
+          "description": "Duración",
+          "required": true,
+          "type": "texto",
+          "choices": [
+            "60 segundos",
+            "5 minutos",
+            "10 minutos",
+            "1 hora",
+            "1 día",
+            "1 semana"
+          ]
+        },
+        {
+          "kind": "parameter",
+          "name": "motivo",
+          "description": "Motivo",
+          "required": false,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "trivia",
+      "description": "Sistema de trivia: respondé preguntas y ganá puntos.",
+      "category": "diversion",
+      "folder": "diversion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "jugar",
+          "description": "Respondé una pregunta de trivia.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "dificultad",
+              "description": "Filtrar por dificultad (por defecto, cualquiera)",
+              "required": false,
+              "type": "texto",
+              "choices": [
+                "Fácil",
+                "Medio",
+                "Difícil"
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "ranking",
+          "description": "Muestra el ranking de puntos de trivia.",
+          "options": []
+        }
+      ]
+    },
+    {
+      "name": "unban",
+      "description": "Desbanea a un usuario.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "BanMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario baneado (escribí para buscar)",
+          "required": true,
+          "type": "texto",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "motivo",
+          "description": "Motivo",
+          "required": false,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "unlock",
+      "description": "Desbloquea el canal actual.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageChannels"
+      ],
+      "options": []
+    },
+    {
+      "name": "unpunish",
+      "description": "Quita la restricción de imágenes/enlaces a un usuario.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "unwarn",
+      "description": "Quita una advertencia de un usuario.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "numero",
+          "description": "Número de advertencia a quitar (elegí de la lista). Si se omite, se borran todas.",
+          "required": false,
+          "type": "número entero",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "vender",
+      "description": "Vendé un ítem de tu inventario de vuelta a la tienda por la mitad de su precio.",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "item",
+          "description": "Qué ítem vender (escribí para buscar)",
+          "required": true,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "voice",
+      "description": "Configura el sistema de canales de voz temporales (Join to Create).",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageChannels"
+      ],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "setup",
+          "description": "Configura (o reconfigura) el canal \"Crear sala\" y la categoría de las salas.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "canal",
+              "description": "Canal de voz que dispara la creación de salas",
+              "required": true,
+              "type": "canal",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "categoria",
+              "description": "Categoría donde se crean las salas",
+              "required": true,
+              "type": "canal",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "config",
+          "description": "Muestra la configuración actual del sistema.",
+          "options": []
+        },
+        {
+          "kind": "subcommand",
+          "name": "disable",
+          "description": "Desactiva el sistema de salas temporales.",
+          "options": []
+        },
+        {
+          "kind": "subcommand",
+          "name": "admin",
+          "description": "Administra las salas temporales activas (staff).",
+          "options": []
+        },
+        {
+          "kind": "subcommand",
+          "name": "estadisticas",
+          "description": "Salas más usadas históricamente (duración, sesiones).",
+          "options": []
+        }
+      ]
+    },
+    {
+      "name": "warn",
+      "description": "Aplica una advertencia a un usuario.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario a advertir",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "motivo",
+          "description": "Motivo de la advertencia",
+          "required": true,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "warn-editar",
+      "description": "Corrige el motivo de una advertencia ya aplicada, sin perder la fecha original.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "numero",
+          "description": "Número de advertencia a editar (elegí de la lista)",
+          "required": true,
+          "type": "número entero",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "motivo",
+          "description": "Motivo corregido",
+          "required": true,
+          "type": "texto",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "warns",
+      "description": "Muestra las advertencias de un usuario.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
+      "options": [
+        {
+          "kind": "parameter",
+          "name": "usuario",
+          "description": "Usuario",
+          "required": true,
+          "type": "usuario",
+          "choices": []
+        },
+        {
+          "kind": "parameter",
+          "name": "exportar",
+          "description": "Adjuntar las advertencias como CSV en vez de mostrarlas",
+          "required": false,
+          "type": "sí/no",
+          "choices": []
+        }
+      ]
+    },
+    {
+      "name": "weekly",
+      "description": "Reclamá tu recompensa semanal de monedas (mucho más grande que /daily, una vez por semana).",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "work",
+      "description": "Trabajá para ganar monedas (cooldown más corto que /daily).",
+      "category": "economia",
+      "folder": "economia",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
+      "name": "xp",
+      "description": "Panel de staff para gestionar la XP y los niveles de un usuario.",
+      "category": "moderacion",
+      "folder": "moderacion",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ManageGuild"
+      ],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "agregar",
+          "description": "Agrega XP a un usuario.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "cantidad",
+              "description": "Cuánta XP agregar",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "motivo",
+              "description": "Motivo",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "quitar",
+          "description": "Quita XP a un usuario.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "cantidad",
+              "description": "Cuánta XP quitar",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "motivo",
+              "description": "Motivo",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "establecer",
+          "description": "Fija la XP total de un usuario a una cantidad exacta.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "cantidad",
+              "description": "XP total exacta a fijar",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "motivo",
+              "description": "Motivo",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "nivel",
+          "description": "Fija el nivel exacto de un usuario (calcula la XP correspondiente).",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "usuario",
+              "description": "Usuario",
+              "required": true,
+              "type": "usuario",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "nivel",
+              "description": "Nivel exacto a fijar",
+              "required": true,
+              "type": "número entero",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "motivo",
+              "description": "Motivo",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
