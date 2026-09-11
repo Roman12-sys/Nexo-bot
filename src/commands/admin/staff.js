@@ -69,6 +69,14 @@
 // último envío, sin horario fijo. Estadísticas conecta guild_daily_stats (mismo dato
 // que ya usa el dashboard) sumado en los últimos 7 días — un pulso rápido, no un
 // reemplazo del desglose diario del dashboard.
+//
+// FASE 7 (Minijuegos/Misiones/Logros): los 3 últimos módulos sin datos reales.
+// Minijuegos es igual que Economía — sin toggle en guild_config, siempre disponible.
+// Misiones y Logros muestran su catálogo (MISSION_CATALOG/ACHIEVEMENTS), que es FIJO
+// en código e igual para cualquier servidor — nunca hace falta una consulta a
+// Supabase para esto, son las mismas constantes que ya usan missionsStore.js/
+// achievements.js. Con esto, TODAS las pantallas del panel muestran datos reales o
+// dicen honestamente "siempre activo/catálogo fijo" — ninguna queda en placeholder.
 import {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -90,6 +98,9 @@ import { resolveLiveSelfRoles } from '../../utils/selfRoles.js';
 import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
 import { getGuildAnnouncementTemplates } from '../../utils/announcementTemplatesStore.js';
 import { getGuildDailyStats } from '../../utils/guildDailyStatsStore.js';
+import { MISSION_CATALOG } from '../../utils/missionsStore.js';
+import { ACHIEVEMENTS } from '../../utils/achievements.js';
+import { joinWithOverflow } from '../../utils/logEmbeds.js';
 import { startBuilder as startAnuncioBuilder } from '../anuncios/anuncio.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
@@ -156,10 +167,6 @@ const CONFIG_ITEMS = [
   'moderacion', 'economia', 'xp', 'roles', 'sorteos',
   'anuncios', 'bienvenida', 'digest', 'misiones', 'canales',
 ];
-
-// Módulos que todavía no tienen una fuente de datos real conectada — placeholder
-// honesto en vez de un número inventado (ver la nota de alcance arriba).
-const PLACEHOLDER_SCREENS = new Set(['minijuegos', 'misiones', 'logros']);
 
 function chunk(arr, size) {
   const out = [];
@@ -500,9 +507,54 @@ async function buildSistemaScreen(interaction) {
   return { embeds: [embed], components: [navRow('sistema')] };
 }
 
+// Ya no lo usa ningún módulo a propósito (Fase 7 conectó los últimos 3 que faltaban)
+// — queda como red de seguridad genérica de buildScreen() contra un customId
+// inesperado, nunca debería alcanzarse en uso normal.
 function buildPlaceholderScreen(screen) {
-  const embed = baseEmbed(screen).setDescription('🚧 Este módulo todavía no está conectado a datos reales — llega en una fase siguiente del Staff Control Center.');
+  const embed = baseEmbed(screen).setDescription('🚧 Este módulo todavía no está conectado a datos reales.');
   return { embeds: [embed], components: [navRow(screen)] };
+}
+
+// ---------- Fase 7: Minijuegos, Misiones, Logros ----------
+
+// Igual que Economía: sin toggle propio en guild_config — /trivia, /guess, /encuesta,
+// /choose y /8ball están siempre disponibles, no hay nada que "activar" acá.
+function buildMinijuegosScreen() {
+  const embed = baseEmbed('minijuegos')
+    .setDescription('Los minijuegos de NEXO están **siempre disponibles** — igual que Economía, no tienen un interruptor propio en `guild_config`.')
+    .addFields({ name: 'Comandos disponibles', value: '`/trivia` `/guess` `/encuesta` `/choose` `/8ball`' });
+  return { embeds: [embed], components: [navRow('minijuegos')] };
+}
+
+// Catálogo FIJO en código (MISSION_CATALOG), igual para todos los servidores — sin
+// tabla `mission_definitions` ni progreso por-usuario acá (eso es /mision). Por eso no
+// hace falta ningún await: es la misma constante que ya usa missionsStore.js.
+function buildMisionesScreen() {
+  const periodLabel = { daily: 'Diaria', weekly: 'Semanal' };
+  const embed = baseEmbed('misiones')
+    .setDescription('Catálogo fijo, igual para todos los servidores — no hay nada por-server que configurar acá.')
+    .addFields({
+      name: `Catálogo (${MISSION_CATALOG.length})`,
+      value: joinWithOverflow(
+        MISSION_CATALOG.map((m) => `**[${periodLabel[m.period]}]** ${m.description} — 🪙${m.rewardCoins}${m.rewardXp ? ` ⭐${m.rewardXp}` : ''}`),
+        { sep: '\n' },
+      ),
+    });
+  embed.setFooter({ text: 'Progreso de un usuario puntual: /mision.' });
+  return { embeds: [embed], components: [navRow('misiones')] };
+}
+
+// Mismo criterio que Misiones: ACHIEVEMENTS es un catálogo fijo, sin tabla de
+// definiciones ni nada por-servidor.
+function buildLogrosScreen() {
+  const embed = baseEmbed('logros')
+    .setDescription('Catálogo fijo, igual para todos los servidores.')
+    .addFields({
+      name: `Catálogo (${ACHIEVEMENTS.length})`,
+      value: joinWithOverflow(ACHIEVEMENTS.map((a) => `${a.emoji} **${a.name}** — ${a.description}`), { sep: '\n' }),
+    });
+  embed.setFooter({ text: 'Logros desbloqueados de un usuario puntual: /perfil.' });
+  return { embeds: [embed], components: [navRow('logros')] };
 }
 
 // Misma función que ya usa el autocomplete de /sorteo y /estado — nunca una consulta
@@ -577,7 +629,9 @@ async function buildScreen(screen, interaction) {
   if (screen === 'sorteos') return buildSorteosScreen(interaction.guildId);
   if (screen === 'anuncios') return buildAnunciosScreen(interaction.guildId);
   if (screen === 'estadisticas') return buildEstadisticasScreen(interaction.guildId);
-  if (PLACEHOLDER_SCREENS.has(screen)) return buildPlaceholderScreen(screen);
+  if (screen === 'minijuegos') return buildMinijuegosScreen();
+  if (screen === 'misiones') return buildMisionesScreen();
+  if (screen === 'logros') return buildLogrosScreen();
 
   const cfg = await getGuildConfig(interaction.guildId);
   if (screen === 'moderacion') return buildModeracionScreen(cfg, interaction);

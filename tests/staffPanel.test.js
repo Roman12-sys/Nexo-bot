@@ -55,6 +55,24 @@ vi.mock('../src/commands/anuncios/anuncio.js', () => ({ startBuilder: startAnunc
 const getGuildDailyStats = vi.fn();
 vi.mock('../src/utils/guildDailyStatsStore.js', () => ({ getGuildDailyStats }));
 
+// Fase 7 (Misiones/Logros) — missionsStore.js y achievements.js registran handlers
+// REALES sobre el eventBus compartido al importarse (XP_GAINED, COINS_EARNED,
+// ACHIEVEMENT_CHECK, etc.), cada uno pegándole a Supabase — importarlos sin mockear
+// acá arriesgaría que esos listeners queden vivos durante el resto de la suite. Se
+// mockea solo el catálogo (una constante fija, no hace falta nada más).
+vi.mock('../src/utils/missionsStore.js', () => ({
+  MISSION_CATALOG: [
+    { id: 'daily_messages', period: 'daily', description: 'Mandá 15 mensajes que den XP', target: 15, rewardCoins: 50, rewardXp: 15 },
+    { id: 'weekly_earn', period: 'weekly', description: 'Ganá 1.000 monedas', target: 1000, rewardCoins: 500, rewardXp: 0 },
+  ],
+}));
+vi.mock('../src/utils/achievements.js', () => ({
+  ACHIEVEMENTS: [
+    { id: 'primera_moneda', emoji: '🪙', name: 'Primeros pasos', description: 'Reclamaste tu primer /daily.' },
+    { id: 'millonario', emoji: '💰', name: 'Millonario', description: 'Alcanzaste 10.000 monedas de balance.' },
+  ],
+}));
+
 // logConfigChange (Fase 2) — auditoría de escrituras hecha desde /staff, exportada de
 // config.js para reusar el mismo formato. Se mockea acá para no depender de
 // getGuildLogChannel/createBotConfigLogEmbed reales — lo que importa probar es que
@@ -355,13 +373,13 @@ describe('/staff — contenido real por módulo (sin inventar datos)', () => {
     expect(getGuildConfig).not.toHaveBeenCalled(); // economía no depende de guild_config
   });
 
-  it('los módulos sin datos conectados todavía (Misiones, Logros, Minijuegos) muestran el placeholder honesto, sin ni siquiera pedir guild_config', async () => {
+  it('Minijuegos, Misiones y Logros no dependen de guild_config (Fase 7 los conectó a datos reales/catálogos fijos)', async () => {
     const interaction = makeInteraction();
     await execute(interaction);
-    const clicked = await nav(interaction, 'staff_nav_misiones');
+    await nav(interaction, 'staff_nav_minijuegos');
+    await nav(interaction, 'staff_nav_misiones');
+    await nav(interaction, 'staff_nav_logros');
 
-    const payload = payloadOf(clicked);
-    expect(payload.embeds[0].data.description).toContain('🚧');
     expect(getGuildConfig).not.toHaveBeenCalled();
   });
 });
@@ -862,5 +880,37 @@ describe('/staff — Fase 6: Digest semanal (toggle real) y Estadísticas (guild
     const clicked = await nav(interaction, 'staff_nav_estadisticas');
 
     expect(fieldValue(payloadOf(clicked), 'Mensajes')).toBe('0');
+  });
+});
+
+describe('/staff — Fase 7: Minijuegos (siempre activo), Misiones y Logros (catálogo fijo)', () => {
+  it('Minijuegos dice "siempre disponibles", igual que Economía — sin toggles inventados', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_minijuegos');
+
+    expect(payloadOf(clicked).embeds[0].data.description).toContain('siempre disponibles');
+  });
+
+  it('Misiones lista el catálogo real de MISSION_CATALOG, sin ninguna consulta a Supabase', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_misiones');
+
+    const payload = payloadOf(clicked);
+    const value = fieldsOf(payload).find((f) => f.name.startsWith('Catálogo'))?.value;
+    expect(value).toContain('Mandá 15 mensajes');
+    expect(value).toContain('Ganá 1.000 monedas');
+  });
+
+  it('Logros lista el catálogo real de ACHIEVEMENTS', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_logros');
+
+    const payload = payloadOf(clicked);
+    const value = fieldsOf(payload).find((f) => f.name.startsWith('Catálogo'))?.value;
+    expect(value).toContain('Primeros pasos');
+    expect(value).toContain('Millonario');
   });
 });

@@ -15,7 +15,9 @@ const executorText = (executor) => (executor ? userTag(executor) : 'No se pudo d
 // MOTIVO: auditoría Fase 2B, sección 7 — createRoleChangeLogEmbed y
 // createGiveSuspiciousLogEmbed armaban esta lista con un .join() sin ninguna cota; con
 // suficientes roles/receptores el embed entero fallaba al mandarse (campo > 1024).
-function joinWithOverflow(items, { max = 1024, sep = ', ' } = {}) {
+// Exportada (Fase 7 del Staff Control Center) para que /staff pueda listar catálogos
+// largos (logros) con el mismo criterio de corte, en vez de un .slice(0, 1024) mudo.
+export function joinWithOverflow(items, { max = 1024, sep = ', ' } = {}) {
   let acc = '';
   let shown = 0;
   for (const item of items) {
