@@ -57,4 +57,14 @@ describe('getModerationBlockReason', () => {
     const target = makeMember('other', 99);
     expect(getModerationBlockReason(interaction, target)).toBeNull();
   });
+
+  // Auditoría completa NEXO (2026-09-11), MOD-1: el dueño de un server no siempre tiene
+  // un rol propio (Discord no lo exige) — su roles.highest.position puede ser 0, igual
+  // que un miembro sin roles. Antes de este fix, la comparación de posiciones por sí
+  // sola dejaba pasar a un moderador aplicando /punish sobre el dueño en ese caso.
+  it('bloquea actuar sobre el dueño del servidor aunque no tenga ningún rol propio (position 0)', () => {
+    const interaction = makeInteraction({ userId: 'mod-1', ownerId: 'owner-1', modPosition: 10 });
+    const ownerAsTarget = makeMember('owner-1', 0);
+    expect(getModerationBlockReason(interaction, ownerAsTarget)).toMatch(/dueño del servidor/);
+  });
 });

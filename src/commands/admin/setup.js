@@ -445,7 +445,18 @@ async function runSetup(interaction, state) {
   // /nivel solo si el módulo que lo sostiene quedó prendido en este mismo /setup. El link
   // del dashboard solo aparece si config.dashboardUrl está configurado (nunca una URL
   // inventada) — /guild/:id es la ruta real de dashboard/server.js.
-  const nextSteps = ['🔎 `/help` — mirá todos los comandos disponibles.', '💰 `/daily` — probá la economía (recompensa diaria).'];
+  //
+  // QUÉ CAMBIÓ (auditoría completa NEXO, 2026-09-11): se suma /staff. El panel visual de
+  // 8 fases (moderación, economía, XP, roles, sorteos, anuncios y más, todo con botones)
+  // no aparecía mencionado en NINGÚN lugar del producto — ni acá, ni en /help, ni en
+  // /helpstaff — así que un admin nuevo no tenía forma de enterarse de que existe salvo
+  // que alguien se lo dijera de afuera. Es quien acaba de correr /setup el destinatario
+  // exacto de esta recomendación.
+  const nextSteps = [
+    '🎛️ `/staff` — panel de administración con botones, para no tener que memorizar comandos.',
+    '🔎 `/help` — mirá todos los comandos disponibles.',
+    '💰 `/daily` — probá la economía (recompensa diaria).',
+  ];
   if (state.xp) nextSteps.push('⭐ `/nivel` — mirá tu tarjeta de XP y nivel.');
   if (config.dashboardUrl) {
     nextSteps.push(`📊 [Panel de este servidor](${config.dashboardUrl}/guild/${interaction.guildId}) — actividad, economía y moderación de un vistazo.`);

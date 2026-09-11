@@ -5,6 +5,7 @@
 import { SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { getUserXp, applyPrestige } from '../../utils/xpStore.js';
 import { buildConfirmation } from '../../utils/confirmations.js';
+import { withLock } from '../../utils/asyncLock.js';
 
 export const PRESTIGE_MIN_LEVEL = 50;
 
@@ -16,17 +17,23 @@ export const data = new SlashCommandBuilder()
 async function confirmPrestige(interaction) {
   await interaction.update({ content: '⏳ Prestigiando...', embeds: [], components: [] });
 
-  // Se revalida el nivel mínimo de nuevo acá — mismo criterio que /ban revalidando
-  // permisos al confirmar: las condiciones pueden haber cambiado en los segundos que
-  // pasaron desde que se mostró el panel (ej. staff le bajó XP con /xp quitar).
-  const record = await getUserXp(interaction.guildId, interaction.user.id);
-  if (record.level < PRESTIGE_MIN_LEVEL) {
-    await interaction.editReply({ content: `❌ Ya no cumplís el nivel mínimo (${PRESTIGE_MIN_LEVEL}) — estás en el nivel ${record.level}.` });
-    return;
-  }
+  // Auditoría completa NEXO (2026-09-11), XP-1: sin lock, dos confirmaciones de
+  // /prestigio disparadas casi al mismo tiempo (dos paneles distintos, cada uno con su
+  // propio token de confirmación) podían leer el mismo nivel ≥50 antes de que ninguna
+  // terminara de escribir, y apply_prestige no valida el nivel mínimo del lado de
+  // Postgres — el resultado era un prestige duplicado por una sola vez que se alcanzó el
+  // nivel mínimo. El lock revalida con datos frescos, mismo criterio que /daily y /rob.
+  const message = await withLock(`prestige:${interaction.guildId}:${interaction.user.id}`, async () => {
+    const record = await getUserXp(interaction.guildId, interaction.user.id);
+    if (record.level < PRESTIGE_MIN_LEVEL) {
+      return `❌ Ya no cumplís el nivel mínimo (${PRESTIGE_MIN_LEVEL}) — estás en el nivel ${record.level}.`;
+    }
 
-  const newPrestige = await applyPrestige(interaction.guildId, interaction.user.id);
-  await interaction.editReply({ content: `🌟 ¡Prestigiaste! Ahora tenés **⭐×${newPrestige}** y arrancás de nuevo desde el nivel 0.` });
+    const newPrestige = await applyPrestige(interaction.guildId, interaction.user.id);
+    return `🌟 ¡Prestigiaste! Ahora tenés **⭐×${newPrestige}** y arrancás de nuevo desde el nivel 0.`;
+  });
+
+  await interaction.editReply({ content: message });
 }
 
 export async function execute(interaction) {

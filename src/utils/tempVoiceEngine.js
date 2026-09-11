@@ -607,12 +607,12 @@ export async function handleTransferSelect(interaction, channelId) {
     return interaction.update({ content: '❌ Ya sos el propietario de esta sala.', components: [] });
   }
 
-  // Todo el chequeo-y-transferencia va bajo lock por (guild, newOwnerId): sin esto, dos
-  // transferencias concurrentes a la MISMA persona (desde dos salas distintas) pueden
-  // pasar ambas el chequeo de "¿ya tiene sala?" antes de que ninguna termine de escribir,
-  // dándole a Discord permisos reales sobre dos canales aunque la base solo pueda
-  // registrar uno (UNIQUE(guild_id, owner_id)).
-  const result = await withLock(`voice_transfer_owner:${interaction.guild.id}:${newOwnerId}`, async () => {
+  // Lock por (guild, channelId) — no por newOwnerId: además de bloquear a la MISMA
+  // persona recibiendo dos salas a la vez (el motivo original), esto también serializa
+  // dos transferencias de la MISMA sala hacia destinatarios distintos (dueño actual +
+  // /voice admin actuando casi al mismo tiempo), que antes corrían en paralelo sin
+  // pisarse porque usaban keys de lock distintas.
+  const result = await withLock(`voice_transfer:${interaction.guild.id}:${channelId}`, async () => {
     const alreadyOwns = await tempVoiceStore.getTempChannelByOwner(interaction.guild.id, newOwnerId);
     if (alreadyOwns) {
       return { content: '❌ Esa persona ya tiene su propia sala — no puede tener dos a la vez.' };
@@ -620,6 +620,10 @@ export async function handleTransferSelect(interaction, channelId) {
 
     try {
       await channel.permissionOverwrites.edit(newOwnerId, { ViewChannel: true, Connect: true, Speak: true });
+      // Sin esto, el dueño saliente conserva su overwrite individual de creación y
+      // sigue pudiendo ver/conectarse a la sala después de "perderla" — rompe la
+      // garantía de sala privada tras cualquier transferencia.
+      await channel.permissionOverwrites.delete(record.ownerId).catch(() => {});
     } catch (error) {
       console.error('❌ [voz temporal] Error dando permisos al nuevo propietario:', error);
       return { content: '❌ No se pudo completar la transferencia.' };
@@ -709,14 +713,14 @@ export async function handleAdminTransferButton(interaction, channelId) {
 }
 
 export async function handleAdminTransferSelect(interaction, channelId) {
-  const { channel, error } = await resolveAdminRoom(interaction, channelId);
+  const { record, channel, error } = await resolveAdminRoom(interaction, channelId);
   if (error) return interaction.update({ content: error, components: [] });
 
   const newOwnerId = interaction.values[0];
 
   // Mismo lock que el flujo del dueño (handleTransferSelect) — ver el comentario ahí
-  // para el motivo completo.
-  const result = await withLock(`voice_transfer_owner:${interaction.guild.id}:${newOwnerId}`, async () => {
+  // para el motivo completo (por canal, no por destinatario).
+  const result = await withLock(`voice_transfer:${interaction.guild.id}:${channelId}`, async () => {
     const alreadyOwns = await tempVoiceStore.getTempChannelByOwner(interaction.guild.id, newOwnerId);
     if (alreadyOwns) {
       return { content: '❌ Esa persona ya tiene su propia sala — no puede tener dos a la vez.' };
@@ -724,6 +728,7 @@ export async function handleAdminTransferSelect(interaction, channelId) {
 
     try {
       await channel.permissionOverwrites.edit(newOwnerId, { ViewChannel: true, Connect: true, Speak: true });
+      await channel.permissionOverwrites.delete(record.ownerId).catch(() => {});
     } catch (error) {
       console.error('❌ [voz temporal] Error (admin) transfiriendo propiedad:', error);
       return { content: '❌ No se pudo completar la transferencia.' };

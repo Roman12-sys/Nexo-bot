@@ -26,7 +26,7 @@ export default [
     price: 250,
     roleId: null,
     type: 'mystery_box',
-    description: 'Se abre sola al comprarla: podés ganar entre 50 y 600 monedas.',
+    description: 'Se abre sola al comprarla: podés ganar entre 50 y 400 monedas.',
   },
   {
     id: 'impulso_xp',

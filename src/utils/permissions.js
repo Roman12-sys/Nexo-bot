@@ -70,6 +70,13 @@ export function getModerationBlockReason(interaction, targetMember) {
   if (targetMember.id === interaction.client.user.id) {
     return '❌ No podés aplicar esta acción sobre el bot.';
   }
+  // Chequeo incondicional de posición: el dueño de un server no siempre tiene un rol
+  // propio (Discord no lo exige), así que su `roles.highest.position` puede ser 0 igual
+  // que cualquier miembro sin roles — sin esto, un moderador podía aplicar /punish sobre
+  // el dueño porque la comparación de posiciones nunca lo distinguía de un miembro común.
+  if (targetMember.id === interaction.guild.ownerId) {
+    return '❌ No podés aplicar esta acción sobre el dueño del servidor.';
+  }
 
   const isOwner = interaction.guild.ownerId === interaction.user.id;
   if (!isOwner && targetMember.roles.highest.position >= interaction.member.roles.highest.position) {

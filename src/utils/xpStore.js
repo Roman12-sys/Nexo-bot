@@ -44,19 +44,6 @@ function rowToRecord(row) {
   };
 }
 
-function recordToRow(guildId, userId, record) {
-  return {
-    guild_id: guildId,
-    user_id: userId,
-    xp: record.xp,
-    level: record.level,
-    last_xp_ts: record.lastXpTs,
-    last_content: record.lastContent,
-    xp_boost_until: record.xpBoostUntil || 0,
-    prestige: record.prestige || 0,
-  };
-}
-
 export async function getUserXp(guildId, userId) {
   const { data, error } = await supabase
     .from(TABLE)
@@ -67,14 +54,6 @@ export async function getUserXp(guildId, userId) {
 
   if (error) throw error;
   return rowToRecord(data);
-}
-
-export async function saveUserXp(guildId, userId, data) {
-  const { error } = await supabase
-    .from(TABLE)
-    .upsert(recordToRow(guildId, userId, data), { onConflict: 'guild_id,user_id' });
-
-  if (error) throw error;
 }
 
 // Devuelve TODOS los registros de XP de un servidor, ordenados de mayor a menor XP
@@ -192,11 +171,10 @@ export async function addXp(guildId, userId, amount, extra = {}) {
 }
 
 // Fija la XP de un usuario a un valor exacto (lo usa /xp establecer y /xp nivel, staff).
-// A propósito NO usa saveUserXp (que reescribe la fila entera): el upsert de acá
-// abajo solo incluye xp/level en el payload, así Postgres solo actualiza ESAS
-// columnas en el conflicto — si justo en el medio corre un grantMessageXp
-// concurrente (que actualiza last_xp_ts/last_content, el cooldown anti-farm),
-// esta escritura no lo revierte ni rebobina el cooldown.
+// El upsert de acá abajo solo incluye xp/level en el payload, así Postgres solo
+// actualiza ESAS columnas en el conflicto — si justo en el medio corre un
+// grantMessageXp concurrente (que actualiza last_xp_ts/last_content, el cooldown
+// anti-farm), esta escritura no lo revierte ni rebobina el cooldown.
 export async function setXp(guildId, userId, amount) {
   const record = await getUserXp(guildId, userId);
   const previousLevel = record.level;

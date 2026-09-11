@@ -108,6 +108,17 @@ describe('/setup — onboarding final: "🚀 Próximos pasos"', () => {
     expect(steps).toContain('/daily');
   });
 
+  // Auditoría completa NEXO (2026-09-11): /staff (el panel de administración con
+  // botones) no aparecía mencionado en ningún lugar del producto — regresión para que
+  // no vuelva a desaparecer de "Próximos pasos".
+  it('siempre menciona /staff — es el destinatario exacto que necesita descubrirlo', async () => {
+    const interaction = makeInteraction();
+    const confirm = await runSetupFlow(interaction, { template: 'personalizado' });
+
+    const steps = fieldValue(finalEmbed(confirm), '🚀 Próximos pasos');
+    expect(steps).toContain('/staff');
+  });
+
   it('con XP activado: sugiere /nivel', async () => {
     const interaction = makeInteraction();
     const confirm = await runSetupFlow(interaction, { template: 'comunidad' }); // moderacion+xp activados

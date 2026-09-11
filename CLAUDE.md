@@ -572,9 +572,14 @@ Bot y dashboard usan el mismo cliente con la `service_role` key (`src/supabaseCl
 browser (server-rendered, sesión propia firmada, nunca `express-session`/JWT de
 Supabase). `service_role` bypassea RLS siempre, esté activado o no — activarlo hoy no
 cambia nada de lo que el bot/dashboard hacen. No es una vulnerabilidad activa; es un
-seguro barato para el día que algo use el `anon key`. Migración (`enable row level
-security` en las 18 tablas, sin políticas) preparada pero sin ejecutar — decisión
-pendiente del usuario.
+seguro barato para el día que algo use el `anon key`.
+
+**Corrección (auditoría completa NEXO, 2026-09-11, DOC-1):** esta sección decía que la
+migración de RLS estaba "preparada pero sin ejecutar" — no existe ningún archivo
+`migration_*.sql` con `enable row level security` en el repo, ni versionado ni perdido.
+La afirmación nunca reflejó un archivo real. Si algún día se decide activar RLS, hay que
+escribir esa migración de cero (18 tablas — o el conteo real de `schema.sql` al momento
+de escribirla — con `enable row level security`, sin políticas todavía).
 
 ## Observabilidad — alertas operativas (`src/utils/errorReporter.js`, COM-1, Fase 4B)
 

@@ -179,3 +179,34 @@ describe('GET / — mismo gate de sesión', () => {
     expect(listManagedGuilds).toHaveBeenCalledWith('user-1');
   });
 });
+
+// Auditoría completa NEXO (2026-09-11), DASH-1: ninguna respuesta llevaba headers de
+// hardening — una página autenticada podía quedar en el caché del navegador (compu
+// compartida, botón "Atrás" después de logout), y ninguna ruta bloqueaba ser embebida
+// en un <iframe> de un sitio de terceros.
+describe('Headers de seguridad — DASH-1', () => {
+  it('toda respuesta lleva Cache-Control: no-store y X-Frame-Options: DENY', async () => {
+    const res = await get('/');
+
+    expect(res.headers.get('cache-control')).toContain('no-store');
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('también se aplican a una página autenticada (/guild/:guildId)', async () => {
+    checkGuildAccess.mockResolvedValue({ guild: { id: REAL_GUILD_ID, name: 'Mi Server' } });
+    loadGuildDashboardData.mockResolvedValue({
+      topCommands: [], totalCommands: 0, unlockedAchievementIds: new Set(), topBalances: [], totalCoins: 0,
+      recentWarns: [], totalWarns: 0, activeGiveaways: [], topTrivia: [], punishedMembers: [], punishedTotal: 0,
+      punishedPossiblyIncomplete: false, topXp: [], xpUserCount: 0,
+      voiceStats: { totalSessions: 0, totalDurationSeconds: 0, peakConcurrent: 0, topOwners: [] },
+      topAchievers: [], lolChannelId: null, lolLastUrl: null, lolLastAnnouncedAt: null, dailyStats: [],
+      messagesDelta: null, missionSummary: { dailyCompletedUsers: 0, weeklyCompletedUsers: 0 }, guildConfig: {},
+    });
+
+    const res = await get(`/guild/${REAL_GUILD_ID}`, { cookie: sessionCookieFor('user-1') });
+
+    expect(res.headers.get('cache-control')).toContain('no-store');
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+  });
+});

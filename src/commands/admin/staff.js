@@ -152,7 +152,7 @@ function setSession(key, patch) {
   const existing = sessions.get(key) || { stack: ['home'] };
   if (existing.timeoutHandle) clearTimeout(existing.timeoutHandle);
   const next = { ...existing, ...patch };
-  next.timeoutHandle = setTimeout(() => sessions.delete(key), SESSION_TTL_MS);
+  next.timeoutHandle = setTimeout(() => sessions.delete(key), SESSION_TTL_MS).unref();
   sessions.set(key, next);
 }
 function getStack(key) {

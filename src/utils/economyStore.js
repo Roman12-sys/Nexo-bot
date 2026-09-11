@@ -37,25 +37,6 @@ function rowToRecord(row) {
   };
 }
 
-function recordToRow(guildId, userId, record) {
-  return {
-    guild_id: guildId,
-    user_id: userId,
-    balance: record.balance,
-    last_daily: record.lastDaily,
-    last_work: record.lastWork,
-    daily_streak: record.dailyStreak || 0,
-    bank: record.bank || 0,
-    last_interest_ts: record.lastInterestTs || 0,
-    last_rob: record.lastRob || 0,
-    last_crime: record.lastCrime || 0,
-    last_weekly: record.lastWeekly || 0,
-    last_robbed: record.lastRobbed || 0,
-    rob_shield_until: record.robShieldUntil || 0,
-    inventory: record.inventory || {},
-  };
-}
-
 // Devuelve los datos de economía de un usuario puntual. Si nunca tuvo datos guardados,
 // devolvemos un objeto "vacío" por defecto (así el resto del código no tiene que andar
 // comprobando si existe o no).
@@ -69,15 +50,6 @@ export async function getUserEconomy(guildId, userId) {
 
   if (error) throw error;
   return rowToRecord(data);
-}
-
-// Guarda (o actualiza) los datos de economía de un usuario
-export async function saveUserEconomy(guildId, userId, data) {
-  const { error } = await supabase
-    .from(TABLE)
-    .upsert(recordToRow(guildId, userId, data), { onConflict: 'guild_id,user_id' });
-
-  if (error) throw error;
 }
 
 // Suma (o resta, si "amount" es negativo) monedas al balance de un usuario.
@@ -128,12 +100,11 @@ export async function addBalance(guildId, userId, amount, meta) {
   return newBalance; // devolvemos el nuevo balance, para poder mostrarlo enseguida
 }
 
-// Actualiza SOLO el cooldown de /daily o /work de un usuario (never toca balance/inventory).
-// A diferencia de saveUserEconomy (que reescribe la fila entera con lo que se leyó al
-// principio del comando), esto es un UPDATE de una sola columna: si el balance cambió
-// por otro lado (ej. un /give) entre que se leyó y que se guardó el cooldown, acá no hay
-// forma de pisarlo — solo se toca la columna del cooldown. Requiere que la fila ya
-// exista (por eso siempre se llama DESPUÉS de addBalance, que la crea si hace falta).
+// Actualiza SOLO el cooldown de /daily o /work de un usuario (nunca toca balance/inventory).
+// Es un UPDATE de una sola columna: si el balance cambió por otro lado (ej. un /give)
+// entre que se leyó y que se guardó el cooldown, acá no hay forma de pisarlo — solo se
+// toca la columna del cooldown. Requiere que la fila ya exista (por eso siempre se llama
+// DESPUÉS de addBalance, que la crea si hace falta).
 const COOLDOWN_COLUMNS = { daily: 'last_daily', work: 'last_work', crime: 'last_crime', weekly: 'last_weekly' };
 
 export async function setCooldown(guildId, userId, field, timestamp) {

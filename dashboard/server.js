@@ -42,6 +42,19 @@ const app = express();
 app.disable('x-powered-by');
 app.use(rateLimitMiddleware);
 
+// Auditoría completa NEXO (2026-09-11), DASH-1: ninguna respuesta llevaba headers de
+// hardening básico. `X-Frame-Options`/`X-Content-Type-Options` van global (no hay
+// ninguna ruta que necesite ser embebible en un iframe de terceros). `Cache-Control:
+// no-store` también global — este dashboard es 100% dinámico y muestra datos de sesión/
+// economía/moderación, así que ninguna respuesta debería quedar en el caché del
+// navegador (compu compartida, botón "Atrás" después de cerrar sesión).
+app.use((req, res, next) => {
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store, private');
+  next();
+});
+
 // Snowflake de Discord: 17-20 dígitos. Sin este chequeo, un guildId con %2F/.. decodificado
 // por Express podía terminar armando una ruta de la REST API de Discord distinta a
 // /guilds/{id} (ej. /guilds/0/../../users/@me) usando el token del bot — el chequeo de
