@@ -246,8 +246,11 @@ function buildModeracionScreen(cfg, interaction) {
       : '🔒 Editar requiere ser dueño o Administrator — el resto se ve, pero no se puede tocar desde acá.',
   });
   const editRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('staff_edit_modlog_channel').setLabel('Canal de logs').setEmoji('🔧').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
-    new ButtonBuilder().setCustomId('staff_edit_punish_role').setLabel('Rol de castigo').setEmoji('🔧').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+    // Mismos emojis que ya usan config.js (📋 Log de moderación, línea ~460) y los
+    // propios mensajes de confirmación de más abajo (🚫 Rol de castigo) — nunca un
+    // 🔧 genérico repetido que no ayuda a distinguir los dos botones de un vistazo.
+    new ButtonBuilder().setCustomId('staff_edit_modlog_channel').setLabel('Canal de logs').setEmoji('📋').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+    new ButtonBuilder().setCustomId('staff_edit_punish_role').setLabel('Rol de castigo').setEmoji('🚫').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
   );
   return { embeds: [embed], components: [editRow, navRow('moderacion')] };
 }
@@ -391,7 +394,7 @@ function buildRolesScreen(cfg, interaction) {
   );
   embed.setFooter({
     text: canEdit
-      ? 'Agregar/quitar un rol de nivel puntual: usá /config rol-nivel mientras tanto (llega a este panel más adelante).'
+      ? 'Los botones de abajo son solo para autoasignables — un rol "por nivel" puntual (campo de arriba) todavía se asigna con /config rol-nivel.'
       : '🔒 Agregar/quitar autoasignables requiere ser dueño o Administrator.',
   });
   const editRow = new ActionRowBuilder().addComponents(
