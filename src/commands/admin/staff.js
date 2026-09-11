@@ -87,6 +87,13 @@
 // elegir el rol, ahí sí se guarda. Mismo comportamiento exacto que /config rol-nivel:
 // dejar el rol vacío BORRA la entrada de ese nivel (no hay chequeo de rol peligroso
 // en el comando real tampoco — no se inventa uno acá).
+//
+// FASE 10 (canal de anuncio de nivel, a pedido explícito): mismo patrón exacto que el
+// canal de logs de Moderación (Fase 2) — botón → ChannelSelectMenu real → guarda con
+// setGuildConfig → audita con logConfigChange. Antes de esta fase, xp_announce_
+// channel_id (el canal donde se avisa cada subida de nivel) solo se podía tocar
+// escribiendo `/config canal-anuncio-nivel` de memoria — exactamente el tipo de
+// fricción que el panel entero existe para sacar de encima.
 import {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -401,11 +408,16 @@ function buildXpScreen(cfg, interaction) {
     { name: 'Roles por nivel', value: `${levelRolesCount} configurado(s)`, inline: true },
     { name: 'Modo de roles', value: levelRolesModeLabel(cfg.level_roles_mode), inline: true },
     { name: 'Boost de fin de semana', value: cfg.xp_weekend_boost ? '🟢 Activado' : '🔴 Desactivado', inline: true },
+    // Mismo campo/emoji que ya usa /config ver (📣 Anuncio de nivel) — el canal donde
+    // se avisa CADA VEZ que alguien sube de nivel. Antes de esta fase solo se podía
+    // tocar escribiendo `/config canal-anuncio-nivel` a mano.
+    { name: '📣 Canal de anuncio de nivel', value: cfg.xp_announce_channel_id ? `<#${cfg.xp_announce_channel_id}>` : '❌ Sin configurar', inline: true },
   );
   embed.setFooter({ text: canEdit ? BRAND_NAME : '🔒 Editar requiere ser dueño o Administrator.' });
   const editRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('staff_xp_toggle_mode').setLabel('Cambiar modo de roles').setEmoji('🔁').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
     new ButtonBuilder().setCustomId('staff_lvlrole_add').setLabel('Rol de nivel').setEmoji('✨').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+    new ButtonBuilder().setCustomId('staff_edit_xpchannel').setLabel('Canal de anuncio').setEmoji('📣').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
   );
   return { embeds: [embed], components: [editRow, navRow('xp')] };
 }
@@ -482,6 +494,23 @@ function buildLevelRoleSelectView(nivel) {
   );
   const selectRow = new ActionRowBuilder().addComponents(
     new RoleSelectMenuBuilder().setCustomId('staff_lvlrole_select').setPlaceholder('Elegí un rol (opcional)').setMinValues(0).setMaxValues(1),
+  );
+  const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+  return { embeds: [embed], components: [selectRow, backRow] };
+}
+
+// Mismo patrón que el canal de logs de Moderación (Fase 2) — Fase 10, a pedido
+// explícito: hoy este canal solo se podía tocar escribiendo
+// `/config canal-anuncio-nivel` de memoria.
+function buildXpChannelEditView() {
+  const embed = baseEmbed('xp').setDescription('Elegí el canal donde se avisa cada vez que alguien sube de nivel. Dejalo vacío para desactivar el aviso.');
+  const selectRow = new ActionRowBuilder().addComponents(
+    new ChannelSelectMenuBuilder()
+      .setCustomId('staff_xpchannel_select')
+      .setPlaceholder('Elegí un canal de texto (opcional)')
+      .addChannelTypes(ChannelType.GuildText)
+      .setMinValues(0)
+      .setMaxValues(1),
   );
   const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
   return { embeds: [embed], components: [selectRow, backRow] };
@@ -1014,4 +1043,32 @@ registerSelectPrefix('staff_lvlrole_select', async (i) => {
     flags: MessageFlags.Ephemeral,
   });
   await logConfigChange(i, role ? `✨ Rol de nivel ${nivel} → ${role} (desde /staff)` : `✨ Rol de nivel ${nivel} quitado (desde /staff)`);
+});
+
+// ---------- Fase 10: canal de anuncio de nivel ----------
+// A pedido explícito del usuario: "cuando subís de nivel, quiero configurar ese canal
+// sin tener que escribir /config canal-anuncio-nivel" — mismo patrón exacto que el
+// canal de logs de Moderación (Fase 2), ChannelSelectMenu real en vez de texto libre.
+
+registerButtonPrefix('staff_edit_xpchannel', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  await i.update(buildXpChannelEditView());
+});
+
+registerSelectPrefix('staff_xpchannel_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const channelId = i.values[0] ?? null;
+  await setGuildConfig(i.guildId, { xp_announce_channel_id: channelId });
+
+  const freshCfg = await getGuildConfig(i.guildId);
+  await i.update(buildXpScreen(freshCfg, i));
+  await i.followUp({
+    content: channelId ? `✅ Canal de anuncio de nivel actualizado a <#${channelId}>.` : '✅ Canal de anuncio de nivel desactivado.',
+    flags: MessageFlags.Ephemeral,
+  });
+  await logConfigChange(i, channelId ? `📣 Canal de anuncio de nivel → <#${channelId}> (desde /staff)` : '📣 Canal de anuncio de nivel desactivado (desde /staff)');
 });

@@ -190,6 +190,7 @@ const FULL_CONFIG = {
   log_channel_economy_id: 'chan-ecolog',
   welcome_channel_id: 'chan-welcome',
   confession_channel_id: 'chan-confess',
+  xp_announce_channel_id: 'chan-lvlup',
   selfassignable_roles: ['role-gaming', 'role-anime'],
   level_roles: { 5: 'role-lvl5', 10: 'role-lvl10' },
   level_roles_mode: 'cumulative',
@@ -1024,6 +1025,82 @@ describe('/staff — Fase 9: rol de nivel puntual (flujo modal + select en 2 pas
     const interaction = makeInteraction({ isAdministrator: false });
     const selected = await navSelect(interaction, 'staff_lvlrole_select', { values: ['role-x'], role: makeRole('role-x') });
 
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+});
+
+describe('/staff — Fase 10: canal de anuncio de nivel (a pedido explícito del usuario)', () => {
+  it('XP muestra el canal real de anuncio de nivel', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_xp');
+
+    expect(fieldValue(payloadOf(clicked), '📣 Canal de anuncio de nivel')).toBe('<#chan-lvlup>');
+  });
+
+  it('sin configurar todavía, dice "Sin configurar" en vez de inventar un canal', async () => {
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, xp_announce_channel_id: null });
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_xp');
+
+    expect(fieldValue(payloadOf(clicked), '📣 Canal de anuncio de nivel')).toContain('Sin configurar');
+  });
+
+  it('el botón "Canal de anuncio" abre el select real de canal', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_xp');
+    const clicked = await nav(interaction, 'staff_edit_xpchannel');
+
+    const payload = payloadOf(clicked);
+    expect(payload.components[0].components[0].data.custom_id).toBe('staff_xpchannel_select');
+  });
+
+  it('elegir un canal guarda xp_announce_channel_id, audita, y refresca XP con el valor nuevo', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_xp');
+    await nav(interaction, 'staff_edit_xpchannel');
+
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, xp_announce_channel_id: 'chan-nuevo-lvlup' });
+    const selected = await navSelect(interaction, 'staff_xpchannel_select', { values: ['chan-nuevo-lvlup'] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { xp_announce_channel_id: 'chan-nuevo-lvlup' });
+    expect(logConfigChange).toHaveBeenCalledWith(selected, expect.stringContaining('chan-nuevo-lvlup'));
+    expect(fieldValue(payloadOf(selected), '📣 Canal de anuncio de nivel')).toBe('<#chan-nuevo-lvlup>');
+    expect(selected.followUp).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('actualizado') }));
+  });
+
+  it('dejar el select vacío desactiva el aviso (null), no lo deja como estaba', async () => {
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_xp');
+    await nav(interaction, 'staff_edit_xpchannel');
+
+    await navSelect(interaction, 'staff_xpchannel_select', { values: [] });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { xp_announce_channel_id: null });
+  });
+
+  it('el botón está deshabilitado para quien no es dueño ni Administrator', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_xp');
+
+    const button = payloadOf(clicked).components[0].components.find((b) => b.data.custom_id === 'staff_edit_xpchannel');
+    expect(button.data.disabled).toBe(true);
+  });
+
+  it('revalidación server-side: cambiar el canal sin ser admin se rechaza en el botón y en el select', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+
+    const clickedButton = { ...interaction, customId: 'staff_edit_xpchannel', reply: vi.fn().mockResolvedValue(undefined), update: vi.fn().mockResolvedValue(undefined) };
+    await routeButton(clickedButton);
+    expect(clickedButton.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
+
+    const selected = await navSelect(interaction, 'staff_xpchannel_select', { values: ['chan-x'] });
     expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Solo el dueño') }));
     expect(setGuildConfig).not.toHaveBeenCalled();
   });
