@@ -128,14 +128,18 @@ describe('/punish', () => {
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('por encima de mi rol') }));
   });
 
-  it('caso exitoso SIN duración: agrega el rol, no crea fila de expiración', async () => {
+  it('caso exitoso SIN duración: agrega el rol y persiste la fila igual (expiresAt null), sin programar timer', async () => {
+    // MOD-2 (auditoría completa 2026-09-11): antes, sin duración, no se creaba NINGUNA
+    // fila — guildMemberAdd.js no tenía forma de reaplicar la restricción si el
+    // usuario salía y volvía a entrar. Ahora se persiste siempre, solo cambia que no
+    // hay timer que programar (nada vence solo).
     const member = targetMember();
     const interaction = makeInteraction({ targetMember: member, options: { motivo: 'spam' } });
 
     await punishExecute(interaction);
 
     expect(member.roles.add).toHaveBeenCalledWith('role-sancionado', 'spam');
-    expect(createActivePunishment).not.toHaveBeenCalled();
+    expect(createActivePunishment).toHaveBeenCalledWith('guild-1', 'target-1', 'role-sancionado', null);
     expect(schedulePunishExpiry).not.toHaveBeenCalled();
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('ya no puede enviar') }));
     expect(interaction.editReply.mock.calls[0][0].content).not.toContain('quita sola');

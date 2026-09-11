@@ -50,6 +50,7 @@ export async function execute(interaction) {
     }
 
     let description;
+    let expectedWarnId = null;
     if (numero) {
       const warns = await getUserWarns(interaction.guild.id, targetUser.id);
       const target = warns[numero - 1];
@@ -57,6 +58,7 @@ export async function execute(interaction) {
         await interaction.reply({ content: '❌ No se encontró esa advertencia.', flags: MessageFlags.Ephemeral });
         return;
       }
+      expectedWarnId = target.id;
       description = `Vas a quitar la advertencia **#${numero}** de ${targetUser}.\nMotivo: ${target.reason}`;
     } else {
       description = `Vas a borrar **todas** las advertencias de ${targetUser}.`;
@@ -66,7 +68,7 @@ export async function execute(interaction) {
       userId: interaction.user.id,
       guildId: interaction.guildId,
       description,
-      run: (i) => confirmUnwarn(i, targetUser, numero),
+      run: (i) => confirmUnwarn(i, targetUser, numero, expectedWarnId),
     });
     await interaction.reply(confirmation);
   } catch (error) {
@@ -82,7 +84,7 @@ export async function execute(interaction) {
 
 // Corre recién cuando el staff confirma. Revalida permisos y jerarquía por si
 // cambiaron en la ventana de confirmación.
-async function confirmUnwarn(interaction, targetUser, numero) {
+async function confirmUnwarn(interaction, targetUser, numero, expectedWarnId) {
   await interaction.update({ content: '⏳ Procesando...', embeds: [], components: [] });
 
   try {
@@ -101,6 +103,19 @@ async function confirmUnwarn(interaction, targetUser, numero) {
     const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
 
     if (numero) {
+      // MOD-3 (auditoría completa 2026-09-11): "#N" es una posición recalculada en
+      // vivo, no un ID estable — si otro staff quitó/agregó una advertencia de este
+      // mismo usuario durante la ventana de confirmación (hasta 60s), la posición
+      // puede apuntar a una fila distinta a la que se mostró y confirmó acá. Se
+      // revalida con datos frescos, comparando por ID, justo antes de borrar.
+      const freshWarns = await getUserWarns(interaction.guild.id, targetUser.id);
+      if (freshWarns[numero - 1]?.id !== expectedWarnId) {
+        await interaction.editReply({
+          content: '⚠️ La lista de advertencias de este usuario cambió mientras esperabas la confirmación — volvé a correr `/unwarn` para ver el estado actual.',
+        });
+        return;
+      }
+
       const removed = await removeWarnAt(interaction.guild.id, targetUser.id, numero);
       if (!removed) {
         await interaction.editReply({ content: '❌ Esa advertencia ya no existe (puede que se haya quitado desde otro lado).' });

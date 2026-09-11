@@ -18,6 +18,7 @@ const ACTION_LABELS = {
   timeout: '🔇 Timeout',
   timeout_remove: '🔊 Timeout removido',
   punish: '🚫 Restricción aplicada',
+  punish_reapply: '🔁 Restricción reaplicada (reingreso)',
   punish_remove: '✅ Restricción removida',
   unban: '✅ Desbaneo',
 };

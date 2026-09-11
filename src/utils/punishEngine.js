@@ -139,6 +139,13 @@ export function cancelAllPunishExpiryForGuild(guildId) {
 export async function rescheduleActivePunishments(client) {
   const punishments = await getAllActivePunishments();
   for (const punishment of punishments) {
+    // MOD-2: desde que /punish crea siempre una fila (incluso indefinidas, expiresAt
+    // null), esta lista incluye filas sin nada que programar — schedulePunishExpiry
+    // trata "delay <= 0" como "ya venció", y null - Date.now() da un número negativo,
+    // así que sin este guard cada reinicio expiraba de una TODAS las restricciones
+    // indefinidas del bot. Las indefinidas solo existen para que guildMemberAdd.js las
+    // pueda reaplicar — no llevan timer.
+    if (punishment.expiresAt == null) continue;
     schedulePunishExpiry(client, punishment);
   }
 }

@@ -93,10 +93,14 @@ export async function execute(interaction) {
 
     await member.roles.add(cfg.punish_role_id, motivo);
 
-    let expiresAt = null;
+    // MOD-2 (auditoría completa 2026-09-11): la fila se crea SIEMPRE, con
+    // expiresAt=null para las indefinidas — antes solo se creaba cuando había
+    // duración, así que guildMemberAdd.js no tenía forma de saber que alguien seguía
+    // restringido si salía y volvía a entrar (Discord le quita el rol solo al salir).
+    // Solo se programa el timer de expiración si hay duración real.
+    const expiresAt = durationMs ? Date.now() + durationMs : null;
+    await createActivePunishment(interaction.guildId, targetUser.id, cfg.punish_role_id, expiresAt);
     if (durationMs) {
-      expiresAt = Date.now() + durationMs;
-      await createActivePunishment(interaction.guildId, targetUser.id, cfg.punish_role_id, expiresAt);
       schedulePunishExpiry(interaction.client, { guildId: interaction.guildId, userId: targetUser.id, roleId: cfg.punish_role_id, expiresAt });
     }
 

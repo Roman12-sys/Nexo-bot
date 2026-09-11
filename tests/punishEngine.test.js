@@ -242,4 +242,27 @@ describe('rescheduleActivePunishments — reprogramar al reiniciar', () => {
 
     expect(rolesRemove).not.toHaveBeenCalled();
   });
+
+  // MOD-2 (auditoría completa 2026-09-11): desde que /punish persiste siempre una fila
+  // (incluso las indefinidas, expiresAt=null), un reinicio del bot NO puede tratar esas
+  // filas como "ya vencidas" — antes de este guard, null - Date.now() da negativo y
+  // expirePunishment las quitaba a TODAS de una en cada redeploy.
+  it('una restricción indefinida (expiresAt null) nunca se expira sola al reiniciar', async () => {
+    const { client, rolesRemove } = makeClient();
+    getAllActivePunishments.mockResolvedValue([
+      makePunishment({ userId: 'indefinido', expiresAt: null }),
+      makePunishment({ userId: 'futuro', expiresAt: Date.now() + 60_000 }),
+    ]);
+
+    await rescheduleActivePunishments(client);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(rolesRemove).not.toHaveBeenCalled(); // ninguna vencida todavía
+    expect(deleteActivePunishment).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(rolesRemove).toHaveBeenCalledTimes(1); // solo la de duración, nunca la indefinida
+    expect(deleteActivePunishment).toHaveBeenCalledWith('guild-1', 'futuro');
+    expect(deleteActivePunishment).not.toHaveBeenCalledWith('guild-1', 'indefinido');
+  });
 });

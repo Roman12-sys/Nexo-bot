@@ -14,7 +14,14 @@ const findExecutor = vi.fn().mockResolvedValue(null);
 vi.mock('../src/utils/auditLog.js', () => ({ findExecutor }));
 
 const createBotAddedLogEmbed = vi.fn().mockReturnValue({});
-vi.mock('../src/utils/logEmbeds.js', () => ({ createBotAddedLogEmbed }));
+const createPunishLogEmbed = vi.fn().mockReturnValue({});
+vi.mock('../src/utils/logEmbeds.js', () => ({ createBotAddedLogEmbed, createPunishLogEmbed }));
+
+const getActivePunishment = vi.fn();
+vi.mock('../src/utils/punishStore.js', () => ({ getActivePunishment }));
+
+const recordModerationAction = vi.fn().mockResolvedValue(undefined);
+vi.mock('../src/utils/moderationActionsStore.js', () => ({ recordModerationAction }));
 
 const buildWelcomeImageAttachment = vi.fn().mockResolvedValue({ name: 'welcome.png' });
 vi.mock('../src/utils/welcomeImage.js', () => ({ buildWelcomeImageAttachment }));
@@ -52,13 +59,82 @@ function makeMember({ userId = 'user-1', isBot = false, channelFetchResult = und
   };
 }
 
-const client = {};
+const client = { user: { id: 'bot-1' } };
 
 beforeEach(() => {
   vi.clearAllMocks();
   getGuildConfig.mockResolvedValue({ auto_role_id: null, welcome_channel_id: null });
   getGuildLogChannel.mockResolvedValue(null);
   buildSelfRolesMessage.mockResolvedValue(null);
+  getActivePunishment.mockResolvedValue(null);
+});
+
+// MOD-2 (auditoría completa 2026-09-11): /punish se evadía por completo saliendo y
+// reentrando al servidor — Discord quita todos los roles al salir, y nada volvía a
+// aplicar la restricción. Ahora active_punishments guarda siempre una fila (incluso
+// las indefinidas, expiresAt null) y guildMemberAdd.js la reaplica acá.
+describe('guildMemberAdd — reaplicación de /punish al reingresar (MOD-2)', () => {
+  it('sin restricción activa: no toca roles ni loguea nada', async () => {
+    getActivePunishment.mockResolvedValue(null);
+    const member = makeMember();
+    member.guild.roles.cache.set('role-sancionado', { id: 'role-sancionado' });
+
+    await execute(member, client);
+
+    expect(member.roles.add).not.toHaveBeenCalled();
+    expect(recordModerationAction).not.toHaveBeenCalled();
+  });
+
+  it('restricción indefinida (expiresAt null): reaplica el rol y lo audita', async () => {
+    getActivePunishment.mockResolvedValue({ guildId: 'guild-1', userId: 'user-1', roleId: 'role-sancionado', expiresAt: null });
+    getGuildLogChannel.mockResolvedValue({ send: vi.fn().mockResolvedValue(undefined) });
+    const member = makeMember();
+    member.guild.roles.cache.set('role-sancionado', { id: 'role-sancionado' });
+
+    await execute(member, client);
+
+    expect(member.roles.add).toHaveBeenCalledWith('role-sancionado', expect.stringContaining('reingres'));
+    expect(recordModerationAction).toHaveBeenCalledWith('guild-1', 'user-1', expect.objectContaining({ actionType: 'punish_reapply' }));
+  });
+
+  it('restricción con duración todavía vigente: se reaplica igual', async () => {
+    getActivePunishment.mockResolvedValue({ guildId: 'guild-1', userId: 'user-1', roleId: 'role-sancionado', expiresAt: Date.now() + 60_000 });
+    const member = makeMember();
+    member.guild.roles.cache.set('role-sancionado', { id: 'role-sancionado' });
+
+    await execute(member, client);
+
+    expect(member.roles.add).toHaveBeenCalledWith('role-sancionado', expect.any(String));
+  });
+
+  it('restricción con duración ya vencida (timer todavía no disparó): NO se reaplica', async () => {
+    getActivePunishment.mockResolvedValue({ guildId: 'guild-1', userId: 'user-1', roleId: 'role-sancionado', expiresAt: Date.now() - 1_000 });
+    const member = makeMember();
+    member.guild.roles.cache.set('role-sancionado', { id: 'role-sancionado' });
+
+    await execute(member, client);
+
+    expect(member.roles.add).not.toHaveBeenCalled();
+  });
+
+  it('el rol ya no existe en el servidor: no revienta, no llama roles.add', async () => {
+    getActivePunishment.mockResolvedValue({ guildId: 'guild-1', userId: 'user-1', roleId: 'role-borrado', expiresAt: null });
+    const member = makeMember(); // guild.roles.cache vacío — el rol no existe
+
+    await expect(execute(member, client)).resolves.not.toThrow();
+    expect(member.roles.add).not.toHaveBeenCalled();
+  });
+
+  it('un fallo al reaplicar (permiso insuficiente) nunca corta el resto del flujo de bienvenida', async () => {
+    getActivePunishment.mockResolvedValue({ guildId: 'guild-1', userId: 'user-1', roleId: 'role-sancionado', expiresAt: null });
+    getGuildConfig.mockResolvedValue({ welcome_channel_id: 'chan-bienvenida' });
+    const member = makeMember();
+    member.guild.roles.cache.set('role-sancionado', { id: 'role-sancionado' });
+    member.roles.add = vi.fn().mockRejectedValue(new Error('Missing Permissions'));
+
+    await expect(execute(member, client)).resolves.not.toThrow();
+    expect(member._channel.send).toHaveBeenCalledTimes(1); // la bienvenida se manda igual
+  });
 });
 
 describe('guildMemberAdd — bots', () => {

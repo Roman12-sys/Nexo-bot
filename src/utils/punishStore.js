@@ -22,7 +22,11 @@ function rowToPunishment(row) {
 
 // Un solo registro activo por usuario (PK guild_id+user_id) — /punish ya rechaza
 // re-aplicar la restricción a alguien que ya la tiene, así que un upsert acá nunca
-// pisa un timer "más nuevo" por accidente.
+// pisa un timer "más nuevo" por accidente. Se llama SIEMPRE desde /punish (MOD-2,
+// auditoría completa 2026-09-11), con expiresAt=null para las indefinidas — antes
+// solo se llamaba cuando había duración, así que una restricción indefinida no dejaba
+// ningún rastro persistido y guildMemberAdd.js no tenía cómo reaplicarla si el
+// usuario salía y volvía a entrar.
 export async function createActivePunishment(guildId, userId, roleId, expiresAt) {
   const { error } = await supabase
     .from(TABLE)

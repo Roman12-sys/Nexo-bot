@@ -262,7 +262,7 @@ create table if not exists moderation_actions (
   id bigint generated always as identity primary key,
   guild_id text not null,
   user_id text not null,
-  action_type text not null, -- 'ban' | 'kick' | 'timeout' | 'timeout_remove' | 'punish' | 'punish_remove' | 'unban'
+  action_type text not null, -- 'ban' | 'kick' | 'timeout' | 'timeout_remove' | 'punish' | 'punish_reapply' | 'punish_remove' | 'unban'
   moderator_id text not null,
   reason text,
   extra jsonb not null default '{}',
@@ -278,7 +278,13 @@ create table if not exists active_punishments (
   guild_id text not null,
   user_id text not null,
   role_id text not null,
-  expires_at bigint not null, -- epoch ms, mismo criterio que last_daily/last_work: Date.now() crudo, no timestamptz
+  -- epoch ms, mismo criterio que last_daily/last_work: Date.now() crudo, no timestamptz.
+  -- NULL = restricción indefinida (sin /punish duracion:...) — desde la auditoría
+  -- completa 2026-09-11 (MOD-2) esta fila se crea SIEMPRE, no solo cuando hay
+  -- duración: es lo único que le permite a guildMemberAdd.js reaplicar la restricción
+  -- si el usuario sale y vuelve a entrar (antes, Discord le borraba el rol solo al
+  -- salir y nada la reaplicaba — bypass trivial, sin necesitar ningún permiso).
+  expires_at bigint,
   created_at bigint not null,
   primary key (guild_id, user_id)
 );

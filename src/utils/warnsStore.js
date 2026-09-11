@@ -10,13 +10,18 @@ import { supabase } from '../supabaseClient.js';
 const TABLE = 'warnings';
 
 function rowToWarn(row) {
-  return { reason: row.reason, moderatorId: row.moderator_id, timestamp: new Date(row.created_at).getTime() };
+  // `id` agregado (auditoría completa 2026-09-11, MOD-3): /unwarn lo usa para
+  // revalidar que la advertencia en una posición no cambió entre que se mostró en el
+  // panel de confirmación y que se ejecuta — el "#N" es una posición recalculada en
+  // vivo, no un identificador estable, así que otro staff actuando sobre el mismo
+  // usuario en esa ventana puede correr la lista.
+  return { id: row.id, reason: row.reason, moderatorId: row.moderator_id, timestamp: new Date(row.created_at).getTime() };
 }
 
 export async function getUserWarns(guildId, userId) {
   const { data, error } = await supabase
     .from(TABLE)
-    .select('reason, moderator_id, created_at')
+    .select('id, reason, moderator_id, created_at')
     .eq('guild_id', guildId)
     .eq('user_id', userId)
     .order('created_at', { ascending: true });

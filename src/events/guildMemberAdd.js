@@ -1,5 +1,5 @@
 import { Events, AuditLogEvent, EmbedBuilder } from 'discord.js';
-import { createBotAddedLogEmbed } from '../utils/logEmbeds.js';
+import { createBotAddedLogEmbed, createPunishLogEmbed } from '../utils/logEmbeds.js';
 import { findExecutor } from '../utils/auditLog.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { getGuildConfig } from '../utils/guildConfigStore.js';
@@ -8,6 +8,8 @@ import { buildSelfRolesMessage } from '../utils/selfRoles.js';
 import { MAGENTA_COLOR, BRAND_NAME } from '../utils/embeds.js';
 import { checkMemberCountAchievements } from '../utils/guildAchievements.js';
 import { eventBus } from '../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Fase 5 (analytics)
+import { getActivePunishment } from '../utils/punishStore.js';
+import { recordModerationAction } from '../utils/moderationActionsStore.js';
 
 export const name = Events.GuildMemberAdd;
 export const once = false;
@@ -41,6 +43,50 @@ async function assignAutoRole(member, autoRoleId) {
   }
 }
 
+// MOD-2 (auditoría completa NEXO, 2026-09-11): antes de este fix, /punish se evadía
+// por completo saliendo y reentrando al servidor — Discord quita todos los roles al
+// salir (nativo de la plataforma), y nada volvía a aplicar la restricción. Ahora
+// active_punishments guarda SIEMPRE una fila (ver punish.js/punishStore.js), así que
+// acá alcanza con consultarla y, si sigue vigente, reaplicar el rol — mismo criterio
+// que assignAutoRole: nunca corta el resto del flujo de bienvenida si algo falla.
+async function reapplyActivePunishment(member, client) {
+  try {
+    const punishment = await getActivePunishment(member.guild.id, member.id);
+    if (!punishment) return;
+    // expiresAt null = indefinida (siempre vigente hasta /unpunish). Si tiene
+    // duración, puede haber vencido mientras el usuario estaba afuera — el timer de
+    // punishEngine.js ya se habrá encargado de borrar la fila en ese caso, pero esto
+    // cierra la ventana rara de un timer todavía no disparado justo al reingresar.
+    if (punishment.expiresAt != null && punishment.expiresAt <= Date.now()) return;
+
+    const role = member.guild.roles.cache.get(punishment.roleId);
+    if (!role) {
+      console.warn('⚠️ No se pudo reaplicar la restricción de /punish: el rol configurado ya no existe.');
+      return;
+    }
+
+    await member.roles.add(punishment.roleId, 'Restricción de /punish reaplicada tras reingreso al servidor');
+
+    const reason = 'Reaplicada automáticamente: seguía activa cuando el usuario reingresó al servidor.';
+    try {
+      const logChannel = await getGuildLogChannel(client, member.guild.id, 'moderation');
+      if (logChannel) {
+        await logChannel.send({ embeds: [createPunishLogEmbed({ user: member.user, executor: client.user, reason, applied: true })] });
+      }
+    } catch (logError) {
+      console.error('⚠️ No se pudo registrar la reaplicación de /punish en el canal de logs:', logError);
+    }
+
+    await recordModerationAction(member.guild.id, member.id, {
+      actionType: 'punish_reapply',
+      moderatorId: client.user.id,
+      reason,
+    }).catch((error) => console.error('⚠️ No se pudo registrar la reaplicación de /punish en el historial:', error));
+  } catch (error) {
+    console.error('❌ Error reaplicando una restricción de /punish al reingresar:', error);
+  }
+}
+
 async function logBotAdded(member, client) {
   const logChannel = await getGuildLogChannel(client, member.guild.id, 'activity');
   if (!logChannel) return;
@@ -65,6 +111,7 @@ export async function execute(member, client) {
   eventBus.emit('MEMBER_JOINED', { guildId: member.guild.id }).catch(() => {});
 
   await assignAutoRole(member, cfg.auto_role_id);
+  await reapplyActivePunishment(member, client);
 
   checkMemberCountAchievements(client, member.guild.id, member.guild.memberCount).catch((error) =>
     console.error('❌ Error chequeando logros de servidor (miembros):', error),

@@ -310,6 +310,34 @@ describe('/unwarn (con confirmación)', () => {
     expect(logChannel.send).toHaveBeenCalledTimes(1);
   });
 
+  // MOD-3 (auditoría completa 2026-09-11): "#N" es una posición recalculada en vivo, no
+  // un ID estable. Si otro staff borra una advertencia de este mismo usuario DURANTE la
+  // ventana de confirmación (hasta 60s), la posición "#2" que el panel mostró puede
+  // apuntar a una advertencia distinta al momento de confirmar. Antes de este fix,
+  // removeWarnAt se llamaba igual con el número viejo, borrando la fila equivocada sin
+  // ningún aviso.
+  it('MOD-3: la lista cambia durante la confirmación — detecta el desajuste y NO borra la fila equivocada', async () => {
+    // T0: se arma el panel viendo [spam(id=1), flood(id=2)] — el staff confirma sobre "#2" (flood, id=2).
+    getUserWarns.mockResolvedValueOnce([
+      { id: 1, reason: 'spam' },
+      { id: 2, reason: 'flood' },
+    ]);
+    const interaction = makeInteraction({ staffRoleIds: ['role-admin'], options: { numero: 2 } });
+    await unwarnExecute(interaction);
+
+    // T1: en el medio, otro staff borró la #1 (spam) — ahora la posición 2 real es una
+    // advertencia nueva (id=3) que nada tiene que ver con lo que se confirmó.
+    getUserWarns.mockResolvedValueOnce([
+      { id: 2, reason: 'flood' },
+      { id: 3, reason: 'otra advertencia nueva' },
+    ]);
+
+    const buttonInteraction = await confirmVia(interaction, 'Confirmar');
+
+    expect(removeWarnAt).not.toHaveBeenCalled();
+    expect(buttonInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('cambió') }));
+  });
+
   it('caso exitoso (todas): clearWarns se llama recién al confirmar', async () => {
     clearWarns.mockResolvedValue(3);
     const interaction = makeInteraction({ staffRoleIds: ['role-admin'], options: {} });
