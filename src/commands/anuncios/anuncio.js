@@ -454,13 +454,13 @@ async function sendDraft(interaction, draft) {
 
 // ---------- Entrada del comando ----------
 
-export async function startBuilder(interaction, { colorPrefill, imagenPrefill, rol, usuario, everyone } = {}) {
+export async function startBuilder(interaction, { colorPrefill, imagenPrefill, rol, usuario, everyone, jsonPrefill } = {}) {
   if (!(await isStaff(interaction))) {
     await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
     return;
   }
 
-  const draft = {
+  let draft = {
     title: '',
     description: '',
     url: '',
@@ -477,6 +477,16 @@ export async function startBuilder(interaction, { colorPrefill, imagenPrefill, r
     mention: { rol: rol || null, usuario: usuario || null, everyone: Boolean(everyone) },
   };
 
+  // Si viene un JSON para importar, aplicarlo al draft
+  if (jsonPrefill) {
+    const result = importJsonToDraft(jsonPrefill, draft);
+    if (result.success) {
+      draft = result.draft;
+      // Preservar la mención de las opciones del comando
+      draft.mention = { rol: rol || null, usuario: usuario || null, everyone: Boolean(everyone) };
+    }
+  }
+
   refreshSession(sessionKey(interaction.guildId, interaction.user.id), draft);
   await interaction.reply({ ...buildPanelPayload(draft), flags: MessageFlags.Ephemeral });
 }
@@ -484,6 +494,13 @@ export async function startBuilder(interaction, { colorPrefill, imagenPrefill, r
 export const data = new SlashCommandBuilder()
   .setName('anuncio')
   .setDescription('Abre el constructor de anuncios con vista previa en vivo.')
+  .addStringOption((option) =>
+    option
+      .setName('json_import')
+      .setDescription('Importa un JSON de embed (máx 6000 caracteres, opcional)')
+      .setMaxLength(6000)
+      .setRequired(false),
+  )
   .addStringOption((option) =>
     option
       .setName('color_predefinido')
@@ -530,6 +547,37 @@ export async function execute(interaction) {
   const everyone = interaction.options.getBoolean('mencionar_everyone');
   const colorPredefinido = interaction.options.getString('color_predefinido');
   const imagenArchivo = interaction.options.getAttachment('imagen_archivo');
+  const jsonImport = interaction.options.getString('json_import');
+
+  if (!(await isStaff(interaction))) {
+    await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
+  // Si pasó un JSON, validarlo primero
+  if (jsonImport) {
+    const emptyDraft = {
+      title: '',
+      description: '',
+      url: '',
+      color: colorPredefinido || SKY_COLOR,
+      authorName: '',
+      authorIconURL: '',
+      authorURL: '',
+      thumbnailURL: '',
+      imageURL: imagenArchivo?.url || '',
+      footerText: '',
+      footerIconURL: '',
+      timestamp: false,
+      fields: [],
+      mention: { rol: rol || null, usuario: usuario || null, everyone: Boolean(everyone) },
+    };
+    const result = importJsonToDraft(jsonImport, emptyDraft);
+    if (!result.success) {
+      await interaction.reply({ content: `❌ ${result.error}`, flags: MessageFlags.Ephemeral });
+      return;
+    }
+  }
 
   await startBuilder(interaction, {
     colorPrefill: colorPredefinido || undefined,
@@ -537,6 +585,7 @@ export async function execute(interaction) {
     rol,
     usuario,
     everyone,
+    jsonPrefill: jsonImport || undefined,
   });
 }
 
