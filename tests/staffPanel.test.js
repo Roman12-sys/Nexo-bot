@@ -36,6 +36,20 @@ vi.mock('../src/utils/economyStore.js', () => ({ getGuildCirculatingBalance, get
 const resolveLiveSelfRoles = vi.fn();
 vi.mock('../src/utils/selfRoles.js', () => ({ resolveLiveSelfRoles }));
 
+// Fase 5 (Sorteos/Anuncios) — mismo criterio: getGuildGiveawaysForAutocomplete ya
+// tiene sus propios tests en giveawaysStore/giveawayEngine; acá solo importa que
+// /staff la llame y muestre lo que devuelve. startAnuncioBuilder se mockea para
+// probar que /staff LA INVOCA (con la interacción real) sin reimplementar el
+// builder — anuncio.js ya tiene su propia batería completa.
+const getGuildGiveawaysForAutocomplete = vi.fn();
+vi.mock('../src/utils/giveawaysStore.js', () => ({ getGuildGiveawaysForAutocomplete }));
+
+const getGuildAnnouncementTemplates = vi.fn();
+vi.mock('../src/utils/announcementTemplatesStore.js', () => ({ getGuildAnnouncementTemplates }));
+
+const startAnuncioBuilder = vi.fn().mockResolvedValue(undefined);
+vi.mock('../src/commands/anuncios/anuncio.js', () => ({ startBuilder: startAnuncioBuilder }));
+
 // logConfigChange (Fase 2) — auditoría de escrituras hecha desde /staff, exportada de
 // config.js para reusar el mismo formato. Se mockea acá para no depender de
 // getGuildLogChannel/createBotConfigLogEmbed reales — lo que importa probar es que
@@ -158,6 +172,11 @@ beforeEach(() => {
     { id: 'role-gaming', name: 'Gaming' },
     { id: 'role-anime', name: 'Anime' },
   ]);
+  getGuildGiveawaysForAutocomplete.mockImplementation(async (guildId, ended) =>
+    ended ? [{ messageId: 'msg-old', prize: 'Rol VIP' }] : [{ messageId: 'msg-1', prize: 'Nitro Classic' }],
+  );
+  getGuildAnnouncementTemplates.mockResolvedValue([{ name: 'Mantenimiento', data: {}, createdAt: '2026-01-01' }]);
+  startAnuncioBuilder.mockResolvedValue(undefined);
 });
 
 describe('/staff — gate de permisos', () => {
@@ -327,10 +346,10 @@ describe('/staff — contenido real por módulo (sin inventar datos)', () => {
     expect(getGuildConfig).not.toHaveBeenCalled(); // economía no depende de guild_config
   });
 
-  it('los módulos sin datos conectados todavía (Sorteos, Anuncios, etc.) muestran el placeholder honesto, sin ni siquiera pedir guild_config', async () => {
+  it('los módulos sin datos conectados todavía (Estadísticas, Misiones, etc.) muestran el placeholder honesto, sin ni siquiera pedir guild_config', async () => {
     const interaction = makeInteraction();
     await execute(interaction);
-    const clicked = await nav(interaction, 'staff_nav_sorteos');
+    const clicked = await nav(interaction, 'staff_nav_estadisticas');
 
     const payload = payloadOf(clicked);
     expect(payload.embeds[0].data.description).toContain('🚧');
@@ -709,5 +728,56 @@ describe('/staff — Fase 4: XP (modo de roles) y Roles (autoasignables)', () =>
     const clicked = await nav(interaction, 'staff_selfrole_remove');
 
     expect(payloadOf(clicked).embeds[0].data.description).toContain('Ya no queda');
+  });
+});
+
+describe('/staff — Fase 5: Sorteos (datos reales) y Anuncios (lanza el flujo real)', () => {
+  it('Sorteos muestra activos/finalizados reales y los premios activos, sin depender de guild_config', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_sorteos');
+
+    const payload = payloadOf(clicked);
+    expect(fieldValue(payload, 'Sorteos activos')).toBe('1');
+    expect(fieldValue(payload, 'Finalizados (últimos 25)')).toBe('1');
+    expect(fieldValue(payload, 'Premios activos ahora')).toContain('Nitro Classic');
+    expect(getGuildConfig).not.toHaveBeenCalled();
+    expect(getGuildGiveawaysForAutocomplete).toHaveBeenCalledWith('guild-1', false);
+    expect(getGuildGiveawaysForAutocomplete).toHaveBeenCalledWith('guild-1', true);
+  });
+
+  it('Sorteos sin ninguno activo no muestra el campo de premios (nunca una lista vacía inventada)', async () => {
+    getGuildGiveawaysForAutocomplete.mockResolvedValue([]);
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_sorteos');
+
+    const payload = payloadOf(clicked);
+    expect(fieldValue(payload, 'Sorteos activos')).toBe('0');
+    expect(fieldsOf(payload).some((f) => f.name === 'Premios activos ahora')).toBe(false);
+  });
+
+  it('Anuncios muestra las plantillas reales guardadas', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_anuncios');
+
+    const payload = payloadOf(clicked);
+    expect(fieldsOf(payload).find((f) => f.name.startsWith('Plantillas'))?.name).toBe('Plantillas guardadas (1)');
+    expect(fieldValue(payload, 'Plantillas guardadas (1)')).toContain('Mantenimiento');
+  });
+
+  it('"Crear anuncio" lanza el flujo REAL de /anuncio (startBuilder) en vez de reimplementarlo', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_anuncios');
+
+    const clicked = { ...interaction, customId: 'staff_anuncio_crear', update: vi.fn().mockResolvedValue(undefined) };
+    await routeButton(clicked);
+
+    expect(startAnuncioBuilder).toHaveBeenCalledWith(clicked);
+    // No reimplementa nada del panel de anuncio: nunca llama a i.update() por su cuenta,
+    // eso es responsabilidad exclusiva de startBuilder (que hace su propio i.reply()).
+    expect(clicked.update).not.toHaveBeenCalled();
   });
 });

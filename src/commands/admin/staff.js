@@ -46,6 +46,19 @@
 // no permite combinar un select de rol con un input numérico fuera de un modal, y un
 // modal no admite selects: necesita un flujo de 2 pasos que se diseña con más cuidado
 // en una fase propia, no se improvisa acá.
+//
+// FASE 5 (Sorteos/Anuncios): asimétrica a propósito. Anuncios tenía desde su diseño
+// original una función exportada para arrancar el builder desde cualquier entrada
+// (startBuilder en anuncio.js, ya reusada por /anuncio y por el mensaje con
+// prefill de color/imagen/mención) — "Crear anuncio" la llama directo, cero código
+// nuevo de UI. Sorteos NO tiene ese mismo diseño: /sorteo crear lee sus 4 campos
+// (premio, duración, ganadores, canal) directo de `interaction.options`, algo que
+// una interacción de botón no tiene — armar un flujo equivalente necesita un modal +
+// decisiones de UX propias (Discord no deja combinar un modal con un select de canal
+// en el mismo paso), así que "Crear sorteo" queda fuera de esta fase a propósito. Lo
+// que SÍ se conecta acá son datos reales de sorteos (activos/finalizados, misma
+// función que ya usa /estado y el autocomplete de /sorteo) y de anuncios (plantillas
+// guardadas reales).
 import {
   SlashCommandBuilder,
   EmbedBuilder,
@@ -64,6 +77,9 @@ import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js'
 import { getGuildCirculatingBalance, getTopBalances } from '../../utils/economyStore.js';
 import { isStaff, getDangerousRolePermission } from '../../utils/permissions.js';
 import { resolveLiveSelfRoles } from '../../utils/selfRoles.js';
+import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
+import { getGuildAnnouncementTemplates } from '../../utils/announcementTemplatesStore.js';
+import { startBuilder as startAnuncioBuilder } from '../anuncios/anuncio.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
@@ -132,7 +148,7 @@ const CONFIG_ITEMS = [
 
 // Módulos que todavía no tienen una fuente de datos real conectada — placeholder
 // honesto en vez de un número inventado (ver la nota de alcance arriba).
-const PLACEHOLDER_SCREENS = new Set(['sorteos', 'anuncios', 'minijuegos', 'misiones', 'logros', 'estadisticas']);
+const PLACEHOLDER_SCREENS = new Set(['minijuegos', 'misiones', 'logros', 'estadisticas']);
 
 function chunk(arr, size) {
   const out = [];
@@ -467,11 +483,46 @@ function buildPlaceholderScreen(screen) {
   return { embeds: [embed], components: [navRow(screen)] };
 }
 
+// Misma función que ya usa el autocomplete de /sorteo y /estado — nunca una consulta
+// propia. Acotada a 25 filas por su propio `.limit()` (ver giveawaysStore.js): con más
+// de 25 sorteos finalizados históricos, "Finalizados" y "Ganadores" reflejan solo los
+// 25 más recientes, mismo límite real que ya tenía esa función antes de esta fase.
+async function buildSorteosScreen(guildId) {
+  const [activos, finalizados] = await Promise.all([
+    getGuildGiveawaysForAutocomplete(guildId, false),
+    getGuildGiveawaysForAutocomplete(guildId, true),
+  ]);
+  const embed = baseEmbed('sorteos').addFields(
+    { name: 'Sorteos activos', value: `${activos.length}`, inline: true },
+    { name: 'Finalizados (últimos 25)', value: `${finalizados.length}`, inline: true },
+  );
+  if (activos.length > 0) {
+    embed.addFields({ name: 'Premios activos ahora', value: activos.map((g) => `• ${g.prize}`).join('\n').slice(0, 1000) });
+  }
+  embed.setFooter({ text: 'Crear/cancelar/reroll: usá /sorteo mientras tanto — llega a este panel en una fase futura.' });
+  return { embeds: [embed], components: [navRow('sorteos')] };
+}
+
+async function buildAnunciosScreen(guildId) {
+  const templates = await getGuildAnnouncementTemplates(guildId);
+  const embed = baseEmbed('anuncios').addFields({
+    name: `Plantillas guardadas (${templates.length})`,
+    value: templates.length ? templates.map((t) => `• ${t.name}`).join('\n').slice(0, 1000) : '❌ Ninguna guardada todavía',
+  });
+  embed.setFooter({ text: BRAND_NAME });
+  const buttonsRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('staff_anuncio_crear').setLabel('Crear anuncio').setEmoji('📢').setStyle(ButtonStyle.Primary),
+  );
+  return { embeds: [embed], components: [buttonsRow, navRow('anuncios')] };
+}
+
 async function buildScreen(screen, interaction) {
   if (screen === 'home') return buildHomeScreen(interaction);
   if (screen === 'config') return buildConfigScreen();
   if (screen === 'sistema') return buildSistemaScreen(interaction);
   if (screen === 'economia') return buildEconomiaScreen(interaction.guildId); // no depende de guild_config — sin toggle propio
+  if (screen === 'sorteos') return buildSorteosScreen(interaction.guildId);
+  if (screen === 'anuncios') return buildAnunciosScreen(interaction.guildId);
   if (PLACEHOLDER_SCREENS.has(screen)) return buildPlaceholderScreen(screen);
 
   const cfg = await getGuildConfig(interaction.guildId);
@@ -713,4 +764,12 @@ registerSelectPrefix('staff_selfrole_remove_select', async (i) => {
   await i.update(buildRolesScreen(freshCfg, i));
   await i.followUp({ content: `✅ <@&${roleId}> sacado de los roles autoasignables. Quienes ya lo tenían lo conservan.`, flags: MessageFlags.Ephemeral });
   await logConfigChange(i, `🎭 Rol autoasignable quitado → <@&${roleId}> (desde /staff)`);
+});
+
+// ---------- Fase 5: Anuncios ----------
+// Lanza el flujo REAL de /anuncio (startBuilder, ya reusado por el propio comando) en
+// vez de reimplementar el builder acá — startBuilder hace su propio interaction.reply(),
+// así que esta interacción de botón nunca se toca con i.update()/i.reply() propio.
+registerButtonPrefix('staff_anuncio_crear', async (i) => {
+  await startAnuncioBuilder(i);
 });
