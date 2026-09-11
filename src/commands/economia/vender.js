@@ -5,7 +5,7 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getGuildShopItems, getShopItem } from '../../utils/shopStore.js';
 import { getUserEconomy, incrementInventoryItem, addBalance } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 
 export const SELL_RATIO = 0.5;
@@ -84,7 +84,7 @@ export async function execute(interaction) {
     const newBalance = await addBalance(guildId, userId, sellPrice, { type: 'sell', reason: item.name });
 
     const embed = new EmbedBuilder()
-      .setColor(BRAND_COLOR)
+      .setColor(EMERALD_COLOR)
       .setTitle('💱 Ítem vendido')
       .setDescription(`Vendiste **${item.name}** por **${sellPrice.toLocaleString('es-ES')}** monedas (50% del precio).\nBalance: **${newBalance.toLocaleString('es-ES')}**.`)
       .setFooter({ text: BRAND_NAME })

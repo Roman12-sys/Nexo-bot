@@ -3,7 +3,7 @@
 // víctima: después de un intento (gane o pierda quien roba) queda a salvo un rato.
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, robWallet, setRobCooldowns, transferBalance, recordTransaction } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { BRAND_NAME, SUCCESS_COLOR, LOG_COLOR } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 
 const ROB_COOLDOWN_MS = 60 * 60 * 1000; // 1 hora entre intentos, por quien roba
@@ -123,7 +123,7 @@ export async function execute(interaction) {
         await recordTransaction(guildId, targetUser.id, { type: 'rob_loss', amount: -result.stolen, balanceAfter: result.victimBalance, actorId: userId, reason: `${interaction.user.tag} te robó` });
 
         const embed = new EmbedBuilder()
-          .setColor(BRAND_COLOR)
+          .setColor(SUCCESS_COLOR)
           .setTitle('🥷 ¡Robo exitoso!')
           .setDescription(`Le robaste **${result.stolen.toLocaleString('es-ES')}** monedas a ${targetUser}.\nTu wallet: **${result.robberBalance.toLocaleString('es-ES')}**.`)
           .setFooter({ text: BRAND_NAME })
@@ -153,7 +153,7 @@ export async function execute(interaction) {
       }
 
       const embed = new EmbedBuilder()
-        .setColor('#c22b3f')
+        .setColor(LOG_COLOR)
         .setTitle('🚨 Te agarraron')
         .setDescription(
           fineCharged > 0

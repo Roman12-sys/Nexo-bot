@@ -10,7 +10,7 @@ import { registerSelectPrefix } from '../../components/selects.js';
 import { recordModerationAction, getUserModerationActions } from '../../utils/moderationActionsStore.js';
 import { revokePunishment } from '../../utils/punishEngine.js';
 import { buildConfirmation } from '../../utils/confirmations.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 const ACTION_LABELS = {
   ban: '🔨 Ban',
@@ -29,7 +29,7 @@ function buildHistorialEmbed(targetUser, list, page) {
   const slice = list.slice(clampedPage * HISTORIAL_PAGE_SIZE, clampedPage * HISTORIAL_PAGE_SIZE + HISTORIAL_PAGE_SIZE);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(INDIGO_COLOR)
     .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
     .setTitle(`📜 Historial de sanciones de ${targetUser.tag}`)
     .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages} • ${list.length} acción(es) • No incluye advertencias, usá /warns` })

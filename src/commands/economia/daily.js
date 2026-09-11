@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, setDailyClaim } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 
@@ -78,7 +78,7 @@ export async function execute(interaction) {
   const { reward, streak, streakBonus, newBalance, isFirstDaily } = result;
   const streakLine = streak > 1 ? `\n🔥 Racha: **${streak}** días seguidos (+${streakBonus} de bonus)` : '';
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('🎁 Recompensa diaria')
     .setDescription(`Recibiste **${reward.toLocaleString('es-ES')}** monedas.${streakLine}\nTu nuevo balance: **${newBalance.toLocaleString('es-ES')}**.`)
     .setFooter({ text: BRAND_NAME })

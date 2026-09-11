@@ -3,7 +3,7 @@ import { isStaff } from '../../utils/permissions.js';
 import { getGuildVoiceConfig, upsertGuildVoiceConfig, disableGuildVoiceConfig } from '../../utils/voiceConfigStore.js';
 import { getAllTempChannels, getGuildVoiceStatsSummary } from '../../utils/tempVoiceStore.js';
 import { buildAdminRoomSelect } from '../../utils/tempVoicePanel.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { describeError } from '../../utils/errorMessages.js';
 
 async function handleSetup(interaction) {
@@ -23,7 +23,7 @@ async function handleSetup(interaction) {
   await upsertGuildVoiceConfig(interaction.guild.id, { createChannelId: canal.id, categoryId: categoria.id, enabled: true });
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(INDIGO_COLOR)
     .setTitle('✅ Sistema de salas temporales configurado')
     .addFields(
       { name: 'Canal "Crear sala"', value: `${canal}`, inline: true },
@@ -47,7 +47,7 @@ async function handleConfig(interaction) {
   const categoria = cfg.categoryId ? await interaction.guild.channels.fetch(cfg.categoryId).catch(() => null) : null;
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(INDIGO_COLOR)
     .setTitle('⚙️ Configuración de salas temporales')
     .addFields(
       { name: 'Canal "Crear sala"', value: canal ? `${canal}` : '❌ No existe (ID guardado inválido)', inline: true },
@@ -111,7 +111,7 @@ async function handleEstadisticas(interaction) {
         .join('\n');
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(INDIGO_COLOR)
     .setTitle('📊 Estadísticas de salas de voz temporales')
     .addFields(
       { name: 'Salas cerradas (últimas 500)', value: `${summary.totalSessions}`, inline: true },

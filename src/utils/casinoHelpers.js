@@ -5,9 +5,9 @@
 import { EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, deductBalanceIfSufficient, addBalance, recordTransaction } from './economyStore.js';
 import { withLock } from './asyncLock.js';
-import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
+import { BRAND_NAME, SUCCESS_COLOR, NEUTRAL_COLOR, LOG_COLOR } from './embeds.js';
 
-const OUTCOME_COLOR = { win: BRAND_COLOR, push: '#8D99AE', lose: '#c22b3f' };
+const OUTCOME_COLOR = { win: SUCCESS_COLOR, push: NEUTRAL_COLOR, lose: LOG_COLOR };
 
 // resolve() -> { outcome: 'win'|'push'|'lose', payout (total a devolver, 0 si perdió
 // todo), title, description }. gameKey identifica el juego para el lock y el motivo

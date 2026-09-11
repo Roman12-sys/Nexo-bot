@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { getGuildEconomy } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
 const PAGE_SIZE = 10;
@@ -16,7 +16,7 @@ export async function buildLeaderboardEmbed(guildId, page) {
   const slice = sorted.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('🏆 Top de monedas')
     .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages}` })
     .setTimestamp();

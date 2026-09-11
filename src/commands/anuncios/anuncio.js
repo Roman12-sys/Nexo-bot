@@ -13,7 +13,7 @@ import {
   AttachmentBuilder,
   MessageFlags,
 } from 'discord.js';
-import { buildAnuncioEmbed, BRAND_COLOR } from '../../utils/embeds.js';
+import { buildAnuncioEmbed, SKY_COLOR } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
@@ -94,7 +94,7 @@ function importJsonToDraft(jsonString, currentDraft) {
       title: String(obj.title || currentDraft.title || ''),
       description: String(obj.description || currentDraft.description || ''),
       url: String(obj.url || currentDraft.url || ''),
-      color: colorToHex(obj.color) || currentDraft.color || BRAND_COLOR,
+      color: colorToHex(obj.color) || currentDraft.color || SKY_COLOR,
       authorName: String(obj.author?.name || obj.authorName || currentDraft.authorName || ''),
       authorIconURL: String(obj.author?.icon_url || obj.authorIconURL || currentDraft.authorIconURL || ''),
       authorURL: String(obj.author?.url || obj.authorURL || currentDraft.authorURL || ''),
@@ -464,7 +464,7 @@ export async function startBuilder(interaction, { colorPrefill, imagenPrefill, r
     title: '',
     description: '',
     url: '',
-    color: colorPrefill || BRAND_COLOR,
+    color: colorPrefill || SKY_COLOR,
     authorName: '',
     authorIconURL: '',
     authorURL: '',

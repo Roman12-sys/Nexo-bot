@@ -33,7 +33,7 @@ export function progressPercent(current, total) {
 // que el panel exige antes de habilitar "Enviar" — así el embed nunca queda vacío (la
 // API de Discord rechaza un embed sin ningún campo con contenido).
 export function buildAnuncioEmbed(draft) {
-  const embed = new EmbedBuilder().setColor(draft.color || BRAND_COLOR);
+  const embed = new EmbedBuilder().setColor(draft.color || SKY_COLOR);
 
   if (draft.title) embed.setTitle(draft.title);
   if (draft.description) embed.setDescription(draft.description);
@@ -68,7 +68,7 @@ export function buildAnuncioEmbed(draft) {
 export function createGiveawayEmbed({ prize, winnersCount, endTimestamp, participantsCount, participants, ended, winners, cancelled, requiredRoleId }) {
   const count = typeof participantsCount === 'number' ? participantsCount : (participants ? participants.length : 0);
   const embed = new EmbedBuilder()
-    .setColor(cancelled ? '#6C757D' : ended ? '#2A9D8F' : BRAND_COLOR)
+    .setColor(cancelled ? NEUTRAL_COLOR : ended ? SUCCESS_COLOR : MAGENTA_COLOR)
     .setTitle(cancelled ? '🚫 Sorteo cancelado' : ended ? '🎉 Sorteo finalizado' : '🎉 ¡Sorteo activo!')
     .addFields(
       { name: 'Premio', value: prize },

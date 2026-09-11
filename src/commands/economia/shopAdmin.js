@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { getGuildShopItems, addShopItem, updateShopItem, removeShopItem, hasCustomShopItems } from '../../utils/shopStore.js';
 import { isStaff } from '../../utils/permissions.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
 async function handleAgregar(interaction) {
@@ -61,7 +61,7 @@ function buildListarEmbed(items, page) {
   const slice = items.slice(clampedPage * LISTAR_PAGE_SIZE, clampedPage * LISTAR_PAGE_SIZE + LISTAR_PAGE_SIZE);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('📦 Catálogo de la tienda')
     .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages} • Usá el id (\`...\`) en /shop-admin quitar/editar` })
     .setTimestamp();

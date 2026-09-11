@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { getGuildShopItems } from '../../utils/shopStore.js';
 import { getUserEconomy, addBalance, setBalance, getUserTransactions, getGuildPurchasesByReason, markPurchaseDelivered } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { createEconomyAdminLogEmbed } from '../../utils/logEmbeds.js';
 import { isAdmin } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
@@ -69,7 +69,7 @@ async function handleBalance(interaction) {
   const economy = await getUserEconomy(interaction.guild.id, targetUser.id);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle(`💰 Balance de ${targetUser.tag}`)
     .setDescription(`**${economy.balance.toLocaleString('es-ES')}** monedas`)
     .setThumbnail(targetUser.displayAvatarURL())
@@ -97,7 +97,7 @@ async function handleAdjust(interaction, direction) {
 
   const verbo = direction === 1 ? 'agregaron' : 'quitaron';
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle(direction === 1 ? '➕ Monedas agregadas' : '➖ Monedas quitadas')
     .setDescription(`Se le ${verbo} **${cantidad.toLocaleString('es-ES')}** monedas a ${targetUser}.\nBalance: ${before.toLocaleString('es-ES')} → **${after.toLocaleString('es-ES')}**.`)
     .setFooter({ text: BRAND_NAME })
@@ -121,7 +121,7 @@ async function handleSet(interaction) {
   });
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('🛠️ Balance establecido')
     .setDescription(`El balance de ${targetUser} pasó de **${before.toLocaleString('es-ES')}** a **${after.toLocaleString('es-ES')}**.`)
     .setFooter({ text: BRAND_NAME })
@@ -141,7 +141,7 @@ function buildHistorialEmbed(targetUser, movimientos, page) {
   const slice = movimientos.slice(clampedPage * HISTORIAL_PAGE_SIZE, clampedPage * HISTORIAL_PAGE_SIZE + HISTORIAL_PAGE_SIZE);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle(`📜 Historial de ${targetUser.tag}`)
     .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages}` })
     .setTimestamp();
@@ -264,7 +264,7 @@ async function handlePerfil(interaction) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle(`🧾 Perfil económico de ${targetUser.tag}`)
     .setThumbnail(targetUser.displayAvatarURL())
     .addFields(
@@ -293,7 +293,7 @@ async function buildPendientesPayload(guildId) {
   const purchases = await getGuildPurchasesByReason(guildId, manualNames, 25, { onlyPending: true });
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('📬 Compras de entrega manual pendientes')
     .setFooter({ text: `${BRAND_NAME} • ${purchases.length} pendiente(s)` })
     .setTimestamp();

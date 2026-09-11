@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { getUserWarns } from '../../utils/warnsStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { buildCsvAttachment } from '../../utils/csvExport.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
@@ -17,7 +17,7 @@ function buildWarnsEmbed(targetUser, list, page) {
   const slice = list.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(INDIGO_COLOR)
     .setThumbnail(targetUser.displayAvatarURL({ size: 256 }))
     .setTitle(`⚠️ Advertencias de ${targetUser.tag}`)
     .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages} • ${list.length} advertencia(s)` })

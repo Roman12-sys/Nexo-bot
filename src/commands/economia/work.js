@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, setCooldown } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 
@@ -69,7 +69,7 @@ export async function execute(interaction) {
 
   const { reward, flavorText, newBalance, isFirstWork } = result;
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('💼 A trabajar')
     .setDescription(
       `${flavorText}\n\nGanaste **${reward.toLocaleString('es-ES')}** monedas.\nTu nuevo balance: **${newBalance.toLocaleString('es-ES')}**.`,

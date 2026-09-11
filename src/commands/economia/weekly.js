@@ -4,7 +4,7 @@
 // dentro de la semana como sí hace /daily).
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, setCooldown } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 
 export const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
@@ -55,7 +55,7 @@ export async function execute(interaction) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('🎁 Recompensa semanal')
     .setDescription(`Recibiste **${result.reward.toLocaleString('es-ES')}** monedas.\nTu nuevo balance: **${result.newBalance.toLocaleString('es-ES')}**.`)
     .setFooter({ text: BRAND_NAME })

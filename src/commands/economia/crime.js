@@ -4,7 +4,7 @@
 // solo se vacía comprando en la tienda.
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, deductBalanceIfSufficient, recordTransaction, setCooldown } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { BRAND_NAME, SUCCESS_COLOR, LOG_COLOR } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 
 export const COOLDOWN_MS = 45 * 60 * 1000; // 45 minutos
@@ -103,7 +103,7 @@ export async function execute(interaction) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(result.exito ? BRAND_COLOR : '#c22b3f')
+    .setColor(result.exito ? SUCCESS_COLOR : LOG_COLOR)
     .setTitle(result.exito ? '🕵️ Golpe exitoso' : '🚨 Te agarraron')
     .setDescription(
       result.exito

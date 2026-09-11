@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { getUserXp, addXp, setXp, totalXpForLevel } from '../../utils/xpStore.js';
 import { processLevelUp } from '../../utils/xpEngine.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { GOLD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { createXpAdminLogEmbed } from '../../utils/logEmbeds.js';
 import { isAdmin } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
@@ -64,7 +64,7 @@ async function handleAdjust(interaction, direction) {
 
   const verbo = direction === 1 ? 'agregaron' : 'quitaron';
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle(direction === 1 ? '➕ XP agregada' : '➖ XP quitada')
     .setDescription(
       `Se le ${verbo} **${cantidad.toLocaleString('es-ES')}** XP a ${targetUser}.\n` +
@@ -99,7 +99,7 @@ async function handleSet(interaction) {
   const result = await setXp(interaction.guild.id, targetUser.id, cantidad);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle('🛠️ XP establecida')
     .setDescription(
       `La XP de ${targetUser} pasó de **${before.xp.toLocaleString('es-ES')}** a **${result.record.xp.toLocaleString('es-ES')}**.\n` +
@@ -134,7 +134,7 @@ async function handleSetLevel(interaction) {
   const result = await setXp(interaction.guild.id, targetUser.id, targetXp);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle('🛠️ Nivel establecido')
     .setDescription(`El nivel de ${targetUser} pasó de **${before.level}** a **${result.record.level}** (${result.record.xp.toLocaleString('es-ES')} XP).`)
     .setFooter({ text: BRAND_NAME })

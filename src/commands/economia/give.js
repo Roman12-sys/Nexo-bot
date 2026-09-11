@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, transferBalance, recordTransaction } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { createGiveSuspiciousLogEmbed } from '../../utils/logEmbeds.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { recordGive } from '../../utils/giveTracker.js';
@@ -137,7 +137,7 @@ export async function execute(interaction) {
   });
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('💸 Transferencia realizada')
     .setDescription(`Le transferiste **${cantidad.toLocaleString('es-ES')}** monedas a ${targetUser}.`)
     .setFooter({ text: BRAND_NAME })

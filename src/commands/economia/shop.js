@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { getGuildShopItems } from '../../utils/shopStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
 // Antes armaba UN embed con TODAS las categorías juntas — un catálogo grande (varios
@@ -21,7 +21,7 @@ async function buildShopEmbed(guildId, page) {
   const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('🛒 Tienda')
     .setDescription('Usá `/buy` y elegí el ítem que quieras (con autocompletado).')
     .setFooter({ text: categoryNames.length > 0 ? `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages}` : BRAND_NAME })

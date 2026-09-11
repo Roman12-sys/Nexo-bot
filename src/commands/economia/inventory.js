@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { getGuildShopItems } from '../../utils/shopStore.js';
 import { getUserEconomy } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 // Extraída para que /perfil pueda mostrar el mismo inventario sin duplicar esta lógica.
 export async function buildInventoryEmbed(guildId, targetUser) {
@@ -13,7 +13,7 @@ export async function buildInventoryEmbed(guildId, targetUser) {
   const owned = Object.entries(economy.inventory || {}).filter(([, qty]) => qty > 0);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle(`🎒 Inventario de ${targetUser.tag}`)
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();

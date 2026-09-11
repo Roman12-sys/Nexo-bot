@@ -3,7 +3,7 @@
 // cada tanto — ver collectBankInterest en economyStore.js).
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, depositToBank, withdrawFromBank, collectBankInterest } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 
 async function handleVer(interaction) {
@@ -15,7 +15,7 @@ async function handleVer(interaction) {
   const economy = await getUserEconomy(interaction.guildId, interaction.user.id);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle('🏦 Tu banco')
     .addFields(
       { name: '💵 Wallet (arriesgable por /rob)', value: `${economy.balance.toLocaleString('es-ES')} monedas`, inline: true },

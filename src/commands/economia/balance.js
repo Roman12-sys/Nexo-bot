@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { getUserEconomy } from '../../utils/economyStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('balance')
@@ -15,7 +15,7 @@ export async function execute(interaction) {
   const economy = await getUserEconomy(interaction.guild.id, targetUser.id);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(EMERALD_COLOR)
     .setTitle(`💰 Balance de ${targetUser.tag}`)
     .setDescription(`**${economy.balance.toLocaleString('es-ES')}** monedas`)
     .setThumbnail(targetUser.displayAvatarURL())
