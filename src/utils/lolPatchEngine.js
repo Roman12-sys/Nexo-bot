@@ -21,6 +21,7 @@ import { reportCriticalError } from './errorReporter.js';
 const PATCH_NOTES_TAG_URL = 'https://www.leagueoflegends.com/en-us/news/tags/patch-notes/';
 const SITE_ORIGIN = 'https://www.leagueoflegends.com';
 const TICK_MS = 20 * 60 * 1000; // los patches no salen más seguido que esto, no hace falta más agresivo
+const FETCH_TIMEOUT_MS = 10 * 1000; // ARCH-2, auditoría completa 2026-09-11 — ver más abajo
 const LOL_GOLD = '#C89B3C'; // Hextech gold
 
 function stripHtml(html) {
@@ -28,9 +29,21 @@ function stripHtml(html) {
 }
 
 async function fetchLatestPatchArticle() {
-  const res = await fetch(PATCH_NOTES_TAG_URL, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NexoBot/1.0)' },
-  });
+  // ARCH-2 (auditoría completa 2026-09-11): sin timeout, un stall de red (la conexión
+  // ni siquiera cierra, no es un HTTP error) dejaba este fetch colgado indefinidamente
+  // — con el tickRunning de más abajo, un solo tick trabado bloqueaba TODOS los
+  // siguientes para siempre en vez de saltear el que está colgado.
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(PATCH_NOTES_TAG_URL, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NexoBot/1.0)' },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status} pidiendo la página de patch notes`);
   const html = await res.text();
 
@@ -110,12 +123,32 @@ async function checkForNewPatch(client) {
   console.log(`🎮 [patch notes LoL] Anunciado a ${targets.length} servidor(es): ${article.title}`);
 }
 
-export function startLolPatchLoop(client) {
-  checkForNewPatch(client).catch((error) => console.error('❌ [patch notes LoL] Error en el chequeo inicial:', error));
-  setInterval(() => {
-    checkForNewPatch(client).catch((error) => {
-      console.error('❌ [patch notes LoL] Error en el barrido:', error);
-      reportCriticalError(client, 'lolPatchEngine: barrido periódico', error);
+// ARCH-2 (auditoría completa 2026-09-11): sin esta guardia, un tick colgado (ver el
+// timeout de arriba — cubre el caso común, no todos) podía solaparse con el siguiente
+// disparo del setInterval; dos chequeos en paralelo leyendo/escribiendo
+// lol_patch_state podían terminar anunciando el mismo patch dos veces. Mismo patrón
+// que voiceXpEngine.js — con una diferencia real: acá también existe un chequeo
+// INICIAL (antes del primer tick del setInterval), así que la guardia tiene que
+// envolver los DOS disparadores con la misma variable, no solo el setInterval.
+let tickRunning = false;
+
+function runTick(client) {
+  if (tickRunning) {
+    console.warn('⚠️ [patch notes LoL] El chequeo anterior todavía no terminó — se saltea este tick.');
+    return;
+  }
+  tickRunning = true;
+  checkForNewPatch(client)
+    .catch((error) => {
+      console.error('❌ [patch notes LoL] Error en el chequeo:', error);
+      reportCriticalError(client, 'lolPatchEngine: chequeo de patch notes', error);
+    })
+    .finally(() => {
+      tickRunning = false;
     });
-  }, TICK_MS).unref();
+}
+
+export function startLolPatchLoop(client) {
+  runTick(client);
+  setInterval(() => runTick(client), TICK_MS).unref();
 }

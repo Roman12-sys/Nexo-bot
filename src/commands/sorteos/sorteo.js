@@ -101,6 +101,16 @@ async function handleCrear(interaction) {
   const requiredRole = interaction.options.getRole('rol-requerido');
   const endTimestamp = Date.now() + duracionMs;
 
+  // GIVE-1 (auditoría completa 2026-09-11): si algo entre postear el mensaje y
+  // registrar el sorteo falla (ej. message.edit() agregando el botón), antes quedaba un
+  // mensaje "fantasma" en el canal — publicado de verdad, pero sin botón, sin fila en
+  // Supabase y sin temporizador, así que ni /sorteo terminar/cancelar podían tocarlo.
+  // `registered` marca el punto sin retorno: una vez que saveGiveaway confirma, el
+  // sorteo es válido y cualquier error posterior (ej. el editReply final) nunca debe
+  // borrar un mensaje ya real.
+  let message = null;
+  let registered = false;
+
   try {
     await interaction.reply({ content: '🎉 Creando el sorteo...', flags: MessageFlags.Ephemeral });
 
@@ -112,7 +122,7 @@ async function handleCrear(interaction) {
       ended: false,
       requiredRoleId: requiredRole?.id || null,
     });
-    const message = await interaction.channel.send({ embeds: [embed] });
+    message = await interaction.channel.send({ embeds: [embed] });
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`giveaway_enter_${message.id}`).setLabel('🎉 Participar').setStyle(ButtonStyle.Primary),
@@ -129,12 +139,16 @@ async function handleCrear(interaction) {
       creatorId: interaction.user.id,
       requiredRoleId: requiredRole?.id || null,
     });
+    registered = true;
 
     scheduleGiveawayEnd(interaction.client, interaction.guild.id, message.id, duracionMs);
 
     await interaction.editReply({ content: `✅ Sorteo creado. ID del mensaje: \`${message.id}\` (lo vas a necesitar para /sorteo terminar, reroll o cancelar).` });
   } catch (error) {
     console.error('❌ Error creando el sorteo:', error);
+    if (message && !registered) {
+      await message.delete().catch(() => {});
+    }
     await interaction.editReply({ content: '❌ Ocurrió un error al crear el sorteo.' });
   }
 }

@@ -28,6 +28,15 @@ export async function runClear(interaction, cantidad) {
     return;
   }
 
+  // MOD-4 (auditoría completa 2026-09-11): antes, sin este permiso, el error recién
+  // aparecía como el catch genérico de confirmClear ("Ocurrió un error...") DESPUÉS de
+  // que el staff ya esperó la confirmación — mismo criterio que /lock/unlock, que
+  // avisan esto antes de mostrar cualquier otra cosa.
+  if (!interaction.guild.members.me.permissionsIn(channel).has(PermissionFlagsBits.ManageMessages)) {
+    await interaction.reply({ content: '❌ Me falta el permiso "Gestionar mensajes" en este canal para poder borrar mensajes.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+
   const confirmation = buildConfirmation({
     userId: interaction.user.id,
     guildId: interaction.guildId,

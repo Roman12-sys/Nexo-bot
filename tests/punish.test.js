@@ -34,6 +34,7 @@ function makeInteraction({
   targetMember = null,
   punishRole = { position: 1 },
   botPosition = 50,
+  hasManageRoles = true,
   options = {},
 } = {}) {
   return {
@@ -43,7 +44,7 @@ function makeInteraction({
       roles: { cache: { get: (id) => (id === 'role-sancionado' ? punishRole : undefined) } },
       members: {
         fetch: vi.fn(async (id) => (targetMember && id === targetMember.id ? targetMember : null)),
-        me: { roles: { highest: { position: botPosition } } },
+        me: { roles: { highest: { position: botPosition } }, permissions: { has: () => hasManageRoles } },
       },
     },
     guildId: 'guild-1',
@@ -118,6 +119,16 @@ describe('/punish', () => {
     await punishExecute(interaction);
 
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('ya no existe') }));
+  });
+
+  // MOD-4 (auditoría completa 2026-09-11): antes, sin este chequeo, member.roles.add()
+  // tiraba y el error caía al catch genérico — mismo criterio que /lock/unlock.
+  it('al bot le falta "Gestionar roles": mensaje claro, no intenta asignar nada', async () => {
+    const interaction = makeInteraction({ targetMember: targetMember(), hasManageRoles: false });
+
+    await punishExecute(interaction);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Gestionar roles') }));
   });
 
   it('el rol de restricción está por encima del rol del bot', async () => {

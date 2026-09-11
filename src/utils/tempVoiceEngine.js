@@ -238,6 +238,11 @@ async function createTempChannelForMember(newState, guildConfig) {
       });
     } catch (error) {
       console.error('❌ [voz temporal] Error creando el canal:', error);
+      // VOICE-3 (auditoría completa 2026-09-11): esto nace de voiceStateUpdate, no de
+      // una interacción — sin este DM best-effort, el usuario que entró a "Crear sala"
+      // no se enteraba de nada (ni un mensaje de error, ni la sala), y para el staff era
+      // indistinguible de "el bot no funciona" sin mirar los logs de Railway.
+      await member.send('⚠️ No se pudo crear tu sala de voz — puede que el servidor llegó al límite de canales. Avisale al staff si el problema sigue.').catch(() => {});
       return;
     }
 

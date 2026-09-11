@@ -15,6 +15,7 @@ import { getLolPatchMonitorState, setLolDdragonVersionSeen, setLolDdragonWarning
 
 const DDRAGON_VERSIONS_URL = 'https://ddragon.leagueoflegends.com/api/versions.json';
 const TICK_MS = 20 * 60 * 1000; // mismo intervalo que lolPatchEngine.js
+const FETCH_TIMEOUT_MS = 10 * 1000; // ARCH-2, auditoría completa 2026-09-11 — ver más abajo
 
 // Ventana de tolerancia, en ambas direcciones alrededor del momento en que se detectó
 // el cambio de versión de Data Dragon. En la práctica el artículo de patch notes suele
@@ -28,7 +29,16 @@ const DDRAGON_PATCH_WARNING_DELAY_HOURS = 24;
 const DDRAGON_PATCH_WARNING_DELAY_MS = DDRAGON_PATCH_WARNING_DELAY_HOURS * 60 * 60 * 1000;
 
 async function fetchLatestDdragonVersion() {
-  const res = await fetch(DDRAGON_VERSIONS_URL);
+  // ARCH-2 (auditoría completa 2026-09-11): mismo motivo que lolPatchEngine.js — un
+  // stall de red sin timeout podía dejar este fetch colgado indefinidamente.
+  const controller = new AbortController();
+  const timeoutHandle = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(DDRAGON_VERSIONS_URL, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status} pidiendo versions.json de Data Dragon`);
 
   const versions = await res.json();
@@ -75,9 +85,26 @@ export async function checkDdragonVersion() {
   await setLolDdragonWarningSent(now);
 }
 
+// ARCH-2: mismo motivo que lolPatchEngine.js — sin esta guardia, un tick colgado podía
+// solaparse con el siguiente. También acá el chequeo INICIAL (antes del primer tick del
+// setInterval) tiene que estar envuelto por la misma variable, no solo el setInterval —
+// si no, el chequeo inicial queda totalmente afuera de la protección.
+let tickRunning = false;
+
+function runTick() {
+  if (tickRunning) {
+    console.warn('⚠️ [patch notes LoL · monitor] El chequeo anterior todavía no terminó — se saltea este tick.');
+    return;
+  }
+  tickRunning = true;
+  checkDdragonVersion()
+    .catch((error) => console.error('❌ [patch notes LoL · monitor] Error en el chequeo:', error))
+    .finally(() => {
+      tickRunning = false;
+    });
+}
+
 export function startLolDdragonMonitorLoop() {
-  checkDdragonVersion().catch((error) => console.error('❌ [patch notes LoL · monitor] Error en el chequeo inicial:', error));
-  setInterval(() => {
-    checkDdragonVersion().catch((error) => console.error('❌ [patch notes LoL · monitor] Error en el barrido:', error));
-  }, TICK_MS).unref();
+  runTick();
+  setInterval(runTick, TICK_MS).unref();
 }

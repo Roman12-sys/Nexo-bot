@@ -21,6 +21,7 @@ const { execute: timeoutExecute } = await import('../src/commands/moderacion/tim
 const { execute: lockExecute } = await import('../src/commands/moderacion/lock.js');
 const { execute: unlockExecute } = await import('../src/commands/moderacion/unlock.js');
 const { execute: unbanExecute } = await import('../src/commands/moderacion/unban.js');
+const { runClear } = await import('../src/commands/moderacion/clear.js');
 
 const STAFF_CFG = { admin_role_id: 'role-admin', moderator_role_id: null };
 const NO_STAFF_CFG = { admin_role_id: null, moderator_role_id: null };
@@ -140,6 +141,53 @@ describe('/unlock', () => {
 
     expect(interaction.channel.permissionOverwrites.edit).toHaveBeenCalledWith('guild-1', { SendMessages: null });
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('desbloqueado') }));
+  });
+});
+
+// MOD-4 (auditoría completa 2026-09-11): /clear no tenía ningún chequeo previo del
+// permiso "Gestionar mensajes" del bot — sin él, channel.bulkDelete() tira DESPUÉS de
+// que el staff ya esperó la confirmación, y solo ve el catch genérico. Mismo criterio
+// que /lock/unlock (arriba): avisar la causa real antes de mostrar cualquier otra cosa.
+// /clear no tenía NINGÚN test previo (ni de esto ni de nada más).
+function makeClearInteraction({ staffRoleIds = ['role-admin'], hasManageMessages = true } = {}) {
+  return {
+    guild: { id: 'guild-1', members: { me: { permissionsIn: () => ({ has: () => hasManageMessages }) } } },
+    guildId: 'guild-1',
+    channel: { bulkDelete: vi.fn().mockResolvedValue({ size: 5 }) },
+    user: { id: 'mod-1', tag: 'mod-1#0001' },
+    member: { roles: { cache: new Map(staffRoleIds.map((id) => [id, { id }])) } },
+    client: { user: { id: 'bot-1' } },
+    reply: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+describe('/clear', () => {
+  it('sin permisos de staff (rol configurado, pero este usuario no lo tiene): no muestra confirmación', async () => {
+    getGuildConfig.mockResolvedValue(STAFF_CFG);
+    const interaction = makeClearInteraction({ staffRoleIds: [] });
+
+    await runClear(interaction, 10);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('permisos') }));
+    expect(interaction.channel.bulkDelete).not.toHaveBeenCalled();
+  });
+
+  it('al bot le falta "Gestionar mensajes": mensaje claro, ni siquiera llega a mostrar la confirmación', async () => {
+    const interaction = makeClearInteraction({ hasManageMessages: false });
+
+    await runClear(interaction, 10);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Gestionar mensajes') }));
+    expect(interaction.channel.bulkDelete).not.toHaveBeenCalled();
+  });
+
+  it('con el permiso: muestra el panel de confirmación real, todavía no borra nada', async () => {
+    const interaction = makeClearInteraction();
+
+    await runClear(interaction, 10);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Confirmar acción') }));
+    expect(interaction.channel.bulkDelete).not.toHaveBeenCalled();
   });
 });
 

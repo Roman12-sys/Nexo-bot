@@ -86,6 +86,14 @@ export async function execute(interaction) {
       await interaction.editReply({ content: '⚠️ El rol de restricción configurado ya no existe. Reconfigurálo con `/config rol-castigo`.' });
       return;
     }
+    // MOD-4 (auditoría completa 2026-09-11): antes, sin este permiso, member.roles.add()
+    // tiraba y el staff solo veía el catch genérico — mismo criterio explícito que
+    // /lock/unlock, que avisan la causa real en vez de depender de un mensaje de error
+    // sin contexto.
+    if (!interaction.guild.members.me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+      await interaction.editReply({ content: '❌ Me falta el permiso "Gestionar roles" para poder aplicar esta restricción.' });
+      return;
+    }
     if (punishRole.position >= interaction.guild.members.me.roles.highest.position) {
       await interaction.editReply({ content: '⚠️ No puedo asignar el rol de restricción — está por encima de mi rol más alto.' });
       return;

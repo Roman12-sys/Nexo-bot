@@ -12,7 +12,7 @@ vi.mock('../src/utils/lolPatchStore.js', () => ({
   setLolDdragonWarningSent,
 }));
 
-const { checkDdragonVersion } = await import('../src/utils/lolPatchMonitor.js');
+const { checkDdragonVersion, startLolDdragonMonitorLoop } = await import('../src/utils/lolPatchMonitor.js');
 
 const HOUR_MS = 60 * 60 * 1000;
 const TOLERANCE_MS = 24 * HOUR_MS; // debe coincidir con DDRAGON_PATCH_WARNING_DELAY_MS del módulo
@@ -190,5 +190,39 @@ describe('checkDdragonVersion', () => {
     // No hay ningún mock de discord.js en este archivo: si el módulo intentara mandar
     // un mensaje a un canal, el import fallaría o el test explotaría por falta de mock.
     expect(setLolDdragonVersionSeen).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ARCH-2 (auditoría completa 2026-09-11): startLolDdragonMonitorLoop dispara un chequeo
+// INICIAL además del setInterval — la guardia contra ticks solapados tiene que cubrir
+// los dos disparadores con la misma variable, no solo el setInterval (bug real
+// encontrado por este mismo test al escribirlo: la primera versión del fix dejaba el
+// chequeo inicial completamente afuera de la protección).
+describe('startLolDdragonMonitorLoop — guardia contra ticks solapados', () => {
+  const MONITOR_TICK_MS = 20 * 60 * 1000; // mismo TICK_MS que el módulo real
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it('si el chequeo inicial (fetch colgado) todavía no terminó, el primer tick del interval se saltea', async () => {
+    vi.resetModules();
+    getLolPatchMonitorState.mockResolvedValue(emptyState());
+    let resolveFetch;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; })));
+    const { startLolDdragonMonitorLoop: start } = await import('../src/utils/lolPatchMonitor.js');
+
+    start(); // dispara el chequeo inicial, que queda colgado en el fetch
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(MONITOR_TICK_MS); // "dispararía" un tick del interval si no hubiera guardia
+    expect(fetch).toHaveBeenCalledTimes(1); // se saltó — sigue en 1
+
+    resolveFetch({ ok: true, status: 200, json: () => Promise.resolve(['16.17.1']) });
+    await vi.advanceTimersByTimeAsync(0); // deja terminar el chequeo inicial
+
+    await vi.advanceTimersByTimeAsync(MONITOR_TICK_MS);
+    expect(fetch).toHaveBeenCalledTimes(2); // ahora sí, un tick nuevo puede arrancar
   });
 });
