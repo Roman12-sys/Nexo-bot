@@ -324,6 +324,109 @@ todos de solo lectura sobre datos que ya existían:
   inventado. Mismo campo se muestra en `/help`. **Sin valor real todavía** — es
   infraestructura lista, no un canal de soporte configurado de verdad.
 
+## Sitio web (`website/`, Fase 4/5, 2026-09-11)
+
+Landing + páginas de producto de NEXO (`/`, `/commands`, `/docs`, `/faq`, `/status`,
+`/changelog`) — **4to proceso Express** sobre el mismo repo (bot, dashboard, y ahora
+esto), server-rendered con template literals a mano, mismo criterio que `dashboard/`
+(sin motor de templates, sin frontend framework: mayormente estático, no lo justifica).
+Construido a partir de un prompt maestro de 44 secciones que pedía explícitamente "no
+inventar funcionalidades" — la auditoría previa a escribir código (comandos reales,
+categorías reales, stack real) es la razón de que casi todo acá derive del código en vez
+de estar tipeado a mano.
+
+**Por qué es MÁS aislado que el dashboard, no solo "otro servicio más".**
+`website/config.js` a propósito NO importa `src/config.js` ni
+`src/utils/errorReporter.js` — ambos exigen o usan `DISCORD_TOKEN`/
+`SUPABASE_SERVICE_ROLE_KEY`. Un sitio de marketing público no tiene ninguna razón para
+tener esos secrets en memoria: si mañana aparece una vulnerabilidad en una dependencia
+de Express o del propio código de este proceso, el radio de daño queda acotado a "se
+puede desfigurar la landing", nunca a "se filtró el token del bot o el acceso de
+escritura a la base". Lo único que exige es `CLIENT_ID` (público, ya viaja tal cual en
+la URL de invite) — `DASHBOARD_BASE_URL`/`SUPPORT_CONTACT`/`WEBSITE_BASE_URL` son
+opcionales, con fallback honesto (el elemento que dependería de ellos simplemente no se
+renderiza, nunca un dominio o contacto inventado). `/login` e "Iniciar sesión" no
+reimplementan OAuth — enlazan al dashboard real; reusar, no duplicar.
+
+**`/commands` no puede leer los comandos reales en el proceso siempre-vivo del sitio.**
+Importar los 88 `SlashCommandBuilder` (como hace `src/deploy-commands.js`) arrastra
+`utils/economyStore.js` y compañía hasta `src/supabaseClient.js`, que exige los secrets
+de arriba — justo lo que este servicio no debe tener. Solución: `scripts/
+generate-commands-data.js` (mismo mecanismo de import dinámico + `.toJSON()` que
+`deploy-commands.js`, pero corrido a mano/en build con el `.env` completo) vuelca
+`website/data/commands.generated.json`; el sitio, siempre corriendo, solo lo LEE
+(`website/data/commands.js`, con `fs.readFileSync` en un try/catch — si el JSON no
+existe todavía, `/commands` muestra "sin datos" en vez de tirar el proceso abajo).
+**Correr `npm run website:generate-commands` de nuevo cada vez que se agregue/edite/
+saque un comando** — si no, `/commands` queda desactualizado contra el bot real, el
+mismo problema que tenía a mano el Artifact de landing viejo ("70+ comandos" cuando ya
+eran 88, corregido acá de raíz). `website/data/features.js` (el grid de la landing)
+deriva `commandCount`/`sampleCommands` de ESE MISMO JSON en vez de tener sus propios
+números a mano — cierra el loop "código → fuente de verdad → web" en las dos
+superficies a la vez, no solo en una.
+
+**Categoría de "voz temporal" existe en la landing pero no en el filtro de `/commands`**
+— es una feature 100% automática (Join to Create), sin comando propio (0 en el JSON
+generado); un chip de filtro que siempre da "0 resultados" es peor que no mostrarlo.
+`website/data/categories.js` es la única fuente de emoji/nombre por categoría —
+reusados EXACTOS de los que ya usan `/help`/`/helpstaff` adentro de Discord, para que el
+sitio nunca use un nombre de categoría distinto al que ve un usuario real del bot.
+
+**`/changelog` sale de las fases reales documentadas en este mismo archivo (con fecha),
+nunca de `git log` crudo ni de un número de versión inventado** — el repo no tiene tags
+ni `CHANGELOG.md`, y `package.json` quedó fijo en `0.1.0` desde el primer commit pese a
+~15 fases reales. `website/data/changelog.js` traduce esas fases a lenguaje de cliente
+(nunca la jerga interna de la auditoría que las originó) y omite a propósito sistemas
+que se agregaron y sacaron en la misma ventana (`/report`) — mencionarlos generaría más
+confusión ("¿esto existe o no?") que valor.
+
+**`/status` es deliberadamente honesto sobre qué puede medir y qué no.** Lo único 100%
+en vivo es la plataforma de Discord (`discordstatus.com/api/v2/status.json`, API pública
+sin auth — cacheada 60s en `website/data/discordStatus.js`); Bot/Dashboard/Base de datos
+se muestran como "sin monitoreo público" con un pointer a `/estado` dentro de Discord,
+en vez de fingir un semáforo verde que este proceso no tiene forma honesta de medir
+(no tiene ni el token del bot ni acceso a Supabase, a propósito, ver arriba). Evaluar
+más adelante si vale un endpoint público chico en el dashboard (que sí tiene esos
+accesos) para que esta página sea 100% en vivo — no se hizo en esta fase.
+
+**Sin logo real en todo el repo** (verificado: cero imágenes, solo 2 fuentes .ttf) — el
+favicon es un SVG inline (wordmark "N", color de marca real `#7F5AF0`, el mismo que usan
+los embeds del bot y el dashboard desde siempre — nunca un segundo color de marca
+inventado). Las 2 fuentes Manrope de `src/assets/fonts/` (agregadas en su momento para
+`@napi-rs/canvas`) se reusan tal cual vía `express.static` en `/fonts/*` — sin duplicar
+archivos, solo para encabezados (`h1`-`h3`); el resto del texto usa la misma pila de
+fuentes de sistema que ya usa `dashboard/html.js`, cero requests a Google Fonts.
+
+**Build en 2 sesiones el mismo día:** Fase 4 (landing completa) y Fase 5 (`/commands` +
+`/docs` + `/faq` + `/status` + `/changelog`) se acordaron por separado vía
+`AskUserQuestion` antes de escribir código — mismo patrón que
+[[nexo_bot_phased_post_audit_workflow]] pero para un build nuevo, no un post-auditoría.
+Una tercera pasada (autorizada por el usuario para trabajar sola mientras dormía, sin
+deploy/dominio/git) fue QA duro, no cosmético — encontró y corrigió 3 bugs reales que
+una revisión visual no agarra:
+- **Contraste real bajo el mínimo WCAG AA**: `--text-dim` (`#756e91`) daba 4.14:1 contra
+  el fondo y hasta 3.86:1 contra las cards (mínimo AA para texto normal: 4.5:1) — usado
+  en textos chicos (badges, fechas, labels) que no califican para el umbral reducido de
+  "texto grande". Corregido a `#837b9f` (medido con la fórmula de luminancia relativa de
+  WCAG, no a ojo — 5.00/4.66/4.75:1 según fondo).
+- **Salto de nivel de encabezados en TODAS las páginas**: los `<h4>` del footer y del
+  sidebar de `/docs` son rótulos de navegación, no encabezados de contenido — pasaron a
+  `<p class="footer-heading">`/`.docs-nav-title`. `/commands`, `/faq`, `/status`,
+  `/changelog` no tenían NINGÚN `<h1>` (su título era `<h2>`) — cada página tiene ahora
+  exactamente uno.
+- Verificado con scripts propios (no a ojo): crawl de las 6 páginas sin links rotos,
+  balance de tags en la página más pesada (`/commands`, 88 tarjetas), sintaxis del JS
+  embebido, y 32 tests nuevos (`tests/websiteServer.test.js`,
+  `tests/websiteData.test.js` — server real vía `node:http`, mismo patrón que
+  `dashboardServer.test.js`).
+
+**Qué falta, a propósito no hecho sin el usuario presente:** deploy como 4to servicio de
+Railway y dominio propio (`WEBSITE_BASE_URL` sin configurar — sin esto, `/sitemap.xml`
+da 404 explícito y no hay `<link rel="canonical">`, nunca una URL inventada). QA visual
+en navegador real (sin esa herramienta disponible en el entorno de build). Compresión
+gzip (paquete `compression`) evaluada y descartada por ahora — es una dependencia nueva
+y los tamaños de página (30-136KB sin comprimir) no lo justifican todavía.
+
 ## Qué se dejó afuera a propósito
 
 - **Sistema de "presence" rotativo** (`utils/presence.js`/`botStatus.js` en gNoX) —
