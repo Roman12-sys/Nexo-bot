@@ -21,7 +21,7 @@ import { EmbedBuilder } from 'discord.js';
 import { getGuildsWithWeeklyDigestEnabled, setGuildConfig } from './guildConfigStore.js';
 import { getGuildDailyStats } from './guildDailyStatsStore.js';
 import { getGuildLogChannel } from './guildLogChannels.js';
-import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
+import { SKY_COLOR, BRAND_NAME } from './embeds.js';
 import { reportCriticalError } from './errorReporter.js';
 
 const TICK_MS = 60 * 60 * 1000; // 1 hora — la precisión de "semanal" no necesita más
@@ -43,7 +43,7 @@ export function sumWeeklyStats(days) {
 
 export function buildDigestEmbed(totals) {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(SKY_COLOR)
     .setTitle('📊 Resumen semanal')
     .setDescription('Actividad de los últimos 7 días en este servidor.')
     .addFields(

@@ -5,7 +5,7 @@ import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { getGuildConfig } from '../utils/guildConfigStore.js';
 import { buildWelcomeImageAttachment } from '../utils/welcomeImage.js';
 import { buildSelfRolesMessage } from '../utils/selfRoles.js';
-import { BRAND_COLOR, BRAND_NAME } from '../utils/embeds.js';
+import { MAGENTA_COLOR, BRAND_NAME } from '../utils/embeds.js';
 import { checkMemberCountAchievements } from '../utils/guildAchievements.js';
 import { eventBus } from '../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Fase 5 (analytics)
 
@@ -85,7 +85,7 @@ export async function execute(member, client) {
     // de que /help existe. Una sola línea, sin mencionar de nuevo al usuario (ya lo hace
     // el `content` de abajo) — sigue siendo UN solo mensaje, nada de spam.
     const embed = new EmbedBuilder()
-      .setColor(BRAND_COLOR)
+      .setColor(MAGENTA_COLOR)
       .setDescription(`Usá \`/help\` para conocer todo lo que podés hacer en **${member.guild.name}**.`)
       .setImage('attachment://welcome.png')
       .setFooter({ text: BRAND_NAME });

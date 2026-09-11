@@ -2,7 +2,7 @@
 // sube de nivel (roles automáticos, anuncio público, logs). xpStore.js en cambio es
 // puro dato/fórmula, sin tocar la API de Discord.
 import { EmbedBuilder } from 'discord.js';
-import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
+import { GOLD_COLOR, BRAND_NAME } from './embeds.js';
 import { getGuildConfig } from './guildConfigStore.js';
 import { getGuildLogChannel } from './guildLogChannels.js';
 import { createLevelUpLogEmbed, createLevelRoleAssignedLogEmbed, createLevelRoleErrorLogEmbed } from './logEmbeds.js';
@@ -29,7 +29,7 @@ const LEVEL_ACHIEVEMENTS = [
 
 function buildLevelUpAnnounceEmbed({ member, newLevel, totalXp }) {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle('🎉 ¡SUBISTE DE NIVEL!')
     .setDescription(`${member} alcanzó el nivel **${newLevel}**.`)
     .addFields(

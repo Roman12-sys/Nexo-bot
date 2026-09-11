@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { getGuildXp } from '../../utils/xpStore.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { GOLD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
 const PAGE_SIZE = 10;
@@ -14,7 +14,7 @@ export async function buildRankingEmbed(guildId, page) {
   const slice = sorted.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle('🏆 Ranking de Niveles')
     .setFooter({ text: `${BRAND_NAME} • Página ${clampedPage + 1}/${totalPages}` })
     .setTimestamp();

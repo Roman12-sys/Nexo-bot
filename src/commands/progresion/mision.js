@@ -6,7 +6,7 @@
 // completada, aparece marcada con ✅ y no sigue sumando de más.
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserMissions } from '../../utils/missionsStore.js';
-import { BRAND_COLOR, BRAND_NAME, buildProgressBar } from '../../utils/embeds.js';
+import { GOLD_COLOR, BRAND_NAME, buildProgressBar } from '../../utils/embeds.js';
 
 function formatMission(m) {
   const done = m.completedAt !== null;
@@ -35,7 +35,7 @@ export async function execute(interaction) {
   const weekly = missions.filter((m) => m.period === 'weekly');
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle('🗓️ Tus misiones')
     .addFields(
       { name: '☀️ Diarias — se reinician cada día (UTC)', value: daily.map(formatMission).join('\n\n') },

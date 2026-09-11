@@ -5,7 +5,7 @@
 // se desbloquearon.
 import { EmbedBuilder } from 'discord.js';
 import { supabase } from '../supabaseClient.js';
-import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
+import { GOLD_COLOR, BRAND_NAME } from './embeds.js';
 import { getGuildLogChannel } from './guildLogChannels.js';
 
 const TABLE = 'guild_achievements_unlocked';
@@ -59,7 +59,7 @@ async function announceGuildAchievement(client, guildId, achievement) {
   if (!channel) return;
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle('🏆 ¡Logro de servidor desbloqueado!')
     .setDescription(`${achievement.emoji} **${achievement.name}**\n${achievement.description}`)
     .setFooter({ text: BRAND_NAME })
@@ -92,7 +92,7 @@ export function checkCommandUsageAchievements(client, guildId, totalCommandUsage
 
 export function buildGuildLogrosEmbed(guild, unlockedIds) {
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle(`🏆 Logros de ${guild.name}`)
     .setFooter({ text: `${BRAND_NAME} • ${unlockedIds.size}/${GUILD_ACHIEVEMENTS.length} desbloqueados` })
     .setTimestamp();

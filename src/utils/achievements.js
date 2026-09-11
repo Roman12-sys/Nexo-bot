@@ -4,7 +4,7 @@
 // Supabase solo guarda CUÁLES desbloqueó cada usuario.
 import { EmbedBuilder } from 'discord.js';
 import { supabase } from '../supabaseClient.js';
-import { BRAND_COLOR, BRAND_NAME } from './embeds.js';
+import { GOLD_COLOR, BRAND_NAME } from './embeds.js';
 import { eventBus } from './eventBus.js';
 
 const TABLE = 'achievements_unlocked';
@@ -74,7 +74,7 @@ export async function announceUnlockedAchievements(interaction, userId, achievem
 // no hay una "respuesta de comando" natural donde meter una línea extra).
 export function buildAchievementUnlockedEmbed(user, achievement) {
   return new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle('🏅 ¡Logro desbloqueado!')
     .setDescription(`${user} consiguió **${achievement.emoji} ${achievement.name}**\n${achievement.description}`)
     .setFooter({ text: BRAND_NAME })
@@ -113,7 +113,7 @@ eventBus.on('ACHIEVEMENT_CHECK', async ({ guildId, userId, achievementId, intera
 
 export function buildLogrosEmbed(targetUser, unlockedIds) {
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(GOLD_COLOR)
     .setTitle(`🏅 Logros de ${targetUser.tag}`)
     .setFooter({ text: `${BRAND_NAME} • ${unlockedIds.size}/${ACHIEVEMENTS.length} desbloqueados` })
     .setTimestamp();
