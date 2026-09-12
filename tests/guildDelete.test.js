@@ -15,6 +15,9 @@ vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMoc
 const invalidateGuildConfig = vi.fn();
 vi.mock('../src/utils/guildConfigStore.js', () => ({ invalidateGuildConfig }));
 
+const recordGuildEvent = vi.fn().mockResolvedValue(undefined);
+vi.mock('../src/utils/botGuildEventsStore.js', () => ({ recordGuildEvent: (...a) => recordGuildEvent(...a) }));
+
 const { execute, GUILD_SCOPED_TABLES } = await import('../src/events/guildDelete.js');
 
 function makeGuild(id = 'guild-1') {
@@ -54,6 +57,18 @@ describe('guildDelete', () => {
     await execute(makeGuild('guild-1'));
 
     expect(invalidateGuildConfig).toHaveBeenCalledWith('guild-1');
+  });
+
+  // Plan de ejecución post-auditoría, Fase 5 (2026-09-12) — bot_guild_events registra
+  // el evento 'leave' para observabilidad de negocio, pero a propósito NUNCA se borra
+  // acá (ver el comentario de GUILD_SCOPED_TABLES arriba): el valor de esa tabla es
+  // justamente conservar el historial incluso después de que el guild se fue.
+  it('registra el evento "leave" pero NUNCA borra bot_guild_events', async () => {
+    await execute(makeGuild('guild-1'));
+
+    expect(recordGuildEvent).toHaveBeenCalledWith('guild-1', 'leave');
+    expect(GUILD_SCOPED_TABLES).not.toContain('bot_guild_events');
+    expect(supabaseMock.from).not.toHaveBeenCalledWith('bot_guild_events');
   });
 
   it('si una tabla falla, las demás igual se intentan borrar (no corta en la primera)', async () => {

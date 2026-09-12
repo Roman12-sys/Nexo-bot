@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, MessageFlags } from 'discord.js';
-import { isStaff } from '../../utils/permissions.js';
+import { isAdmin } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
+import { INDIGO_COLOR } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('say')
@@ -9,8 +10,13 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .setDMPermission(false);
 
+// H4, auditoría completa NEXO — cualquier Tier 1 (moderador) podía pingear @everyone
+// con texto libre sin ninguna fricción extra. Se sube a Tier 2 (isAdmin, exclusivo de
+// admin_role_id) — mismo criterio que /economia-staff y /xp: herramientas de alto
+// impacto potencial (acá, hablar como el bot al servidor entero) quedan en el tier de
+// más confianza, no en el de moderación del día a día.
 export async function execute(interaction) {
-  if (!(await isStaff(interaction))) {
+  if (!(await isAdmin(interaction))) {
     await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
     return;
   }
@@ -34,7 +40,7 @@ export async function execute(interaction) {
     const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');
     if (logChannel) {
       const embed = new EmbedBuilder()
-        .setColor('#F4A261')
+        .setColor(INDIGO_COLOR)
         .setTitle('🗣️ /say utilizado')
         .addFields(
           { name: 'Usuario', value: `${interaction.user.tag} (\`${interaction.user.id}\`)`, inline: true },

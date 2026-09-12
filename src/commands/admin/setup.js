@@ -14,6 +14,7 @@ import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
 import { getDangerousRolePermission } from '../../utils/permissions.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
+import { describeError } from '../../utils/errorMessages.js';
 import { BRAND_COLOR, LOG_COLOR } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
@@ -556,7 +557,15 @@ registerButtonPrefix('setup_confirm', async (i) => {
     await i.editReply({ content: null, embeds: [summaryEmbed], components: [] });
   } catch (error) {
     console.error('❌ Error al confirmar /setup:', error);
-    await i.editReply({ content: '❌ Ocurrió un error configurando el servidor. Probá de nuevo.', embeds: [], components: [] });
+    // H10, auditoría completa NEXO — /setup crea canales/roles reales; si al bot le
+    // falta un permiso (ManageChannels/ManageRoles) justo en este paso, un admin
+    // instalando el bot por primera vez se merece saber QUÉ pasó, no un genérico
+    // "probá de nuevo" que lo manda a mirar logs que no tiene.
+    await i.editReply({
+      content: describeError(error, '❌ Ocurrió un error configurando el servidor. Probá de nuevo.'),
+      embeds: [],
+      components: [],
+    });
   }
 });
 

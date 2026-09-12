@@ -50,7 +50,7 @@ export function createActionCommand({ name, description, category, selfText, tar
         await interaction.editReply({ embeds: [embed] });
       } catch (error) {
         console.error(`❌ Error ejecutando /${name}:`, error);
-        await interaction.editReply({ content: '❌ No se pudo obtener el gif en este momento. Probá de nuevo en un rato.' });
+        await interaction.editReply({ content: '❌ No se pudo obtener el gif en este momento. Probá de nuevo en un rato.' }).catch(() => {});
       }
     },
   };

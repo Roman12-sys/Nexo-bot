@@ -1,19 +1,17 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
-import { getGuildEconomy } from '../../utils/economyStore.js';
+import { getGuildEconomyPage } from '../../utils/economyStore.js';
 import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
 const PAGE_SIZE = 10;
 const MEDALS = ['🥇', '🥈', '🥉'];
 
-// Mismo patrón que buildRankingEmbed (xp/ranking.js) — antes esto cortaba directo en el
-// top 10 sin forma de ver más.
+// PERF-1 (plan de ejecución post-auditoría, Fase 3): antes traía la tabla economy
+// ENTERA del servidor (con TODAS sus columnas, inventory incluido) y paginaba acá en JS
+// — mismo patrón que tenía /ranking. getGuildEconomyPage pagina de verdad en el backend
+// (COUNT + un solo `range()` por la página pedida, solo user_id/balance).
 export async function buildLeaderboardEmbed(guildId, page) {
-  const sorted = await getGuildEconomy(guildId);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
-  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
-  const slice = sorted.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
+  const { rows: slice, clampedPage, totalPages } = await getGuildEconomyPage(guildId, { page, pageSize: PAGE_SIZE });
 
   const embed = new EmbedBuilder()
     .setColor(EMERALD_COLOR)

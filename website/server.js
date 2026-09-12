@@ -15,6 +15,7 @@ import { renderDocsPage } from './pages/docs.js';
 import { renderFaqPage } from './pages/faq.js';
 import { renderStatusPage } from './pages/status.js';
 import { renderChangelogPage } from './pages/changelog.js';
+import { renderTermsPage, renderPrivacyPage } from './pages/legal.js';
 import { registerShutdown } from '../src/utils/shutdown.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -91,6 +92,27 @@ app.get('/changelog', (req, res) => {
   }));
 });
 
+// Legal (plan de ejecución post-auditoría, Fase 5, 2026-09-12) — antes eran 2 links del
+// footer apuntando a artifacts privados de claude.ai (nadie fuera de esta cuenta podía
+// abrirlos), ver website/pages/legal.js para el detalle completo de la migración.
+app.get('/legal/terminos', (req, res) => {
+  res.send(renderPage({
+    title: 'Términos de Servicio — NEXO',
+    description: 'Condiciones de uso de NEXO: qué está permitido, disponibilidad del servicio y responsabilidad.',
+    path: '/legal/terminos',
+    bodyHtml: renderTermsPage(),
+  }));
+});
+
+app.get('/legal/privacidad', (req, res) => {
+  res.send(renderPage({
+    title: 'Política de Privacidad — NEXO',
+    description: 'Qué datos procesa NEXO, para qué, dónde se guardan y cómo pedir su borrado.',
+    path: '/legal/privacidad',
+    bodyHtml: renderPrivacyPage(),
+  }));
+});
+
 app.get('/robots.txt', (req, res) => {
   res.type('text/plain').send(
     websiteConfig.siteUrl
@@ -101,7 +123,7 @@ app.get('/robots.txt', (req, res) => {
 
 // Rutas conocidas hoy — se suma cada ruta nueva a medida que se construye. No se listan
 // rutas que todavía no existen: un sitemap con URLs que 404 es peor que uno corto.
-const KNOWN_ROUTES = ['/', '/commands', '/docs', '/faq', '/status', '/changelog'];
+const KNOWN_ROUTES = ['/', '/commands', '/docs', '/faq', '/status', '/changelog', '/legal/terminos', '/legal/privacidad'];
 
 app.get('/sitemap.xml', (req, res) => {
   if (!websiteConfig.siteUrl) {

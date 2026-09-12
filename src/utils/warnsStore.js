@@ -152,3 +152,21 @@ export async function getGuildWarns(guildId) {
   }
   return grouped;
 }
+
+// PERF-1 (plan de ejecución post-auditoría, Fase 3) — el panel `/sanciones` (botón
+// "Advertencias") solo necesita, por usuario, CUÁNTAS advertencias activas tiene (para
+// el desplegable de hasta 25) — nunca el detalle (motivo/moderador/fecha) de cada una.
+// getGuildWarns (arriba) trae CADA fila de warns del server entero para descartar todo
+// menos el conteo — en un server con años de moderación, eso es una tabla que solo
+// crece, nunca se achica. get_guild_warn_counts (RPC, GROUP BY + count(*) over() para el
+// total real) hace el conteo en Postgres, mismo patrón que top_guild_achievers (Fase
+// 2C). Mismo orden que tenía getGuildWarns (por la advertencia MÁS VIEJA de cada
+// usuario, ascendente) — no se inventó un criterio nuevo, solo se movió a SQL.
+export async function getGuildWarnCounts(guildId, limit = 25) {
+  const { data, error } = await supabase.rpc('get_guild_warn_counts', { p_guild_id: guildId, p_limit: limit });
+  if (error) throw error;
+
+  const rows = (data || []).map((row) => ({ userId: row.user_id, warnCount: Number(row.warn_count) }));
+  const total = rows.length > 0 ? Number(data[0].total_users) : 0;
+  return { rows, total };
+}

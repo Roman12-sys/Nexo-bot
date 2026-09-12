@@ -124,7 +124,7 @@ export function buildModeracionEmbed() {
       { name: '/kick <usuario>', value: 'Expulsa a un usuario del servidor.' },
       { name: '/ban <usuario>', value: 'Banea a un usuario del servidor.' },
       { name: '/timeout <usuario> <duración>', value: 'Silencia temporalmente a un usuario.' },
-      { name: '/say <mensaje>', value: 'El bot manda un mensaje por vos en el canal actual.' },
+      { name: '/say <mensaje>', value: 'El bot manda un mensaje por vos en el canal actual (puede mencionar @everyone/roles/usuarios). **Requiere el rol de Administrador** — un Moderador no puede usarlo.' },
       { name: '/voice setup/config/disable/admin', value: 'Configura el sistema de salas de voz temporales (Join to Create) y administra las salas activas.' },
       {
         name: '🔐 Detección de secretos (automática, sin comando)',

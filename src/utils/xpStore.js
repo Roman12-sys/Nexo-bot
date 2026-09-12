@@ -291,9 +291,70 @@ export async function applyPrestige(guildId, userId) {
   return newPrestige;
 }
 
-// Posición (1-based) de un usuario en el ranking de XP del servidor, o null si nunca ganó XP.
+// Posición (1-based) de un usuario en el ranking de XP del servidor, o null si nunca
+// ganó XP (nunca tuvo fila en la tabla).
+//
+// QUÉ CAMBIÓ (plan de ejecución post-auditoría, Fase 3, PERF-1): antes traía CON
+// getGuildXp() la tabla ENTERA de XP del servidor (todas las columnas, todas las filas)
+// solo para hacer un findIndex y descartar el resto — con un server grande, /nivel de
+// CUALQUIER usuario pagaba el costo de traer TODO el servidor. Ahora son 2 queries
+// baratas: la fila propia (para saber su xp) + un COUNT de cuántos tienen más xp que
+// ella — ninguna transfiere más que un puñado de bytes, sin importar cuántos usuarios
+// tenga el server. Empates: mismo criterio "no determinístico" que ya tenía el ORDER BY
+// de antes (Postgres no garantiza desempate estable sin un ORDER BY secundario) — no es
+// peor que el comportamiento previo.
 export async function getRank(guildId, userId) {
-  const sorted = await getGuildXp(guildId);
-  const index = sorted.findIndex((r) => r.userId === userId);
-  return index === -1 ? null : index + 1;
+  const { data: userRow, error: userError } = await supabase
+    .from(TABLE)
+    .select('xp')
+    .eq('guild_id', guildId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (userError) throw userError;
+  if (!userRow) return null;
+
+  const { count, error: countError } = await supabase
+    .from(TABLE)
+    .select('user_id', { count: 'exact', head: true })
+    .eq('guild_id', guildId)
+    .gt('xp', userRow.xp);
+  if (countError) throw countError;
+
+  return (count ?? 0) + 1;
+}
+
+// Página del ranking de XP del servidor (solo usuarios con xp > 0), paginado 100% en el
+// backend — reemplaza el patrón de /ranking de traer TODA la tabla y paginar en JS (ver
+// PERF-1 arriba). Clampea la página pedida contra el total real ANTES de pedir la
+// página, así un "Siguiente" repetido más allá del final nunca pide un offset inválido.
+export async function getGuildXpPage(guildId, { page = 0, pageSize = 10 } = {}) {
+  const { count, error: countError } = await supabase
+    .from(TABLE)
+    .select('user_id', { count: 'exact', head: true })
+    .eq('guild_id', guildId)
+    .gt('xp', 0);
+  if (countError) throw countError;
+
+  const total = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
+
+  if (total === 0) return { rows: [], total, clampedPage, totalPages };
+
+  const offset = clampedPage * pageSize;
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('user_id, xp, level, last_xp_ts, last_content, xp_boost_until, prestige')
+    .eq('guild_id', guildId)
+    .gt('xp', 0)
+    .order('xp', { ascending: false })
+    .range(offset, offset + pageSize - 1);
+  if (error) throw error;
+
+  return {
+    rows: (data || []).map((row) => ({ userId: row.user_id, ...rowToRecord(row) })),
+    total,
+    clampedPage,
+    totalPages,
+  };
 }

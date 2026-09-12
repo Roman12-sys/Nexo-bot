@@ -30,4 +30,11 @@ export const config = {
   // lo mismo. Sin configurar en este servicio, /setup simplemente no menciona el
   // dashboard (nunca un link inventado).
   dashboardUrl: process.env.DASHBOARD_BASE_URL ? process.env.DASHBOARD_BASE_URL.replace(/\/$/, '') : null,
+  // URL pública del sitio (mismo criterio que dashboardUrl de arriba, mismo nombre de
+  // variable que website/config.js — un valor conceptual, dos procesos separados). Se
+  // usó primero (plan de ejecución post-auditoría, Fase 5, 2026-09-12) para que el
+  // dashboard pueda linkear /legal/terminos y /legal/privacidad reales del sitio en vez
+  // de no tener ningún link legal (H5-3) — sin configurar, esos links simplemente no
+  // aparecen, nunca una URL inventada.
+  websiteUrl: process.env.WEBSITE_BASE_URL ? process.env.WEBSITE_BASE_URL.replace(/\/$/, '') : null,
 };

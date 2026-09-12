@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import { getUserXp, getLevelProgress, getRank } from '../../utils/xpStore.js';
 import { buildRankCardAttachment } from '../../utils/rankCardImage.js';
-import { BRAND_COLOR } from '../../utils/embeds.js';
+import { GOLD_COLOR } from '../../utils/embeds.js';
 
 // Antes esto era un embed con la barra de progreso como texto Unicode. La tarjeta de
 // imagen reusa la infraestructura de canvas que ya existía para el banner de bienvenida
@@ -12,7 +12,7 @@ export async function buildNivelPayload(guildId, targetUser) {
   const rank = await getRank(guildId, targetUser.id);
 
   const attachment = await buildRankCardAttachment({ targetUser, progress, rank, prestige: record.prestige });
-  const embed = new EmbedBuilder().setColor(BRAND_COLOR).setImage('attachment://rango.png');
+  const embed = new EmbedBuilder().setColor(GOLD_COLOR).setImage('attachment://rango.png');
 
   return { embeds: [embed], files: [attachment] };
 }

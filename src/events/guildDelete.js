@@ -9,16 +9,21 @@
 // 2026-08-29, tabla eliminada). Esta lista se comparó a mano contra CADA "create table"
 // de schema.sql que tiene guild_id, no solo contra los hallazgos previos de auditoría.
 //
-// reminders, lol_patch_state y spotify_auth quedan afuera a propósito:
+// reminders, lol_patch_state, spotify_auth y bot_guild_events quedan afuera a propósito:
 // - reminders: se entregan por DM, guild_id es solo referencia de dónde se creó (ver
 //   comentario en schema.sql) — no tiene sentido cancelar un recordatorio pendiente de
 //   un usuario solo porque el bot se fue del server donde lo creó.
 // - lol_patch_state / spotify_auth: una sola fila fija cada una, sin guild_id — no son
 //   guild-scoped, son estado global del bot.
+// - bot_guild_events (plan de ejecución post-auditoría, Fase 5, 2026-09-12): al
+//   contrario que las demás, el VALOR de esta tabla es justamente conservar el
+//   historial de churn (incluido el evento 'leave' que este mismo handler registra más
+//   abajo) — borrarla acá destruiría exactamente el dato que existe para preservar.
 import { supabase } from '../supabaseClient.js';
 import { invalidateGuildConfig } from '../utils/guildConfigStore.js';
 import { clearGuildAfk } from '../utils/afkStore.js';
 import { cancelAllPunishExpiryForGuild } from '../utils/punishEngine.js';
+import { recordGuildEvent } from '../utils/botGuildEventsStore.js';
 
 export const GUILD_SCOPED_TABLES = [
   'guild_config',
@@ -61,6 +66,9 @@ export async function execute(guild) {
   // expirePunishment, insertar una fila nueva en moderation_actions para un guild ya
   // limpiado (exactamente el dato huérfano que este handler existe para evitar).
   cancelAllPunishExpiryForGuild(guild.id);
+
+  // Best-effort, nunca bloquea la limpieza real de abajo — ver botGuildEventsStore.js.
+  recordGuildEvent(guild.id, 'leave').catch(() => {});
 
   // Promise.allSettled en vez de Promise.all: que una tabla falle (ej. red) no debe
   // impedir que se limpien las demás — se loguea cada fallo individual con la

@@ -1750,6 +1750,122 @@ quedan inertes (sin efecto visible) hasta que el código de `weeklyDigestEngine.
 `/config digest-semanal` se despliegue — a diferencia del DROP de Pets (2026-09-01),
 que sí rompió comandos en vivo porque el código viejo SÍ dependía de lo que se borró.
 
+## Dependencias — CVE de `qs` cerrada sin acción (2026-09-12)
+
+`npm audit` marca una vulnerabilidad moderada en `qs` (2.2.5-6.15.3, llega vía
+`express@5.2.1 -> body-parser@2.3.0 -> qs` y directo desde `express`) — investigada, no
+explotable en este código: ni `dashboard/server.js` ni `website/server.js` llaman
+`express.json()`/`express.urlencoded()`, así que `body-parser`/`qs` nunca procesan un
+body de request real; y Express 5 ya cambió su parser de query strings por defecto de
+`qs` a `simple`. **No reabrir este hallazgo en la próxima auditoría sin evidencia
+nueva** (ej. que alguna ruta empiece a usar esos middlewares). `@napi-rs/canvas`/
+`@supabase/supabase-js` actualizados a última patch/minor el mismo día; `dotenv` ya
+estaba en el último patch de la 16.x (la 17.x es un major, no se saltó sin revisión);
+`vitest` se queda en 4.x a propósito — la 5.x cambia el default de `clearMocks` a
+`true` y saca `test.sequential`, cambios que ameritan una ventana de revisión de tests
+dedicada, no un bump de rutina.
+
+## Sharding — no hace falta todavía (2026-09-12)
+
+La auditoría de readiness operacional marcó "sin sharding ni documentación de failover"
+como riesgo — investigado contra el límite real de Discord: sharding es **obligatorio**
+recién arriba de 2500 servidores por shard (no una recomendación temprana). NEXO está
+lejos de ese umbral. Decisión: no implementar nada todavía — es trabajo real (Railway no
+lo hace solo, hay que particionar el proceso) que no aporta nada por debajo del límite.
+Revisar esto de nuevo cuando el bot se acerque a ese número de servidores, no antes.
+
+## Plan de ejecución post-auditoría — Fases 1-4 (2026-09-12)
+
+A partir de "Auditoría NEXO II" (hallazgos qué-falta/bien/más-o-menos/riesgo +
+posicionamiento competitivo) se armó un plan de ejecución ordenado en fases, distinto de
+"arreglar todo lo que salió" — con un ajuste explícito del usuario a mitad de camino:
+**las decisiones de producto puramente reversibles (sin bug funcional real detrás) NO
+se implementan solas, quedan pendientes hasta que el usuario decida.**
+
+**Fase 1 (quick wins):** 5 colores corregidos contra el sistema semántico de
+`embeds.js` (H1-H5) — `/nivel` BRAND→GOLD, `/roles` informacion BRAND→MAGENTA,
+`/encuesta` cerrada y `/say`/`/confession` (×2) con hex hardcodeado → `NEUTRAL_COLOR`/
+`INDIGO_COLOR`. `actionCommandFactory.js` sumó `.catch(() => {})` al `editReply` de
+error (estándar de Fase 2B). `@napi-rs/canvas`/`@supabase/supabase-js` a última
+patch/minor.
+
+**Fase 2 (concurrencia + UX):** `/recordatorio crear` bajo `withLock` — el chequeo de
+"10 activos" y la creación no estaban serializados, mismo bug class que `/give` antes
+de su fix. `/info` reusa `joinWithOverflow` (antes cortaba a los primeros 15 en
+silencio). Los 3 botones de acceso rápido de `/help` (perfil/servidor/avatar) pasan a
+ephemeral — posteaban público pese a que `/help` entero ya es ephemeral (H3).
+Descartado explícitamente (decisión de producto pendiente, no bug): unificar la
+categoría de minijuegos entre `/staff` y `/help` (`/help` mezcla minijuegos con
+comandos sociales bajo un color, recolorear entero sería incorrecto para esos otros
+comandos), el color combinado de "Sorteos y anuncios" en `helpstaff.js`, y la
+visibilidad de `/vender` vs `/buy`.
+
+**Fase 3 (PERF-1, confirmado 100% sin resolver por la auditoría):** las 4 queries que
+traían la tabla ENTERA de un server para reducirla a un top-N/conteo en JS —
+`xpStore.getRank` (ahora 2 queries chicas: fila propia + COUNT), `xp/ranking.js` y
+`economia/leaderboard.js` (paginación real en backend vía `getGuildXpPage`/
+`getGuildEconomyPage`, COUNT + `range()`, nunca la tabla completa) y
+`warnsStore.getGuildWarns` (reemplazada para su único caller, el panel `/sanciones`, por
+`getGuildWarnCounts` — RPC `get_guild_warn_counts`, GROUP BY + `count(*) over()` para el
+total real, mismo patrón que `top_guild_achievers` de Fase 2C).
+`migration_2026_09_12_perf1_warn_counts.sql` corrida y verificada en producción.
+
+**Fase 4 (riesgos puntuales):** `/say` sube de Tier 1 (moderador) a Tier 2
+(`isAdmin()`) — cualquier moderador podía pingear `@everyone` con texto libre sin
+fricción extra (H4), mismo criterio que `/economia-staff`/`/xp`; `helpstaff.js`
+actualizado para que un Tier 1 no piense que puede usarlo. `/roles` — el riesgo teórico
+de tamaño de embed (H6) se cerró por matemática, no por código: 5 categorías × ~1024
+chars máx + título/footer nunca supera los 6000 totales de Discord, el guard por-campo
+que ya existía alcanza. `describeError()` (traducción de códigos de error de Discord,
+antes exclusiva a los ~15 comandos de `moderacion/`) se extiende a `/setup` — crea
+canales/roles reales, y un admin instalando el bot por primera vez se merece saber QUÉ
+falló si al bot le falta un permiso, no un "probá de nuevo" genérico (H10).
+
+## Plan de ejecución post-auditoría — Fase 5: legal + observabilidad (2026-09-12)
+
+**Legal (H5-2/H5-3, "sell this week" según Fase 4B):** ToS y Privacidad dejaron de ser 2
+artifacts privados de claude.ai (nadie fuera de esta cuenta podía abrirlos) para ser
+páginas reales del sitio (`website/pages/legal.js`, rutas `/legal/terminos` y
+`/legal/privacidad`, mismo patrón que `/docs`/`/faq`) — contenido migrado del texto que
+ya existía, con **una corrección real de fondo**: la Política de Privacidad prometía
+"borrado de tus datos en un servidor puntual" como si fuera autoservicio; el código
+(`guildDelete.js`) solo borra un servidor ENTERO cuando el Bot es expulsado — no existe
+ningún mecanismo de autoservicio para que un usuario puntual borre sus propios datos
+dentro de un server que sigue activo. Corregido para describir exactamente eso: borrado
+de servidor completo es automático, borrado de un usuario puntual es manual/a pedido.
+El dashboard (H5-3, no tenía NINGÚN link legal) linkea al sitio real vía
+`config.websiteUrl` (`src/config.js`, mismo nombre de variable `WEBSITE_BASE_URL` que
+`website/config.js` ya usaba — un valor conceptual, cada servicio de Railway con su
+propia copia, mismo criterio que `dashboardUrl`) — condicional, nunca una URL inventada;
+el footer entero desaparece si ni `SUPPORT_CONTACT` ni `WEBSITE_BASE_URL` están
+configurados, en vez de quedar vacío con solo el borde superior.
+
+**Observabilidad cross-guild (toda la analítica existente es estrictamente por-guild):**
+`bot_guild_events` (migración `migration_2026_09_12_owner_metricas.sql`, tabla mínima:
+`guild_id`+`event_type` 'join'/'leave'+`created_at`) registrada desde `guildCreate.js`/
+`guildDelete.js` (best-effort, nunca bloquea el mensaje de bienvenida ni la limpieza
+real de datos). **Deliberadamente AFUERA de `GUILD_SCOPED_TABLES`** — al contrario que
+el resto, el valor de esta tabla es justamente conservar el historial de churn incluso
+(sobre todo) cuando un guild se va; borrarla en `guildDelete.js` destruiría el dato que
+existe para preservar.
+
+`/owner-metricas` — el ÚNICO comando cross-guild del proyecto (ve datos de TODOS los
+servidores, no de uno puntual): total de guilds activos (`client.guilds.cache.size`,
+en memoria, sin costo) + altas/bajas de 7 y 30 días. Gate por **identidad real**
+(`src/utils/botOwner.js`, `isBotOwner()` vía `GET /oauth2/applications/@me`), nunca por
+`isStaff()`/`isAdmin()` de un guild puntual — cualquier admin de un server de cliente
+pasa esos dos, y jamás debería poder ver el conteo total de servidores del bot. Mismo
+gotcha ya documentado arriba para Spotify: NEXO está bajo un **Team** de Discord, así
+que el dueño real está en `team.owner_user_id`, no en `owner.id` (eso sería el team).
+Cacheado 5 min para no pegarle a la API de Discord en cada invocación. **Deliberadamente
+NO mencionado en `/help` ni `/helpstaff`** — publicitar una herramienta que el 99.9% de
+quien la vea jamás va a poder pasar el gate solo genera confusión, mismo criterio que el
+reset manual de `lolPatchEngine.js` (existe, funciona, no se promociona).
+
+**Fuera de esta fase, a propósito:** upgrade de Supabase a plan Pro (backup diario) —
+acción de negocio/facturación, no de código, queda para que el usuario la haga
+directamente en el dashboard de Supabase.
+
 ## Stack
 
 Node 22+, discord.js 14 (ESM, `"type": "module"` en `package.json`), Supabase

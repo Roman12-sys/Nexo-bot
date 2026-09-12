@@ -188,17 +188,22 @@ export async function execute(interaction) {
 registerButtonPrefix('help_cat_info', async (i) => {
   await i.update({ embeds: [buildInfoEmbed()], components: [getHelpButtonsRow(), buildBackRow()] });
 });
+// Ephemeral — H3, auditoría completa NEXO: /help entero ya es ephemeral, pero estos 3
+// botones de acceso rápido posteaban público. Alguien navegando el panel de ayuda
+// (que solo ve él) terminaba exponiendo su perfil/avatar al canal entero con un click
+// que no esperaba que tuviera ese efecto. /servidor y /avatar como comandos DIRECTOS
+// siguen siendo públicos — esto es solo el atajo desde dentro de /help.
 registerButtonPrefix('help_info', async (i) => {
   const embed = await buildUserInfoEmbed(i.guild, i.user);
   if (!embed) return i.reply({ content: '❌ No se pudo obtener tu información.', flags: MessageFlags.Ephemeral });
-  await i.reply({ embeds: [embed] });
+  await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 });
 registerButtonPrefix('help_servidor', async (i) => {
-  await i.reply({ embeds: [buildServerEmbed(i.guild)], components: [buildServerRow()] });
+  await i.reply({ embeds: [buildServerEmbed(i.guild)], components: [buildServerRow()], flags: MessageFlags.Ephemeral });
 });
 registerButtonPrefix('help_avatar', async (i) => {
   const embed = await buildAvatarEmbed(i.guild, i.user);
-  await i.reply({ embeds: [embed] });
+  await i.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
 });
 registerButtonPrefix('help_cat_economia', async (i) => {
   await i.update({ embeds: [buildEconomiaEmbed()], components: [buildBackRow()] });

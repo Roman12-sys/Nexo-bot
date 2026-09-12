@@ -12,9 +12,9 @@ vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig }));
 const getGuildLogChannel = vi.fn().mockResolvedValue(null);
 vi.mock('../src/utils/guildLogChannels.js', () => ({ getGuildLogChannel }));
 
-const getGuildWarns = vi.fn();
+const getGuildWarnCounts = vi.fn().mockResolvedValue({ rows: [], total: 0 });
 const clearWarns = vi.fn();
-vi.mock('../src/utils/warnsStore.js', () => ({ getGuildWarns, clearWarns }));
+vi.mock('../src/utils/warnsStore.js', () => ({ getGuildWarnCounts, clearWarns }));
 
 const getActiveTimeouts = vi.fn();
 const getPunishedMembers = vi.fn();
@@ -93,6 +93,54 @@ describe('/sanciones <usuario> — historial (sección 4: duración de timeout)'
     await expect(sancionesExecute(interaction)).resolves.toBeUndefined();
     const embed = interaction.editReply.mock.calls[0][0].embeds[0];
     expect(embed.data.fields[0].value).not.toContain('Hasta:');
+  });
+});
+
+// PERF-1 (plan de ejecución post-auditoría, 2026-09-12) — el botón "Advertencias" pasó
+// de traer TODA la tabla warnings del server (getGuildWarns) a un conteo hecho en
+// Postgres (getGuildWarnCounts, RPC get_guild_warn_counts). Este bloque confirma que el
+// handler consume la forma nueva ({rows, total}) correctamente — el detalle de la
+// agregación en sí ya está cubierto en warnsStore.test.js.
+describe('panel /sanciones — botón "Advertencias" (PERF-1)', () => {
+  function makeWarnsButtonInteraction() {
+    const interaction = makeButtonInteraction('sanciones_warns', { guildId: 'guild-1' });
+    interaction.member = { roles: { cache: new Map([['role-admin', {}]]) } };
+    interaction.deferReply = vi.fn().mockResolvedValue(undefined);
+    interaction.client = { users: { fetch: vi.fn().mockResolvedValue({ tag: 'target-1#0001' }) } };
+    return interaction;
+  }
+
+  it('sin nadie con advertencias: avisa, no llega a construir el select', async () => {
+    getGuildWarnCounts.mockResolvedValueOnce({ rows: [], total: 0 });
+    const interaction = makeWarnsButtonInteraction();
+
+    await routeButton(interaction);
+
+    expect(interaction.editReply).toHaveBeenCalledWith({ content: 'Nadie tiene advertencias activas.' });
+  });
+
+  it('con advertencias: arma el select con el conteo real de Postgres, sin traer el detalle', async () => {
+    getGuildWarnCounts.mockResolvedValueOnce({ rows: [{ userId: 'target-1', warnCount: 3 }], total: 30 });
+    const interaction = makeWarnsButtonInteraction();
+
+    await routeButton(interaction);
+
+    expect(getGuildWarnCounts).toHaveBeenCalledWith('guild-1', 25);
+    const payload = interaction.editReply.mock.calls[0][0];
+    expect(payload.content).toBe('Usuarios con advertencias (30) — mostrando 25, hay 5 más:');
+    const select = payload.components[0].components[0];
+    expect(select.options[0].data.description).toBe('3 advertencia(s)');
+    expect(select.options[0].data.value).toBe('target-1');
+  });
+
+  it('25 o menos en total: sin aviso de overflow', async () => {
+    getGuildWarnCounts.mockResolvedValueOnce({ rows: [{ userId: 'target-1', warnCount: 1 }], total: 1 });
+    const interaction = makeWarnsButtonInteraction();
+
+    await routeButton(interaction);
+
+    const payload = interaction.editReply.mock.calls[0][0];
+    expect(payload.content).toBe('Usuarios con advertencias (1):');
   });
 });
 

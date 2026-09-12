@@ -415,8 +415,8 @@ function renderFooter() {
       <div class="footer-col">
         <p class="footer-heading">Legal</p>
         <ul>
-          <li><a href="https://claude.ai/code/artifact/8f9bbee4-665a-4245-93f3-e0329c8760a4" target="_blank" rel="noopener">Términos de servicio</a></li>
-          <li><a href="https://claude.ai/code/artifact/89a893fb-8fa2-40d6-8b42-cf3e9fb7c646" target="_blank" rel="noopener">Política de privacidad</a></li>
+          <li><a href="/legal/terminos">Términos de servicio</a></li>
+          <li><a href="/legal/privacidad">Política de privacidad</a></li>
         </ul>
       </div>
     </div>

@@ -3,8 +3,23 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 // Auditoría completa NEXO (2026-09-11): /leaderboard no tenía ningún test propio pese a
 // tener paginación real (mismo patrón que /ranking) — medallas para el top 3, números
 // para el resto, botones que se deshabilitan en los bordes.
-const getGuildEconomy = vi.fn();
-vi.mock('../src/utils/economyStore.js', () => ({ getGuildEconomy: (...a) => getGuildEconomy(...a) }));
+//
+// QUÉ CAMBIÓ (plan de ejecución post-auditoría, Fase 3, PERF-1): getGuildEconomy (traía
+// TODA la tabla economy del server) fue reemplazado por getGuildEconomyPage, que pagina
+// de verdad en el backend (COUNT + range()). Este mock simula ese contrato exacto —
+// clampeo de página y total— sobre un array en memoria, sin pretender que sea
+// Supabase real (eso ya lo cubre economyStore.test.js).
+let ECONOMY_ROWS = [];
+const PAGE_SIZE = 10;
+const getGuildEconomyPage = vi.fn(async (guildId, { page, pageSize }) => {
+  const sorted = [...ECONOMY_ROWS].sort((a, b) => b.balance - a.balance);
+  const total = sorted.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
+  const rows = total === 0 ? [] : sorted.slice(clampedPage * pageSize, clampedPage * pageSize + pageSize);
+  return { rows, total, clampedPage, totalPages };
+});
+vi.mock('../src/utils/economyStore.js', () => ({ getGuildEconomyPage: (...a) => getGuildEconomyPage(...a) }));
 
 const { execute, buildLeaderboardEmbed } = await import('../src/commands/economia/leaderboard.js');
 const { routeButton } = await import('../src/components/buttons.js');
@@ -25,11 +40,11 @@ function makeUsers(count) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  ECONOMY_ROWS = [];
 });
 
 describe('/leaderboard — lógica básica', () => {
   it('sin nadie con monedas registradas: mensaje explícito, no una lista vacía muda', async () => {
-    getGuildEconomy.mockResolvedValue([]);
     const interaction = makeInteraction();
 
     await execute(interaction);
@@ -39,7 +54,7 @@ describe('/leaderboard — lógica básica', () => {
   });
 
   it('top 3 lleva medalla, el resto número — en el orden real que ya viene ordenado', async () => {
-    getGuildEconomy.mockResolvedValue(makeUsers(5));
+    ECONOMY_ROWS = makeUsers(5);
     const interaction = makeInteraction();
 
     await execute(interaction);
@@ -54,7 +69,7 @@ describe('/leaderboard — lógica básica', () => {
   });
 
   it('una sola página (≤10 usuarios): el botón "Siguiente" queda deshabilitado', async () => {
-    getGuildEconomy.mockResolvedValue(makeUsers(5));
+    ECONOMY_ROWS = makeUsers(5);
     const interaction = makeInteraction();
 
     await execute(interaction);
@@ -67,7 +82,7 @@ describe('/leaderboard — lógica básica', () => {
   });
 
   it('con 15 usuarios: la página 0 muestra los primeros 10 y "Siguiente" está habilitado', async () => {
-    getGuildEconomy.mockResolvedValue(makeUsers(15));
+    ECONOMY_ROWS = makeUsers(15);
     const interaction = makeInteraction();
 
     await execute(interaction);
@@ -80,11 +95,20 @@ describe('/leaderboard — lógica básica', () => {
     const siguiente = row.components.find((b) => b.data.custom_id === 'leaderboard_page_1');
     expect(siguiente.data.disabled).toBe(false);
   });
+
+  it('pide solo la página pedida (pageSize), nunca la tabla entera', async () => {
+    ECONOMY_ROWS = makeUsers(15);
+    const interaction = makeInteraction();
+
+    await execute(interaction);
+
+    expect(getGuildEconomyPage).toHaveBeenCalledWith('guild-1', { page: 0, pageSize: PAGE_SIZE });
+  });
 });
 
 describe('/leaderboard — paginación real (botones)', () => {
   it('click en "Siguiente" avanza a la página 2 con los usuarios correctos', async () => {
-    getGuildEconomy.mockResolvedValue(makeUsers(15));
+    ECONOMY_ROWS = makeUsers(15);
     const interaction = { guild: { id: 'guild-1' }, guildId: 'guild-1', customId: 'leaderboard_page_1', update: vi.fn().mockResolvedValue(undefined) };
 
     await routeButton(interaction);
@@ -95,7 +119,7 @@ describe('/leaderboard — paginación real (botones)', () => {
   });
 
   it('una página fuera de rango (ej. -1 por doble click) se clampea, nunca revienta', async () => {
-    getGuildEconomy.mockResolvedValue(makeUsers(5));
+    ECONOMY_ROWS = makeUsers(5);
     const interaction = { guild: { id: 'guild-1' }, guildId: 'guild-1', customId: 'leaderboard_page_-1', update: vi.fn().mockResolvedValue(undefined) };
 
     await expect(routeButton(interaction)).resolves.not.toThrow();
@@ -106,9 +130,8 @@ describe('/leaderboard — paginación real (botones)', () => {
 
 describe('buildLeaderboardEmbed — aislamiento entre guilds', () => {
   it('pide el ranking del guild correcto, nunca uno hardcodeado', async () => {
-    getGuildEconomy.mockResolvedValue([]);
     await buildLeaderboardEmbed('guild-especifico', 0);
 
-    expect(getGuildEconomy).toHaveBeenCalledWith('guild-especifico');
+    expect(getGuildEconomyPage).toHaveBeenCalledWith('guild-especifico', { page: 0, pageSize: PAGE_SIZE });
   });
 });

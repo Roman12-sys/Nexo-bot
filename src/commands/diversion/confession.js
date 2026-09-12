@@ -3,7 +3,7 @@ import { getNextConfessionNumber } from '../../utils/confessionStore.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { isStaff } from '../../utils/permissions.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { BRAND_COLOR, BRAND_NAME, INDIGO_COLOR } from '../../utils/embeds.js';
 import { registerModalPrefix } from '../../components/modals.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { unlockAchievement, buildAchievementUnlockedEmbed } from '../../utils/achievements.js';
@@ -109,7 +109,7 @@ registerModalPrefix('modal_confession', async (i) => {
     pendingConfessions.set(`${i.guildId}:${number}`, { authorId: i.user.id, message: mensaje, timeoutHandle });
 
     const reviewEmbed = new EmbedBuilder()
-      .setColor('#E9C46A')
+      .setColor(INDIGO_COLOR)
       .setTitle(`🕵️ Confesión #${number} — pendiente de revisión`)
       .setDescription(mensaje)
       .addFields({ name: 'Autor real', value: `${i.user.tag} (\`${i.user.id}\`)` })
@@ -137,7 +137,7 @@ registerModalPrefix('modal_confession', async (i) => {
   const logChannel = await getGuildLogChannel(i.client, i.guildId, 'moderation');
   if (logChannel) {
     const logEmbed = new EmbedBuilder()
-      .setColor('#6C757D')
+      .setColor(INDIGO_COLOR)
       .setTitle(`🔒 Registro privado — Confesión #${number}`)
       .setDescription('Solo para moderación. La confesión se publicó de forma anónima en el canal público.')
       .addFields({ name: 'Autor real', value: `${i.user.tag} (\`${i.user.id}\`)` })

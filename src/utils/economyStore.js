@@ -387,6 +387,43 @@ export async function getGuildEconomy(guildId, { limit } = {}) {
   return (data || []).map((row) => ({ userId: row.user_id, ...rowToRecord(row) }));
 }
 
+// Página del top de monedas del servidor, paginada 100% en el backend — reemplaza el
+// patrón de /leaderboard de traer TODA la tabla economy (con TODAS sus columnas,
+// inventory incluido) solo para mostrar 10 filas (PERF-1, plan de ejecución
+// post-auditoría, Fase 3). Solo trae user_id/balance — es lo único que /leaderboard
+// muestra, a diferencia de getGuildEconomy (arriba), pensada para devolver el registro
+// completo. Clampea la página pedida contra el total real ANTES de pedirla, mismo
+// criterio que getGuildXpPage (xpStore.js).
+export async function getGuildEconomyPage(guildId, { page = 0, pageSize = 10 } = {}) {
+  const { count, error: countError } = await supabase
+    .from(TABLE)
+    .select('user_id', { count: 'exact', head: true })
+    .eq('guild_id', guildId);
+  if (countError) throw countError;
+
+  const total = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
+
+  if (total === 0) return { rows: [], total, clampedPage, totalPages };
+
+  const offset = clampedPage * pageSize;
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('user_id, balance')
+    .eq('guild_id', guildId)
+    .order('balance', { ascending: false })
+    .range(offset, offset + pageSize - 1);
+  if (error) throw error;
+
+  return {
+    rows: (data || []).map((row) => ({ userId: row.user_id, balance: row.balance })),
+    total,
+    clampedPage,
+    totalPages,
+  };
+}
+
 // --- Historial de transacciones ---
 // Mismo propósito que antes (economyTransactions.json): un registro append-only de lo
 // que le pasó al balance que ya vive en la tabla "economy". No es una economía paralela.

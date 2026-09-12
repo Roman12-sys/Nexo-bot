@@ -76,11 +76,30 @@ describe('website/server.js — sin DASHBOARD_BASE_URL/SUPPORT_CONTACT/WEBSITE_B
     expect(body).not.toContain('/sorteo participar'); // subcomando que nunca existió (bug real de Fase 4, corregido en Fase 5)
   });
 
-  it('GET /docs, /faq, /status, /changelog responden 200', async () => {
-    for (const path of ['/docs', '/faq', '/status', '/changelog']) {
+  it('GET /docs, /faq, /status, /changelog, /legal/terminos, /legal/privacidad responden 200', async () => {
+    for (const path of ['/docs', '/faq', '/status', '/changelog', '/legal/terminos', '/legal/privacidad']) {
       const res = await get(baseUrl, path);
       expect(res.status, `${path} debería dar 200`).toBe(200);
     }
+  });
+
+  // Plan de ejecución post-auditoría, Fase 5 (2026-09-12) — antes estos 2 links del
+  // footer apuntaban a artifacts privados de claude.ai (nadie fuera de esta cuenta podía
+  // abrirlos). Ahora son páginas reales del propio sitio.
+  it('el footer linkea Términos/Privacidad como rutas propias, nunca a claude.ai', async () => {
+    const res = await get(baseUrl, '/');
+    const body = await res.text();
+
+    expect(body).toContain('href="/legal/terminos"');
+    expect(body).toContain('href="/legal/privacidad"');
+    expect(body).not.toContain('claude.ai');
+  });
+
+  it('/legal/privacidad es honesta sobre el borrado por usuario: manual, no autoservicio', async () => {
+    const res = await get(baseUrl, '/legal/privacidad');
+    const body = await res.text();
+
+    expect(body).toContain('no hay todavía un botón de autoservicio');
   });
 
   it('GET /status usa el valor real de getDiscordPlatformStatus (mockeado)', async () => {
@@ -188,7 +207,7 @@ describe('website/server.js — con DASHBOARD_BASE_URL/SUPPORT_CONTACT/WEBSITE_B
     const body = await res.text();
 
     expect(res.status).toBe(200);
-    for (const path of ['/', '/commands', '/docs', '/faq', '/status', '/changelog']) {
+    for (const path of ['/', '/commands', '/docs', '/faq', '/status', '/changelog', '/legal/terminos', '/legal/privacidad']) {
       expect(body).toContain(`<loc>https://nexo.ejemplo.test${path}</loc>`);
     }
   });

@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createSupabaseMock } from './helpers/supabaseMock.js';
+import { createSupabaseMock, createQueryBuilder } from './helpers/supabaseMock.js';
 import { eventBus } from '../src/utils/eventBus.js';
 
 // economyStore.js hace toda la escritura de dinero vía RPCs atómicas de Postgres
@@ -13,7 +13,7 @@ vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMoc
 
 const {
   addBalance, deductBalanceIfSufficient, transferBalance, setBalance, setRobCooldowns, recordTransaction, getUserEconomy,
-  getGuildCirculatingBalance, getTopBalances,
+  getGuildCirculatingBalance, getTopBalances, getGuildEconomyPage,
 } = await import('../src/utils/economyStore.js');
 
 beforeEach(() => {
@@ -410,5 +410,56 @@ describe('multi-guild — el mismo userId en dos guilds nunca se mezcla', () => 
 
     expect(insert).toHaveBeenNthCalledWith(1, expect.objectContaining({ guild_id: 'guild-a', user_id: 'user-123' }));
     expect(insert).toHaveBeenNthCalledWith(2, expect.objectContaining({ guild_id: 'guild-b', user_id: 'user-123' }));
+  });
+});
+
+// PERF-1 (plan de ejecución post-auditoría, Fase 3) — reemplaza el patrón de
+// /leaderboard de traer TODA la tabla economy y paginar en JS. Dos queries reales por
+// llamada (COUNT + range de la página) — se simulan con dos .from('economy')
+// consecutivas devolviendo resultados distintos (mockImplementationOnce), ya que el
+// builder compartido de createSupabaseMock() no distingue entre llamadas a la misma
+// tabla.
+describe('getGuildEconomyPage', () => {
+  it('cuenta el total real y trae solo la página pedida (offset/limit), no la tabla entera', async () => {
+    supabaseMock.from
+      .mockImplementationOnce(() => createQueryBuilder({ count: 25, error: null }))
+      .mockImplementationOnce(() => createQueryBuilder({ data: [{ user_id: 'user-1', balance: 500 }], error: null }));
+
+    const result = await getGuildEconomyPage('guild-1', { page: 2, pageSize: 10 });
+
+    expect(result).toEqual({
+      rows: [{ userId: 'user-1', balance: 500 }],
+      total: 25,
+      clampedPage: 2,
+      totalPages: 3,
+    });
+  });
+
+  it('página pedida más allá del final: clampea a la última página real', async () => {
+    supabaseMock.from
+      .mockImplementationOnce(() => createQueryBuilder({ count: 12, error: null }))
+      .mockImplementationOnce(() => createQueryBuilder({ data: [{ user_id: 'user-11', balance: 50 }], error: null }));
+
+    const result = await getGuildEconomyPage('guild-1', { page: 99, pageSize: 10 });
+
+    expect(result.clampedPage).toBe(1); // totalPages = 2 (12/10), última página = índice 1
+    expect(result.totalPages).toBe(2);
+  });
+
+  it('sin nadie con balance todavía: total 0, ni siquiera pide la página (segunda query)', async () => {
+    supabaseMock.from.mockImplementationOnce(() => createQueryBuilder({ count: 0, error: null }));
+
+    const result = await getGuildEconomyPage('guild-vacio', { page: 0, pageSize: 10 });
+
+    expect(result).toEqual({ rows: [], total: 0, clampedPage: 0, totalPages: 1 });
+    expect(supabaseMock.from).toHaveBeenCalledTimes(1); // nunca llegó a pedir la página
+  });
+
+  it('un error en el COUNT se propaga sin llegar a pedir la página', async () => {
+    const dbError = new Error('conexión perdida');
+    supabaseMock.from.mockImplementationOnce(() => createQueryBuilder({ count: null, error: dbError }));
+
+    await expect(getGuildEconomyPage('guild-1', { page: 0, pageSize: 10 })).rejects.toBe(dbError);
+    expect(supabaseMock.from).toHaveBeenCalledTimes(1);
   });
 });

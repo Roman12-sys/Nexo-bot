@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { BRAND_COLOR, BRAND_NAME, NEUTRAL_COLOR } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
@@ -116,7 +116,7 @@ registerButtonPrefix('encuesta_cerrar_', async (interaction) => {
 
   const originalEmbed = message.embeds[0];
   const closedEmbed = EmbedBuilder.from(originalEmbed)
-    .setColor('#6C757D')
+    .setColor(NEUTRAL_COLOR)
     .setTitle('📊 Encuesta (cerrada)')
     .addFields({ name: '🔒 Resultado final', value: counts || 'Nadie votó.' })
     .setFooter({ text: `${originalEmbed.footer?.text || BRAND_NAME} • Cerrada por ${interaction.user.tag}` });

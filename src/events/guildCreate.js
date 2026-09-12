@@ -1,10 +1,15 @@
 import { EmbedBuilder } from 'discord.js';
 import { BRAND_COLOR } from '../utils/embeds.js';
+import { recordGuildEvent } from '../utils/botGuildEventsStore.js';
 
 export const name = 'guildCreate';
 export const once = false;
 
 export async function execute(guild) {
+  // Best-effort, nunca bloquea el mensaje de bienvenida de abajo — ver
+  // botGuildEventsStore.js (plan de ejecución post-auditoría, Fase 5).
+  recordGuildEvent(guild.id, 'join').catch(() => {});
+
   const embed = new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('👋 ¡Gracias por invitar a Nexo Bot!')

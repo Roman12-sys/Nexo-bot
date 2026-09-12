@@ -1,17 +1,17 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
-import { getGuildXp } from '../../utils/xpStore.js';
+import { getGuildXpPage } from '../../utils/xpStore.js';
 import { GOLD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
 const PAGE_SIZE = 10;
 const MEDALS = ['🥇', '🥈', '🥉'];
 
+// PERF-1 (plan de ejecución post-auditoría, Fase 3): antes traía la tabla de XP ENTERA
+// del servidor (getGuildXp sin límite) y paginaba acá en JS — con un server grande, ver
+// la página 1 pagaba el costo de traer a todo el mundo. getGuildXpPage pagina de verdad
+// en el backend (COUNT + un solo `range()` por la página pedida, ver xpStore.js).
 export async function buildRankingEmbed(guildId, page) {
-  const sorted = (await getGuildXp(guildId)).filter((data) => data.xp > 0);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
-  const clampedPage = Math.min(Math.max(0, page), totalPages - 1);
-  const slice = sorted.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
+  const { rows: slice, clampedPage, totalPages } = await getGuildXpPage(guildId, { page, pageSize: PAGE_SIZE });
 
   const embed = new EmbedBuilder()
     .setColor(GOLD_COLOR)

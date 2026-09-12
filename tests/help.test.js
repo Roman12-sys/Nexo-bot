@@ -26,6 +26,23 @@ vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig }));
 const buildSelfRolesMessage = vi.fn();
 vi.mock('../src/utils/selfRoles.js', () => ({ buildSelfRolesMessage }));
 
+// H3, auditoría completa NEXO — los 3 botones de acceso rápido de /help delegan en
+// estos builders reales; se mockean acá para poder probar SOLO que la respuesta del
+// botón queda ephemeral, sin ejercitar la lógica interna de cada embed (ya cubierta en
+// sus propios archivos de test).
+const buildUserInfoEmbed = vi.fn().mockResolvedValue({ fake: 'info-embed' });
+vi.mock('../src/commands/informacion/info.js', () => ({ buildInfoEmbed: (...a) => buildUserInfoEmbed(...a) }));
+
+const buildServerEmbed = vi.fn().mockReturnValue({ fake: 'server-embed' });
+const buildServerRow = vi.fn().mockReturnValue({ fake: 'server-row' });
+vi.mock('../src/commands/informacion/servidor.js', () => ({
+  buildServerEmbed: (...a) => buildServerEmbed(...a),
+  buildServerRow: (...a) => buildServerRow(...a),
+}));
+
+const buildAvatarEmbed = vi.fn().mockResolvedValue({ fake: 'avatar-embed' });
+vi.mock('../src/commands/informacion/avatar.js', () => ({ buildAvatarEmbed: (...a) => buildAvatarEmbed(...a) }));
+
 const { buildMainMenuEmbed, buildMainMenuRow, execute } = await import('../src/commands/informacion/help.js');
 const { routeButton } = await import('../src/components/buttons.js');
 
@@ -127,5 +144,32 @@ describe('/help — botón "Mis roles" (Mejora 2/2)', () => {
     await routeButton(interaction);
 
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: 'Elegí tus roles', components: ['fake-row'], flags: expect.any(Number) }));
+  });
+});
+
+// H3, auditoría completa NEXO (cierre en el plan de ejecución post-auditoría, Fase 2,
+// 2026-09-12) — /help entero ya es ephemeral, pero estos 3 botones de acceso rápido
+// posteaban público: alguien navegando el panel (que solo él ve) terminaba exponiendo
+// su perfil/avatar al canal con un click que no esperaba que tuviera ese efecto.
+describe('/help — botones de acceso rápido (H3): ahora responden ephemeral', () => {
+  it('help_info', async () => {
+    const interaction = { guild: {}, user: { id: 'user-1' }, reply: vi.fn().mockResolvedValue(undefined) };
+    await routeButton({ ...interaction, customId: 'help_info' });
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: expect.any(Number) }));
+  });
+
+  it('help_servidor', async () => {
+    const interaction = { guild: {}, user: { id: 'user-1' }, reply: vi.fn().mockResolvedValue(undefined) };
+    await routeButton({ ...interaction, customId: 'help_servidor' });
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: expect.any(Number) }));
+  });
+
+  it('help_avatar', async () => {
+    const interaction = { guild: {}, user: { id: 'user-1' }, reply: vi.fn().mockResolvedValue(undefined) };
+    await routeButton({ ...interaction, customId: 'help_avatar' });
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: expect.any(Number) }));
   });
 });

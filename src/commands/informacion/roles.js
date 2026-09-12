@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { MAGENTA_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { fetchAllMembers } from '../../utils/sanctions.js';
 
@@ -66,7 +66,7 @@ export function buildRolesEmbed(guild) {
   }
 
   const embed = new EmbedBuilder()
-    .setColor(BRAND_COLOR)
+    .setColor(MAGENTA_COLOR)
     .setTitle(`🎭 Roles de ${guild.name}`)
     .setDescription(`${roles.length} roles · ${guild.memberCount.toLocaleString('es-ES')} miembros`)
     .setTimestamp();

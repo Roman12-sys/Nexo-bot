@@ -12,6 +12,7 @@ const mockConfig = {
   supabaseServiceRoleKey: 'test-service-role-key',
   operatorAlertChannelId: null,
   supportContact: null,
+  websiteUrl: null,
 };
 vi.mock('../src/config.js', () => ({ config: mockConfig }));
 
@@ -46,10 +47,55 @@ describe('dashboard layout() — contacto de soporte (COM-3)', () => {
 
   it('con SUPPORT_CONTACT configurado: lo muestra en el footer, escapado', () => {
     mockConfig.supportContact = 'https://discord.gg/ejemplo-soporte';
+    mockConfig.websiteUrl = null;
 
     const html = layout({ title: 'Test', body: '<p>hola</p>' });
 
     expect(html).toContain('¿Problemas con el bot?');
     expect(html).toContain('https://discord.gg/ejemplo-soporte');
+  });
+});
+
+// H5-3, auditoría completa NEXO (cierre en el plan de ejecución post-auditoría, Fase 5,
+// 2026-09-12) — el dashboard no tenía NINGÚN link legal. Ahora linkea al sitio real
+// (config.websiteUrl, mismo criterio "opcional, nunca URL inventada" que dashboardUrl).
+describe('dashboard layout() — links legales (H5-3)', () => {
+  it('sin WEBSITE_BASE_URL configurado: no muestra ningún link legal', () => {
+    mockConfig.supportContact = null;
+    mockConfig.websiteUrl = null;
+
+    const html = layout({ title: 'Test', body: '<p>hola</p>' });
+
+    expect(html).not.toContain('Términos de servicio');
+    expect(html).not.toContain('Política de privacidad');
+  });
+
+  it('con WEBSITE_BASE_URL configurado: linkea /legal/terminos y /legal/privacidad reales del sitio', () => {
+    mockConfig.supportContact = null;
+    mockConfig.websiteUrl = 'https://nexo.ejemplo.test';
+
+    const html = layout({ title: 'Test', body: '<p>hola</p>' });
+
+    expect(html).toContain('href="https://nexo.ejemplo.test/legal/terminos"');
+    expect(html).toContain('href="https://nexo.ejemplo.test/legal/privacidad"');
+  });
+
+  it('ni SUPPORT_CONTACT ni WEBSITE_BASE_URL: el <footer> entero desaparece, no queda vacío', () => {
+    mockConfig.supportContact = null;
+    mockConfig.websiteUrl = null;
+
+    const html = layout({ title: 'Test', body: '<p>hola</p>' });
+
+    expect(html).not.toContain('<footer>');
+  });
+
+  it('con los dos configurados: aparecen ambas líneas del footer', () => {
+    mockConfig.supportContact = 'https://discord.gg/ejemplo-soporte';
+    mockConfig.websiteUrl = 'https://nexo.ejemplo.test';
+
+    const html = layout({ title: 'Test', body: '<p>hola</p>' });
+
+    expect(html).toContain('¿Problemas con el bot?');
+    expect(html).toContain('href="https://nexo.ejemplo.test/legal/terminos"');
   });
 });

@@ -490,6 +490,22 @@ create table if not exists guild_daily_stats (
 );
 
 -- =========================================================
+-- Eventos de alta/baja de servidor (src/utils/botGuildEventsStore.js) — observabilidad
+-- de NEGOCIO (cuántos servidores tiene el bot, si crece o se achica), no de un server
+-- puntual. A diferencia de guild_daily_stats de arriba, esta tabla NO es guild-scoped
+-- para efectos de guildDelete.js — el valor de esta tabla es justamente conservar el
+-- historial de churn (incluyendo el evento 'leave') incluso después de que el guild se
+-- fue. Ver plan de ejecución post-auditoría, Fase 5 (2026-09-12).
+-- =========================================================
+create table if not exists bot_guild_events (
+  id bigint generated always as identity primary key,
+  guild_id text not null,
+  event_type text not null check (event_type in ('join', 'leave')),
+  created_at timestamptz not null default now()
+);
+create index if not exists bot_guild_events_created_at_idx on bot_guild_events (created_at);
+
+-- =========================================================
 -- Estado del anunciador de patch notes de League of Legends
 -- (src/utils/lolPatchEngine.js) — una sola fila fija, no es por guild: el canal de
 -- anuncio está hardcodeado en el engine, no en guild_config.
@@ -995,5 +1011,25 @@ as $$
   where guild_id = p_guild_id
   group by user_id
   order by unlock_count desc, user_id
+  limit p_limit;
+$$;
+
+-- PERF-1 (plan de ejecución post-auditoría, 2026-09-12) — mismo criterio que las dos de
+-- arriba: el panel /sanciones solo necesita, por usuario, cuántas advertencias tiene
+-- (para un desplegable de hasta 25), nunca el detalle de cada una. Ver
+-- migration_2026_09_12_perf1_warn_counts.sql.
+create or replace function get_guild_warn_counts(p_guild_id text, p_limit integer default 25)
+returns table(user_id text, warn_count bigint, total_users bigint)
+language sql
+stable
+as $$
+  select
+    user_id,
+    count(*) as warn_count,
+    count(*) over () as total_users
+  from warnings
+  where guild_id = p_guild_id
+  group by user_id
+  order by min(created_at) asc
   limit p_limit;
 $$;

@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import { joinWithOverflow } from '../../utils/logEmbeds.js';
 
 export async function buildInfoEmbed(guild, targetUser) {
   const member = await guild.members.fetch(targetUser.id).catch(() => null);
@@ -31,9 +32,11 @@ export async function buildInfoEmbed(guild, targetUser) {
     });
   }
 
+  // Antes cortaba en silencio a los primeros 15 (.slice(0, 15).join(' ')) sin avisar
+  // que faltó contenido — mismo patrón "+N más" que ya usan roles.js/shop.js.
   embed.addFields({
     name: `🎭 Roles (${roles.length})`,
-    value: roles.length > 0 ? roles.slice(0, 15).join(' ') : 'Sin roles asignados',
+    value: roles.length > 0 ? joinWithOverflow(roles, { sep: ' ' }) : 'Sin roles asignados',
   });
 
   embed.setFooter({ text: BRAND_NAME }).setTimestamp();

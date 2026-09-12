@@ -19,8 +19,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.7",
-    "@supabase/supabase-js": "^2.45.0",
+    "@napi-rs/canvas": "^1.0.9",
+    "@supabase/supabase-js": "^2.116.0",
     "discord.js": "^14.16.0",
     "dotenv": "^16.4.5",
     "express": "^5.2.1"

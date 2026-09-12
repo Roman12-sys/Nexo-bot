@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { createSupabaseMock } from './helpers/supabaseMock.js';
+import { createSupabaseMock, createQueryBuilder } from './helpers/supabaseMock.js';
 
 // xpStore.js importa supabaseClient.js a nivel de módulo, que a su vez requiere las
 // variables de entorno de Supabase (config.js tira si faltan). Se mockea para poder
@@ -8,7 +8,7 @@ import { createSupabaseMock } from './helpers/supabaseMock.js';
 const supabaseMock = createSupabaseMock();
 vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMock; } }));
 
-const { xpRequiredForLevel, getLevelProgress, totalXpForLevel, addXp, applyPrestige, getUserXp, grantMessageXp } = await import('../src/utils/xpStore.js');
+const { xpRequiredForLevel, getLevelProgress, totalXpForLevel, addXp, applyPrestige, getUserXp, grantMessageXp, getRank, getGuildXpPage } = await import('../src/utils/xpStore.js');
 const { eventBus } = await import('../src/utils/eventBus.js');
 
 describe('xpRequiredForLevel', () => {
@@ -262,5 +262,96 @@ describe('multi-guild — el mismo userId en dos guilds nunca se mezcla', () => 
 
     expect(supabaseMock.rpc).toHaveBeenNthCalledWith(1, 'apply_prestige', { p_guild_id: 'guild-a', p_user_id: 'user-123' });
     expect(supabaseMock.rpc).toHaveBeenNthCalledWith(2, 'apply_prestige', { p_guild_id: 'guild-b', p_user_id: 'user-123' });
+  });
+});
+
+// PERF-1 (plan de ejecución post-auditoría, Fase 3) — antes traía la tabla de XP ENTERA
+// del server (getGuildXp) solo para un findIndex. Ahora son 2 queries chicas (la fila
+// propia + un COUNT de cuántos tienen más xp). Se simulan con dos .from('xp')
+// consecutivas (mockImplementationOnce) — el builder compartido de createSupabaseMock()
+// no distingue entre llamadas a la misma tabla.
+describe('getRank', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('con fila propia: cuenta cuántos tienen más xp y suma 1 (1-based)', async () => {
+    supabaseMock.from
+      .mockImplementationOnce(() => createQueryBuilder({ data: { xp: 500 }, error: null }))
+      .mockImplementationOnce(() => createQueryBuilder({ count: 4, error: null }));
+
+    const rank = await getRank('guild-1', 'user-1');
+
+    expect(rank).toBe(5);
+  });
+
+  it('nadie con más xp: rank 1', async () => {
+    supabaseMock.from
+      .mockImplementationOnce(() => createQueryBuilder({ data: { xp: 999999 }, error: null }))
+      .mockImplementationOnce(() => createQueryBuilder({ count: 0, error: null }));
+
+    expect(await getRank('guild-1', 'user-top')).toBe(1);
+  });
+
+  it('usuario sin fila (nunca ganó XP): null, sin llegar a pedir el COUNT', async () => {
+    supabaseMock.from.mockImplementationOnce(() => createQueryBuilder({ data: null, error: null }));
+
+    const rank = await getRank('guild-1', 'user-nuevo');
+
+    expect(rank).toBeNull();
+    expect(supabaseMock.from).toHaveBeenCalledTimes(1);
+  });
+
+  it('error en la query del COUNT: se propaga', async () => {
+    const dbError = new Error('timeout');
+    supabaseMock.from
+      .mockImplementationOnce(() => createQueryBuilder({ data: { xp: 100 }, error: null }))
+      .mockImplementationOnce(() => createQueryBuilder({ count: null, error: dbError }));
+
+    await expect(getRank('guild-1', 'user-1')).rejects.toBe(dbError);
+  });
+});
+
+describe('getGuildXpPage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('cuenta el total real (solo xp > 0) y trae solo la página pedida', async () => {
+    supabaseMock.from
+      .mockImplementationOnce(() => createQueryBuilder({ count: 23, error: null }))
+      .mockImplementationOnce(() => createQueryBuilder({
+        data: [{ user_id: 'user-1', xp: 500, level: 3, last_xp_ts: 0, last_content: '', xp_boost_until: 0, prestige: 0 }],
+        error: null,
+      }));
+
+    const result = await getGuildXpPage('guild-1', { page: 1, pageSize: 10 });
+
+    expect(result.total).toBe(23);
+    expect(result.totalPages).toBe(3);
+    expect(result.clampedPage).toBe(1);
+    expect(result.rows).toEqual([
+      { userId: 'user-1', xp: 500, level: 3, lastXpTs: 0, lastContent: '', xpBoostUntil: 0, prestige: 0 },
+    ]);
+  });
+
+  it('página pedida más allá del final: clampea a la última página real', async () => {
+    supabaseMock.from
+      .mockImplementationOnce(() => createQueryBuilder({ count: 5, error: null }))
+      .mockImplementationOnce(() => createQueryBuilder({ data: [], error: null }));
+
+    const result = await getGuildXpPage('guild-1', { page: 99, pageSize: 10 });
+
+    expect(result.clampedPage).toBe(0); // totalPages = 1 (5/10), única página = índice 0
+    expect(result.totalPages).toBe(1);
+  });
+
+  it('nadie con xp > 0 todavía: total 0, ni siquiera pide la página', async () => {
+    supabaseMock.from.mockImplementationOnce(() => createQueryBuilder({ count: 0, error: null }));
+
+    const result = await getGuildXpPage('guild-vacio', { page: 0, pageSize: 10 });
+
+    expect(result).toEqual({ rows: [], total: 0, clampedPage: 0, totalPages: 1 });
+    expect(supabaseMock.from).toHaveBeenCalledTimes(1);
   });
 });

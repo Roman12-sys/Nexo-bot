@@ -3,7 +3,7 @@ import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getActiveTimeouts, getPunishedMembers, getBannedUsers } from '../../utils/sanctions.js';
-import { getGuildWarns, clearWarns } from '../../utils/warnsStore.js';
+import { getGuildWarnCounts, clearWarns } from '../../utils/warnsStore.js';
 import { createTimeoutLogEmbed, createPunishLogEmbed, createUnbanAutoLogEmbed, createUnwarnLogEmbed } from '../../utils/logEmbeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
@@ -175,22 +175,25 @@ registerButtonPrefix('sanciones_bans', async (i) => {
 registerButtonPrefix('sanciones_warns', async (i) => {
   if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
   await i.deferReply({ flags: MessageFlags.Ephemeral });
-  const guildWarns = await getGuildWarns(i.guildId);
-  const userIds = Object.keys(guildWarns).filter((id) => (guildWarns[id] || []).length > 0);
-  if (userIds.length === 0) return i.editReply({ content: 'Nadie tiene advertencias activas.' });
+  // PERF-1 (plan de ejecución post-auditoría) — antes traía TODA la tabla warnings del
+  // server (getGuildWarns) solo para descartar todo menos un conteo por usuario. Ahora
+  // el conteo se hace en Postgres (get_guild_warn_counts) — nunca trae más de 25 filas
+  // chicas, sin importar cuántas advertencias tenga el historial completo del server.
+  const { rows: warnCounts, total } = await getGuildWarnCounts(i.guildId, 25);
+  if (total === 0) return i.editReply({ content: 'Nadie tiene advertencias activas.' });
 
   const options = [];
-  for (const id of userIds.slice(0, 25)) {
+  for (const { userId: id, warnCount } of warnCounts) {
     const user = await i.client.users.fetch(id).catch(() => null);
     options.push({
       label: (user?.tag || id).slice(0, 100),
-      description: `${guildWarns[id].length} advertencia(s)`,
+      description: `${warnCount} advertencia(s)`,
       value: id,
     });
   }
   const select = new StringSelectMenuBuilder().setCustomId('sanciones_select_warn').setPlaceholder('Elegí a quién borrarle TODAS sus advertencias').addOptions(options);
-  const overflow = userIds.length > 25 ? ` — mostrando 25, hay ${userIds.length - 25} más` : '';
-  await i.editReply({ content: `Usuarios con advertencias (${userIds.length})${overflow}:`, components: [new ActionRowBuilder().addComponents(select)] });
+  const overflow = total > 25 ? ` — mostrando 25, hay ${total - 25} más` : '';
+  await i.editReply({ content: `Usuarios con advertencias (${total})${overflow}:`, components: [new ActionRowBuilder().addComponents(select)] });
 });
 
 // ---------- Selects: aplicar la acción elegida ----------

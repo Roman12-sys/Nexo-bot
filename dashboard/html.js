@@ -24,6 +24,26 @@ export function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
+// H5-3, auditoría completa NEXO — el dashboard no tenía NINGÚN link legal (a diferencia
+// del sitio, que sí los tenía, aunque hasta esta misma fase apuntaban a artifacts
+// privados de claude.ai — ver website/pages/legal.js). Ambos condicionales por
+// separado, nunca un link inventado: sin SUPPORT_CONTACT no hay línea de soporte; sin
+// WEBSITE_BASE_URL no hay línea legal (recién ahí el dashboard sabe dónde vive el sitio
+// real). El footer entero desaparece si ninguno de los dos está configurado, en vez de
+// quedar vacío con solo el borde superior.
+function buildFooter() {
+  const parts = [];
+  if (config.supportContact) {
+    parts.push(`<p class="muted">🆘 ¿Problemas con el bot? ${escapeHtml(config.supportContact)}</p>`);
+  }
+  if (config.websiteUrl) {
+    parts.push(
+      `<p class="muted">Legal: <a href="${escapeHtml(config.websiteUrl)}/legal/terminos" target="_blank" rel="noopener">Términos de servicio</a> · <a href="${escapeHtml(config.websiteUrl)}/legal/privacidad" target="_blank" rel="noopener">Política de privacidad</a></p>`,
+    );
+  }
+  return parts.length > 0 ? `<footer>${parts.join('')}</footer>` : '';
+}
+
 export function layout({ title, body, loggedIn = false }) {
   return `<!doctype html>
 <html lang="es">
@@ -102,7 +122,7 @@ export function layout({ title, body, loggedIn = false }) {
   </div>
 </header>
 <main>${body}</main>
-${config.supportContact ? `<footer><p class="muted">🆘 ¿Problemas con el bot? ${escapeHtml(config.supportContact)}</p></footer>` : ''}
+${buildFooter()}
 </body>
 </html>`;
 }

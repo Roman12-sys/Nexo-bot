@@ -3,6 +3,7 @@ import { createReminder, getUserReminders, deleteReminder, getUserActiveReminder
 import { scheduleReminder, cancelReminder } from '../../utils/reminderEngine.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
+import { withLock } from '../../utils/asyncLock.js';
 
 const PAGE_SIZE = 10;
 
@@ -91,8 +92,20 @@ async function handleCrear(interaction) {
     return;
   }
 
-  const activeCount = await getUserActiveReminderCount(interaction.guildId, interaction.user.id);
-  if (activeCount >= REMINDER_LIMIT_PER_USER) {
+  // El chequeo de límite y la creación quedan serializados por usuario — sin lock, dos
+  // /recordatorio crear casi simultáneos podían leer el mismo conteo por debajo del
+  // límite (ninguno de los dos había escrito todavía) y terminar los dos creando,
+  // superando REMINDER_LIMIT_PER_USER. Mismo patrón que /give (asyncLock.js).
+  const result = await withLock(`recordatorio:${interaction.guildId}:${interaction.user.id}`, async () => {
+    const activeCount = await getUserActiveReminderCount(interaction.guildId, interaction.user.id);
+    if (activeCount >= REMINDER_LIMIT_PER_USER) return { rejected: true };
+
+    const remindAt = Date.now() + delayMs;
+    const reminder = await createReminder(interaction.guildId, interaction.user.id, mensaje, remindAt, repeatMs);
+    return { rejected: false, reminder };
+  });
+
+  if (result.rejected) {
     await interaction.reply({
       content: `❌ Ya tenés ${REMINDER_LIMIT_PER_USER} recordatorios activos. Cancelá alguno con \`/recordatorio cancelar\` antes de crear otro.`,
       flags: MessageFlags.Ephemeral,
@@ -100,11 +113,10 @@ async function handleCrear(interaction) {
     return;
   }
 
-  const remindAt = Date.now() + delayMs;
-  const reminder = await createReminder(interaction.guildId, interaction.user.id, mensaje, remindAt, repeatMs);
+  const { reminder } = result;
   scheduleReminder(interaction.client, reminder);
 
-  const readyTimestamp = Math.floor(remindAt / 1000);
+  const readyTimestamp = Math.floor(reminder.remindAt / 1000);
   const repeatText = repeatMs ? ` Se repite ${repetir === 'diario' ? 'todos los días' : 'todas las semanas'} después de eso.` : '';
   await interaction.reply({
     content: `⏰ Listo, te aviso por DM <t:${readyTimestamp}:R> (<t:${readyTimestamp}:f>).${repeatText}`,
