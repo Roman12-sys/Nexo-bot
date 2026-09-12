@@ -97,22 +97,54 @@ export async function buildRankCardAttachment({ targetUser, progress, rank, pres
     ctx.fillText(`  ·  #${rank} del ranking`, cursorX, 130);
   }
 
-  // Barra de progreso
+  // Barra de progreso — pedido explícito del usuario (2026-09-11): el fondo (track)
+  // era un flat rgba(255,255,255,0.15), sin ninguna textura — se veía "muy neutro"
+  // sobre el gradiente de la tarjeta. Ahora es un surco hundido de verdad (gradiente
+  // vertical oscuro arriba → luz tenue abajo, simulando profundidad real) con un borde
+  // sutil que lo separa del fondo, en vez de una superficie plana sin relieve.
   const barY = 170;
   const barHeight = 28;
   const pct = progress.xpForNextLevel > 0 ? Math.min(1, progress.currentLevelXp / progress.xpForNextLevel) : 0;
 
-  ctx.fillStyle = 'rgba(255,255,255,0.15)';
+  const trackGradient = ctx.createLinearGradient(0, barY, 0, barY + barHeight);
+  trackGradient.addColorStop(0, 'rgba(10,6,24,0.55)');
+  trackGradient.addColorStop(0.5, 'rgba(10,6,24,0.32)');
+  trackGradient.addColorStop(1, 'rgba(255,255,255,0.06)');
+  ctx.fillStyle = trackGradient;
   roundRect(ctx, textX, barY, barWidth, barHeight, barHeight / 2);
   ctx.fill();
 
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, textX + 0.75, barY + 0.75, barWidth - 1.5, barHeight - 1.5, (barHeight - 1.5) / 2);
+  ctx.stroke();
+
   if (pct > 0) {
+    const fillWidth = Math.max(barHeight, barWidth * pct);
+
+    // Relleno con los colores reales de marca de NEXO (violeta → oro, el mismo par que
+    // usa el resto del sistema de progresión) en vez del morado/dorado genérico de antes.
     const fillGradient = ctx.createLinearGradient(textX, 0, textX + barWidth, 0);
-    fillGradient.addColorStop(0, '#a284f7');
-    fillGradient.addColorStop(1, '#e0b23d');
+    fillGradient.addColorStop(0, '#7F5AF0');
+    fillGradient.addColorStop(1, '#F2B84B');
     ctx.fillStyle = fillGradient;
-    roundRect(ctx, textX, barY, Math.max(barHeight, barWidth * pct), barHeight, barHeight / 2);
+    roundRect(ctx, textX, barY, fillWidth, barHeight, barHeight / 2);
     ctx.fill();
+
+    // Brillo superior sutil sobre el relleno — sin esto el relleno también quedaba
+    // plano; esta franja de luz (recortada a la forma exacta del relleno) le da un
+    // aspecto de superficie curva/pulida en vez de un bloque de color liso.
+    ctx.save();
+    roundRect(ctx, textX, barY, fillWidth, barHeight, barHeight / 2);
+    ctx.clip();
+    const glossGradient = ctx.createLinearGradient(0, barY, 0, barY + barHeight);
+    glossGradient.addColorStop(0, 'rgba(255,255,255,0.32)');
+    glossGradient.addColorStop(0.5, 'rgba(255,255,255,0.04)');
+    glossGradient.addColorStop(0.5, 'rgba(255,255,255,0)');
+    glossGradient.addColorStop(1, 'rgba(0,0,0,0.1)');
+    ctx.fillStyle = glossGradient;
+    ctx.fillRect(textX, barY, fillWidth, barHeight);
+    ctx.restore();
   }
 
   ctx.fillStyle = '#c9bef0';
