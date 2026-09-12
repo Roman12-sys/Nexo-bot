@@ -749,9 +749,10 @@ existir en producción** (verificado por API antes de tocar nada: el comentario
 "MIGRACIÓN MANUAL PENDIENTE" que había quedado en `schema.sql` estaba desactualizado, la
 migración de Fase 4C-1 se había corrido en algún momento sin borrar ese comentario; una
 fila tenía valor real, `guild_id` `1182874699169017987`). `migration_2026_09_10_remove_
-report.sql` (`alter table guild_config drop column if exists report_channel_id`) queda
-preparada pero sin correr — mismo criterio de orden que el resto del proyecto (DROP
-después del deploy del código, nunca antes). No reintroducir sin un pedido explícito
+report.sql` (`alter table guild_config drop column if exists report_channel_id`) **ya se
+corrió y está verificada** (2026-09-12, `GET guild_config?select=report_channel_id`
+devuelve `42703 column does not exist` contra la base real) — se corrió después del
+deploy del código, respetando el orden de siempre. No reintroducir sin un pedido explícito
 nuevo — no es un hueco a rellenar. Las secciones "Fase 4C-1" y "Ciclo 2" más arriba
 documentan `/report` tal como existió; quedan como historial, no como estado actual.
 
