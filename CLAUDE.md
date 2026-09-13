@@ -1882,28 +1882,116 @@ reset manual de `lolPatchEngine.js` (existe, funciona, no se promociona).
 acción de negocio/facturación, no de código, queda para que el usuario la haga
 directamente en el dashboard de Supabase.
 
-## Higiene de documentación — drift CLAUDE.md vs git (2026-09-12)
+## Auditoría intensa + Fases 1-5 de fixes (2026-09-12, segunda ronda)
 
-Una auditoría intensa (7 agentes en paralelo, mismo playbook de siempre) encontró que
-**≥7 secciones de fase** de este archivo (2B, 2C, 3C, 4A, 4B, 4C-1, Ciclo 2) afirmaban
-"sin commitear todavía"/"sin pushear" cuando, verificado con `git merge-base
---is-ancestor <hash> main`, los commits reales de cada fase ya eran ancestros de `main`
-— que a su vez estaba al día con `origin/main`. El patrón de causa raíz: cada fase se
-documentó en el momento en que se escribió el código (antes del commit real), y esa
-frase nunca se actualizó una vez que el commit efectivamente ocurrió en una sesión
-posterior. Las 7 secciones ya se corrigieron con el hash real confirmado — buscar
-"corregido 2026-09-12" en el texto de cada una para ver el antes/después exacto.
+Pedido explícito del usuario ("auditoría intensa, revisá que todo esté bien") DESPUÉS
+de la Fase 5 post-auditoría del mismo día — no una continuación de esa fase, una
+repasada completa nueva desde cero, mismo playbook de
+[[nexo_bot_audit_methodology]]: 7 agentes generales en paralelo, un dominio propio cada
+uno (economía, moderación/permisos, eventos/engines, dashboard+sitio, integridad de
+datos/schema, testing/infra/docs, higiene de git), solo lectura, con un hallazgo de
+calibración ya verificado a mano como estándar de evidencia. A diferencia de rondas
+anteriores, esta vez el usuario pidió armar un plan de fixes y ejecutarlo en el mismo
+tramo (no quedó como "solo investigación, fase de fix aparte").
 
-**Por qué importa esto más que un typo:** el propio criterio de este proyecto (ver
-"Flujo de trabajo de esta sesión", más arriba) es tratar CLAUDE.md como la fuente de
-verdad operativa de qué está desplegado y qué no. Una afirmación de "sin commitear"
-desactualizada puede hacer que una sesión futura (de este agente o de otro) evite tocar
-un archivo pensando que hay cambios sin revisar debajo, o vuelva a commitear algo que
-ya está en `main`, generando confusión real. **Regla para no repetir esto:** antes de
-citar el estado de commit/push de cualquier fase de este archivo como un hecho actual,
-verificar contra `git log`/`git merge-base --is-ancestor` en vez de confiar en el texto
-— exactamente el mismo criterio de "verificar, no confiar en rondas anteriores" que ya
-aplica a los propios hallazgos de auditoría.
+**Autocorrección real en el medio del proceso — documentada porque es la prueba de que
+el método funciona, no para esconderla.** Antes de lanzar los 7 agentes, encontré 2
+worktrees de git abandonados en `.claude/worktrees/agent-*` y concluí, mal, que
+contenían una rama nunca mergeada con roles autoasignables perdidos — leí mal mi propio
+`git branch --contains 0bf35f9` (literalmente decía `* main` en el output y lo pasé por
+alto). El agente del dominio de higiene de git lo detectó de forma independiente y me
+corrigió: el commit YA era ancestro de `main`, `selfRoles.js` ya vive en producción
+(vía `/staff`, commit posterior `6880ad1`), y los worktrees eran solo basura operativa
+de una sesión de agente vieja nunca limpiada con `git worktree remove`. **Regla para no
+repetirlo:** antes de citar `git branch --contains <sha>` como evidencia de "rama nunca
+mergeada", leer la lista completa línea por línea — si `main` aparece ahí, es lo
+opuesto de huérfano.
+
+**Impacto real y medible de esos worktrees, más allá del error de lectura:** no existía
+`vitest.config.js`, así que `npx vitest run`/`npm test` escaneaban también esos 2
+worktrees (148 archivos de test duplicados/desactualizados de ellos), inflando el
+conteo que la Fase 5 de ese mismo día reportó como "2251 tests" — el número real,
+verificado con y sin los worktrees, es **1001 tests / 109 archivos**. Se agregó
+`vitest.config.js` (`exclude: [...configDefaults.exclude, '.claude/**']`) y se
+sumó `.claude/` al `.gitignore` versionado (antes solo lo ignoraba
+`.git/info/exclude`, local y no portable a un clon nuevo). Los 2 worktrees y sus
+branches (`worktree-agent-*`) se borraron con `git worktree remove` + `git branch -d`
+— seguro al 100%, `-d` (no `-D`) confirmó que ya estaban mergeados.
+
+**Drift de documentación — ≥7 secciones de fase de este mismo archivo (2B, 2C, 3C, 4A,
+4B, 4C-1, Ciclo 2) afirmaban "sin commitear todavía"/"sin pushear"** cuando, verificado
+con `git merge-base --is-ancestor <hash> main`, los commits reales ya eran ancestros de
+`main` (al día con `origin/main`). Causa raíz: cada fase se documentó al escribir el
+código, antes del commit real, y la frase nunca se actualizó cuando el commit
+efectivamente ocurrió en una sesión posterior. Las 7 secciones ya llevan el hash real
+confirmado — buscar "corregido 2026-09-12" en cada una. **Por qué importa más que un
+typo:** una afirmación de "sin commitear" vieja puede hacer que una sesión futura evite
+tocar un archivo pensando que hay cambios sin revisar debajo, o commitee de nuevo algo
+que ya está en `main`. Regla: verificar contra `git log`/`git merge-base
+--is-ancestor` antes de citar el estado de commit/push de cualquier fase como un hecho
+actual, nunca confiar en el texto.
+
+**18 hallazgos reales + 1 riesgo arquitectónico, 0 P0.** El más grave (P1, ver sección
+"Permisos" arriba): `/shop-admin` gateado con `isStaff()` en vez de `isAdmin()` — un
+tercer camino hacia dinero sin límite que PERM-1 no había cubierto. El resto,
+implementado en 5 fases el mismo tramo:
+
+- **Fase 1 (dinero + exposición de datos):** `/shop-admin` → `isAdmin()` + piso de
+  precio (`price >= MAX_MYSTERY`, exportada desde `buy.js`) para un ítem
+  `mystery_box` nuevo o editado — defensa en profundidad aunque ya no sea explotable
+  por Tier 1. `/unwarn`/`warnEditar.js`: `autocomplete()` ahora exige `isStaff()` antes
+  de devolver los motivos reales de advertencias de un usuario — antes, un rol con el
+  permiso nativo `ModerateMembers` de Discord (dado vía Integraciones, sin cargarlo en
+  `guild_config`) podía leerlos sin poder ejecutar el borrado real.
+- **Fase 2 (cobros parciales en `/buy`):** el rollback de Fase 2B (revertir cobro si
+  falla la entrega) solo cubría el caso de rol borrado. Generalizado con un try/catch
+  exterior a las 4 ramas (`mystery_box`/`xp_boost`/`rob_shield`/ítem normal) — un fallo
+  de red de Supabase DESPUÉS de cobrar ya no deja al usuario pagado sin nada.
+  `/daily`/`/work`/`/weekly` ahora guardan el cooldown ANTES de acreditar la
+  recompensa (mismo orden que `/crime`, que ya lo hacía bien) — antes, un fallo de red
+  entre las dos escrituras podía dejar acreditado sin el cooldown persistido, abriendo
+  una ventana de doble cobro.
+- **Fase 3 (observabilidad menor):** `logPurgeEngine.js` conectado a
+  `reportCriticalError` — era el único de los 7 loops periódicos sin alerta operativa
+  (ver la lista corregida en "Observabilidad" arriba: son 7, no 5).
+  `punishEngine.revokePunishment` marca el error con `.partialRevoke = true` si
+  `roles.remove()` falla después de borrar el estado interno — `/unpunish` ahora avisa
+  explícito "se limpió el registro interno pero no se pudo quitar el rol" en vez del
+  genérico de siempre. Recompensa de XP de misión pasa `source: 'mission'`
+  (`missionsStore.js`) → `economyOrigins.js` la clasifica `'reward'`, cerrando del lado
+  de XP el mismo hueco que su análoga en monedas ya cerraba.
+- **Fase 4 (dashboard/sitio):** `commands.generated.json` regenerado (faltaban
+  `/staff` y `/owner-metricas`, generado el día anterior a que se commitearan) + un
+  test nuevo (`websiteData.test.js`) que compara `COMMANDS.length` contra el conteo
+  real de archivos y falla si vuelve a desactualizarse. `website/server.js` ahora usa
+  `dashboard/rateLimiter.js` tal cual (era el único de los 2 procesos Express públicos
+  sin límite por IP). `features.js`: el tagline de "Acción" ya no lleva el número
+  "21" en texto libre (fuera del mecanismo anti-drift que ya deriva `commandCount`).
+  `dashboard/config.js`: `DASHBOARD_SESSION_SECRET` exige 32+ caracteres al arrancar
+  (antes solo chequeaba "no vacío").
+- **Fase 5 (documentación + hardening menor):** el drift de "sin commitear" de arriba,
+  comentarios desactualizados en `dashboard/queries.js` (decían "migración preparada"
+  sobre algo ya ejecutado desde Fase 4A), y `csvExport.js` (usado por
+  `/economia-staff historial`/`/warns exportar`) ahora antepone un apóstrofo a valores
+  que empiezan con `=`/`+`/`-`/`@` — mitigación estándar OWASP de CSV/formula
+  injection (vector staff→staff: el motivo de un warn es texto libre de staff, nunca
+  de un usuario común).
+
+**Dejado explícitamente como decisión pendiente, no implementado:** el riesgo
+arquitectónico de que un rol "seguro" (`getDangerousRolePermission`) solo se valida al
+guardarlo en `/config`/`/setup`, nunca de nuevo en el momento real de aplicarlo
+(`punish.js`, `guildMemberAdd.js`) — si alguien le agrega un permiso peligroso a un rol
+de castigo/automático YA configurado desde Discord nativo, el próximo `/punish` lo
+escala en vez de restringirlo. Arreglarlo (revalidar antes de `roles.add()`) es sencillo
+pero es una decisión de producto: podría "romper" a propósito una restricción que un
+admin cambió por otro motivo — no se tocó sin que el usuario lo pida.
+
+**Resultado:** 109→113 archivos de test, 1001→1030 tests, todo verde. Nada commiteado
+(el working tree completo queda para el tooling del usuario, como siempre). Puntaje
+propio del día, para que quede de referencia: **~85/100 técnico** (seguridad,
+atomicidad, cobertura de tests, feature-completeness — todo alto; el único P1 real de
+esta ronda ya cerrado) vs. **~35-40/100 comercial** (cero monetización, cero premium,
+sitio sin dominio desplegado — el cuello de botella real de NEXO no es el código).
 
 ## Stack
 
