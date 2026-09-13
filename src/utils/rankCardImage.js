@@ -34,16 +34,46 @@ export async function buildRankCardAttachment({ targetUser, progress, rank, pres
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext('2d');
 
-  const gradient = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT);
-  gradient.addColorStop(0, '#241c3d');
-  gradient.addColorStop(1, '#4a2f8f');
-  ctx.fillStyle = gradient;
-  roundRect(ctx, 0, 0, WIDTH, HEIGHT, 24);
-  ctx.fill();
-
   const avatarUrl = targetUser.displayAvatarURL({ extension: 'png', size: 256 });
   const avatarX = 62;
   const avatarY = HEIGHT / 2 - AVATAR_SIZE / 2;
+  const avatarCx = avatarX + AVATAR_SIZE / 2;
+  const avatarCy = avatarY + AVATAR_SIZE / 2;
+
+  // Fondo — pedido explícito del usuario (2026-09-12): el gradiente plano violeta de
+  // esquina a esquina "no le gustaba". Reemplazado por una base casi negra con un glow
+  // radial detrás del avatar (dorado si hay prestigio, violeta si no) — le da un punto
+  // focal real y contrasta mejor contra el fondo oscuro nativo de Discord que el violeta
+  // claro de antes.
+  const base = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+  base.addColorStop(0, '#15101f');
+  base.addColorStop(1, '#0a0812');
+  ctx.fillStyle = base;
+  roundRect(ctx, 0, 0, WIDTH, HEIGHT, 24);
+  ctx.fill();
+
+  ctx.save();
+  roundRect(ctx, 0, 0, WIDTH, HEIGHT, 24);
+  ctx.clip();
+  const glowColor = prestige > 0 ? '242,184,75' : '127,90,240';
+  const glow = ctx.createRadialGradient(avatarCx, avatarCy, AVATAR_SIZE * 0.2, avatarCx, avatarCy, WIDTH * 0.62);
+  glow.addColorStop(0, `rgba(${glowColor},0.55)`);
+  glow.addColorStop(0.35, `rgba(${glowColor},0.16)`);
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  const sheen = ctx.createLinearGradient(WIDTH * 0.3, 0, WIDTH, HEIGHT * 0.7);
+  sheen.addColorStop(0, 'rgba(255,255,255,0)');
+  sheen.addColorStop(1, 'rgba(255,255,255,0.05)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.restore();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  roundRect(ctx, 0.5, 0.5, WIDTH - 1, HEIGHT - 1, 24);
+  ctx.stroke();
 
   try {
     const response = await fetch(avatarUrl);
@@ -61,7 +91,7 @@ export async function buildRankCardAttachment({ targetUser, progress, rank, pres
     console.error('⚠️ No se pudo cargar el avatar para la tarjeta de rango:', error);
   }
 
-  ctx.strokeStyle = '#a284f7';
+  ctx.strokeStyle = prestige > 0 ? '#e0b23d' : '#a284f7';
   ctx.lineWidth = 6;
   ctx.beginPath();
   ctx.arc(avatarX + AVATAR_SIZE / 2, avatarY + AVATAR_SIZE / 2, AVATAR_SIZE / 2, 0, Math.PI * 2);

@@ -212,6 +212,22 @@ describe('revokePunishment', () => {
 
     expect(rolesRemove).toHaveBeenCalledWith('role-sancionado');
   });
+
+  // Auditoría 2026-09-12: si roles.remove() falla DESPUÉS de que el estado interno ya
+  // se borró, el error se marca con `.partialRevoke` para que el caller (/unpunish,
+  // panel /sanciones) le avise al staff que el registro interno ya no considera
+  // restringido a este usuario, aunque el rol real de Discord siga puesto.
+  it('si roles.remove() falla, propaga el error marcado con partialRevoke=true', async () => {
+    const { client } = makeClient();
+    const rolesRemove = vi.fn().mockRejectedValue(new Error('Missing Permissions'));
+    const member = { roles: { cache: { has: () => true }, remove: rolesRemove } };
+
+    await expect(
+      revokePunishment(client, { guildId: 'guild-1', userId: 'target-1', roleId: 'role-sancionado', member }),
+    ).rejects.toMatchObject({ partialRevoke: true });
+
+    expect(deleteActivePunishment).toHaveBeenCalledWith('guild-1', 'target-1');
+  });
 });
 
 describe('rescheduleActivePunishments — reprogramar al reiniciar', () => {

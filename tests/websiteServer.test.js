@@ -213,6 +213,37 @@ describe('website/server.js — con DASHBOARD_BASE_URL/SUPPORT_CONTACT/WEBSITE_B
   });
 });
 
+// Auditoría 2026-09-12: website/server.js era el único de los 2 servicios Express
+// públicos del repo sin ningún límite por IP (dashboard/rateLimiter.js ya lo tenía).
+// Reusa el mismo middleware tal cual — MAX_REQUESTS=60 por ventana de 60s ahí adentro.
+describe('website/server.js — rate limiter (reusado de dashboard/)', () => {
+  let server;
+  let baseUrl;
+
+  beforeAll(async () => {
+    delete process.env.DASHBOARD_BASE_URL;
+    delete process.env.SUPPORT_CONTACT;
+    delete process.env.WEBSITE_BASE_URL;
+    vi.resetModules();
+    const { app } = await import('../website/server.js');
+    server = http.createServer(app);
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    baseUrl = `http://127.0.0.1:${server.address().port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  it('la request número 61 desde la misma IP en la misma ventana recibe 429', async () => {
+    let lastStatus;
+    for (let i = 0; i < 61; i++) {
+      lastStatus = (await get(baseUrl, '/')).status;
+    }
+    expect(lastStatus).toBe(429);
+  });
+});
+
 describe('website/config.js', () => {
   it('sin CLIENT_ID, el proceso no puede arrancar (mismo criterio que src/config.js y dashboard/config.js)', async () => {
     const originalClientId = process.env.CLIENT_ID;

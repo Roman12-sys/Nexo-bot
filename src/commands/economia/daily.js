@@ -58,11 +58,16 @@ export async function execute(interaction) {
     const baseReward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
     const reward = baseReward + streakBonus;
 
+    // Cooldown ANTES que recompensa (auditoría 2026-09-12, hallazgo de economía #3):
+    // son 2 llamadas de red independientes bajo el mismo lock — si acreditábamos
+    // primero y el guardado del cooldown fallaba después, el saldo ya había subido
+    // pero lastDaily seguía viejo, dejando la puerta abierta a un segundo /daily en la
+    // misma ventana de 24hs. Mismo orden que /crime ya usaba.
+    await setDailyClaim(guildId, userId, { timestamp: now, streak });
     const newBalance = await addBalance(guildId, userId, reward, {
       type: 'daily',
       reason: streakBonus > 0 ? `Racha de ${streak} días (+${streakBonus} bonus)` : undefined,
     });
-    await setDailyClaim(guildId, userId, { timestamp: now, streak });
 
     return { onCooldown: false, reward, streak, streakBonus, newBalance, isFirstDaily };
   });

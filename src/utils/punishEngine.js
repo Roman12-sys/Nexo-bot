@@ -165,5 +165,17 @@ export async function revokePunishment(client, { guildId, userId, roleId, member
   await deleteActivePunishment(guildId, userId).catch((error) =>
     console.error('⚠️ No se pudo borrar el registro de restricción con duración:', error),
   );
-  await member.roles.remove(roleId);
+  try {
+    await member.roles.remove(roleId);
+  } catch (error) {
+    // Auditoría 2026-09-12: el timer y la fila de active_punishments YA se borraron
+    // arriba — si esto falla (rol reordenado por encima del bot, permiso perdido,
+    // etc.) el estado interno y Discord quedan desincronizados: el bot ya no considera
+    // restringido a este usuario, pero el rol real sigue puesto. `partialRevoke` deja
+    // que el caller le avise al staff de eso en vez de un mensaje genérico que sugiere
+    // que no pasó nada.
+    console.error('⚠️ Se limpió el registro interno de la restricción pero falló roles.remove() en Discord:', error);
+    error.partialRevoke = true;
+    throw error;
+  }
 }

@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, MessageFlags } from 'discord.js';
-import { getGuildShopItems, addShopItem, updateShopItem, removeShopItem, hasCustomShopItems } from '../../utils/shopStore.js';
-import { isStaff } from '../../utils/permissions.js';
+import { getGuildShopItems, getShopItem, addShopItem, updateShopItem, removeShopItem, hasCustomShopItems } from '../../utils/shopStore.js';
+import { isAdmin } from '../../utils/permissions.js';
+import { MAX_MYSTERY } from './buy.js';
 import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 
@@ -12,6 +13,18 @@ async function handleAgregar(interaction) {
   const role = interaction.options.getRole('rol');
   const manual = interaction.options.getBoolean('entrega_manual') ?? false;
   const tipo = interaction.options.getString('tipo') || null;
+
+  // Defensa en profundidad (auditoría 2026-09-12, hallazgo de economía #1): con
+  // isAdmin() ya exigido para todo el comando, esto ya no es explotable por un
+  // moderador — pero un admin real tipeando el precio a mano (250 en vez de 400+)
+  // seguiría creando una caja positiva en expectativa por error, no por malicia.
+  if (tipo === 'mystery_box' && price < MAX_MYSTERY) {
+    await interaction.reply({
+      content: `❌ Una caja misteriosa paga entre 50 y ${MAX_MYSTERY} monedas al azar — con un precio menor a ${MAX_MYSTERY} sería casi siempre ganancia neta para quien la compre. Usá un precio de ${MAX_MYSTERY} o más.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -105,7 +118,7 @@ async function handleListar(interaction) {
 }
 
 registerButtonPrefix('shopadmin_listar_page_', async (i) => {
-  if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+  if (!(await isAdmin(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
   const page = parseInt(i.customId.slice('shopadmin_listar_page_'.length), 10);
   const items = await getGuildShopItems(i.guildId);
   const { embed, clampedPage, totalPages } = buildListarEmbed(items, page);
@@ -126,6 +139,20 @@ async function handleEditar(interaction) {
   if (!nombre && precio == null && !descripcion && !categoria && !rol) {
     await interaction.reply({ content: '❌ Completá al menos un campo para editar.', flags: MessageFlags.Ephemeral });
     return;
+  }
+
+  // Mismo piso que handleAgregar — editar() no puede cambiar el `type` de un ítem
+  // (updateShopItem no lo acepta), pero SÍ puede bajarle el precio a uno que ya es
+  // mystery_box, reabriendo el mismo hueco por otra puerta.
+  if (precio != null) {
+    const existing = await getShopItem(interaction.guildId, itemId);
+    if (existing?.type === 'mystery_box' && precio < MAX_MYSTERY) {
+      await interaction.reply({
+        content: `❌ Ese ítem es una caja misteriosa (paga hasta ${MAX_MYSTERY} monedas al azar) — un precio menor a ${MAX_MYSTERY} la vuelve ganancia neta para quien la compre.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
   }
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -201,8 +228,11 @@ export async function autocomplete(interaction) {
 }
 
 export async function execute(interaction) {
-  if (!(await isStaff(interaction))) {
-    await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
+  // Tier 2 (auditoría 2026-09-12, hallazgo de economía #1): /shop-admin puede crear un
+  // ítem "caja misteriosa" que acredita monedas sin límite — la misma capacidad que
+  // /economia-staff y /xp ya reservan a isAdmin(), no a isStaff() (Tier 1, moderador).
+  if (!(await isAdmin(interaction))) {
+    await interaction.reply({ content: '❌ Solo un administrador puede usar este comando.', flags: MessageFlags.Ephemeral });
     return;
   }
 

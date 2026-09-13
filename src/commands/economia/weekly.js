@@ -42,8 +42,10 @@ export async function execute(interaction) {
     }
 
     const reward = Math.floor(Math.random() * (MAX_REWARD - MIN_REWARD + 1)) + MIN_REWARD;
-    const newBalance = await addBalance(guildId, userId, reward, { type: 'weekly' });
+    // Cooldown antes que recompensa — mismo motivo y mismo fix que /daily (auditoría
+    // 2026-09-12, hallazgo de economía #3).
     await setCooldown(guildId, userId, 'weekly', now);
+    const newBalance = await addBalance(guildId, userId, reward, { type: 'weekly' });
 
     return { onCooldown: false, reward, newBalance };
   });

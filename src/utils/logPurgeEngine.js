@@ -5,6 +5,7 @@
 // que voiceXpEngine.js: un barrido periódico sobre todos los guilds.
 import { PermissionFlagsBits } from 'discord.js';
 import { getGuildLogChannel } from './guildLogChannels.js';
+import { reportCriticalError } from './errorReporter.js';
 
 const TICK_MS = 12 * 60 * 60 * 1000; // cada 12 horas alcanza de sobra para una retención de días
 const RETENTION_MS = 5 * 24 * 60 * 60 * 1000; // 5 días
@@ -75,6 +76,12 @@ async function purgeTick(client) {
 
 export function startLogPurgeLoop(client) {
   setInterval(() => {
-    purgeTick(client).catch((error) => console.error('❌ [purga de logs] Error en el barrido:', error));
+    purgeTick(client).catch((error) => {
+      console.error('❌ [purga de logs] Error en el barrido:', error);
+      // Auditoría 2026-09-12: era el único de los 6 loops periódicos del proyecto sin
+      // conexión a la alerta operativa — si esto falla en silencio para siempre, la
+      // purga de logs se detiene en TODOS los servidores sin que nadie se entere.
+      reportCriticalError(client, 'logPurgeEngine: barrido periódico de purga', error);
+    });
   }, TICK_MS).unref();
 }

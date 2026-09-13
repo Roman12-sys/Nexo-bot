@@ -17,6 +17,10 @@ import { renderStatusPage } from './pages/status.js';
 import { renderChangelogPage } from './pages/changelog.js';
 import { renderTermsPage, renderPrivacyPage } from './pages/legal.js';
 import { registerShutdown } from '../src/utils/shutdown.js';
+// Reusado tal cual de dashboard/ (auditoría 2026-09-12) — es genérico por IP, sin
+// ningún acoplamiento a sesión/Discord, así que sirve igual acá. Antes este proceso
+// era el único de los 2 servicios Express públicos sin ningún límite por IP.
+import { rateLimitMiddleware } from '../dashboard/rateLimiter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FONTS_DIR = path.join(__dirname, '..', 'src', 'assets', 'fonts'); // reusa las mismas 2 fuentes que ya usa @napi-rs/canvas — no se duplican archivos.
@@ -36,6 +40,7 @@ process.on('uncaughtException', (error) => {
 const app = express();
 app.disable('x-powered-by');
 
+app.use(rateLimitMiddleware);
 app.use('/fonts', express.static(FONTS_DIR, { maxAge: '30d', immutable: true }));
 
 app.get('/', (req, res) => {

@@ -74,6 +74,12 @@ export async function execute(interaction) {
     }
   } catch (error) {
     console.error('❌ Error al ejecutar /unpunish:', error);
-    await interaction.editReply({ content: describeError(error, '❌ Ocurrió un error al quitar la restricción.') }).catch(() => {});
+    // Auditoría 2026-09-12: si revokePunishment marcó partialRevoke, el registro
+    // interno ya se limpió pero el rol de Discord puede seguir puesto — avisarlo
+    // explícito en vez del fallback genérico de siempre.
+    const fallback = error.partialRevoke
+      ? '❌ Se limpió el registro interno de la restricción, pero no se pudo quitar el rol en Discord — revisalo a mano o reintentá.'
+      : '❌ Ocurrió un error al quitar la restricción.';
+    await interaction.editReply({ content: describeError(error, fallback) }).catch(() => {});
   }
 }

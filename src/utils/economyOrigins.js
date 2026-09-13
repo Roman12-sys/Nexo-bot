@@ -54,6 +54,12 @@ const XP_ORIGIN_BY_SOURCE = {
   voice: 'activity',
   trivia: 'activity',
   admin: 'admin',
+  // Auditoría 2026-09-12, hallazgo de economía #4: era la única emisión de XP del
+  // proyecto sin `source` etiquetado — su análoga en monedas ya usa `type: 'mission'`
+  // → origin 'reward' (missionsStore.js) precisamente para no contar como progreso de
+  // OTRA misión. Sin consumidor real que dependiera de esto hoy, pero cierra el mismo
+  // hueco del lado de XP antes de que una misión futura lo necesite.
+  mission: 'reward',
 };
 
 export function resolveXpOrigin(source) {

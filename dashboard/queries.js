@@ -487,8 +487,9 @@ async function fetchTopBalances(guildId) {
 // QUÉ CAMBIÓ (Fase 2C, sección 3): antes (fetchAllBalances) traía la columna `balance`
 // de CADA fila de economy del server entero solo para sumarlas en JS — filas
 // transferidas creciendo sin límite con la cantidad histórica de usuarios con economía,
-// para terminar en UN solo número. sum_guild_balances (RPC, ver migración preparada en
-// schema.sql) hace la suma en Postgres: cero filas transferidas de más, mismo resultado.
+// para terminar en UN solo número. sum_guild_balances (RPC, ver
+// migration_2026_09_01_fase2c.sql, ejecutada y verificada en producción — Fase 4A,
+// 2026-09-04) hace la suma en Postgres: cero filas transferidas de más, mismo resultado.
 async function fetchTotalBalance(guildId) {
   const { data, error } = await supabase.rpc('sum_guild_balances', { p_guild_id: guildId });
   if (error) throw error;
@@ -526,8 +527,9 @@ async function fetchXpUserCount(guildId) {
 // getGuildFrequentReasons (moderationActionsStore.js), que agrega en JS sobre un
 // `.limit(200)` explícito y acotado a propósito, acá no había ningún límite — el mismo
 // patrón "traer todo para reducir en Node" pero sin cota. top_guild_achievers (RPC, ver
-// migración preparada en schema.sql) hace el group+count+order+limit en Postgres:
-// como mucho 5 filas transferidas, nunca el histórico completo.
+// migration_2026_09_01_fase2c.sql, ejecutada y verificada en producción — Fase 4A,
+// 2026-09-04) hace el group+count+order+limit en Postgres: como mucho 5 filas
+// transferidas, nunca el histórico completo.
 async function fetchTopAchievers(guildId) {
   const { data, error } = await supabase.rpc('top_guild_achievers', { p_guild_id: guildId, p_limit: 5 });
   if (error) throw error;

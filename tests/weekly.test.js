@@ -69,6 +69,18 @@ describe('/weekly — lógica básica', () => {
     expect(addBalance).toHaveBeenCalledTimes(1);
     expect(setCooldown).toHaveBeenCalledWith('guild-1', 'user-1', 'weekly', expect.any(Number));
   });
+
+  // Auditoría 2026-09-12, hallazgo de economía #3 (mismo fix que /daily/work): confirma
+  // que el cooldown queda persistido aunque addBalance falle después.
+  it('si addBalance falla después de guardar el cooldown, el cooldown queda igual persistido', async () => {
+    addBalance.mockRejectedValueOnce(new Error('supabase timeout'));
+    const interaction = makeInteraction();
+
+    await expect(weeklyExecute(interaction)).rejects.toThrow('supabase timeout');
+
+    expect(setCooldown).toHaveBeenCalledTimes(1);
+    expect(economyState.lastWeekly).toBeGreaterThan(0);
+  });
 });
 
 describe('/weekly — concurrencia real (lock real de asyncLock.js)', () => {

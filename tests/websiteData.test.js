@@ -13,6 +13,26 @@ describe('website/data/commands.js', () => {
     expect(COMMANDS.length).toBeGreaterThan(0);
   });
 
+  // Auditoría 2026-09-12: commands.generated.json quedó desactualizado dos veces
+  // seguidas (faltaban /staff y /owner-metricas) porque nada avisaba cuando el JSON
+  // se atrasaba contra los archivos reales. Mismo criterio que
+  // "stats.commands coincide con..." de más abajo, pero contra el explorador público
+  // en vez de contra el número de la FAQ — son dos fuentes independientes que antes
+  // podían divergir sin que ningún test lo notara.
+  it('COMMANDS.length coincide con la cantidad real de archivos .js en src/commands/ (si esto falla, correr npm run website:generate-commands)', () => {
+    let count = 0;
+    const walk = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.js')) count += 1;
+      }
+    };
+    walk(path.join(REPO_ROOT, 'src', 'commands'));
+
+    expect(COMMANDS.length).toBe(count);
+  });
+
   it('getCommandsByCategory solo devuelve comandos de esa categoría', () => {
     const economia = getCommandsByCategory('economia');
     expect(economia.length).toBeGreaterThan(0);

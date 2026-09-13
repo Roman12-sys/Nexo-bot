@@ -73,7 +73,11 @@ const RAW_FEATURES = [
     id: 'accion',
     emoji: '🎭',
     name: 'Acción',
-    tagline: '21 comandos de interacción entre miembros.',
+    // Sin el número acá a propósito (auditoría 2026-09-12) — a diferencia del resto del
+    // objeto (commandCount/sampleCommands, derivados más abajo), esta línea era texto
+    // libre: el día que la categoría creciera o encogiera, quedaba un tagline diciendo
+    // "21" al lado de una tarjeta que ya mostraba el número real y distinto.
+    tagline: 'Comandos de interacción entre miembros.',
     description:
       'Comandos de rol/interacción social — abrazar, saludar, chocar los cinco, y varios más — para ' +
       'usar solo o mencionando a otro miembro. El catálogo más grande del bot en cantidad de comandos.',

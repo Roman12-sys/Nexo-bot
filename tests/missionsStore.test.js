@@ -114,6 +114,10 @@ describe('Pago de recompensa — una sola vez', () => {
     expect(addBalance).toHaveBeenCalledTimes(1);
     expect(addBalance).toHaveBeenCalledWith('g1', 'u-trivia', 10, expect.objectContaining({ type: 'mission' }));
     expect(addXp).toHaveBeenCalledTimes(1);
+    // Auditoría 2026-09-12, hallazgo de economía #4: la recompensa en XP de una misión
+    // debe etiquetar su origen igual que su análoga en monedas (type:'mission' arriba),
+    // para que resolveXpOrigin la clasifique 'reward' y no 'activity' por defecto.
+    expect(addXp).toHaveBeenCalledWith('g1', 'u-trivia', 5, { source: 'mission' });
 
     // Segunda vez: la misión ya está completa, la RPC ya no devuelve just_completed.
     mockRpcJustCompleted({ daily_trivia: false });

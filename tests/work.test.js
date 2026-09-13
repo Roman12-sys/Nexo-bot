@@ -49,6 +49,18 @@ it('la recompensa es el mínimo del rango sin ningún multiplicador aplicado (si
   expect(embed.data.description).not.toMatch(/mascota/i);
 });
 
+// Auditoría 2026-09-12, hallazgo de economía #3 (mismo fix que /daily/, cooldown antes
+// que recompensa): confirma que setCooldown ya se guardó cuando addBalance falla
+// después, evitando un segundo /work en la misma ventana.
+it('si addBalance falla después de guardar el cooldown, el cooldown queda igual persistido', async () => {
+  addBalance.mockRejectedValueOnce(new Error('supabase timeout'));
+  const interaction = makeInteraction();
+
+  await expect(execute(interaction)).rejects.toThrow('supabase timeout');
+
+  expect(setCooldown).toHaveBeenCalledWith('guild-1', 'user-1', 'work', expect.any(Number));
+});
+
 it('no importa ni ejecuta nada de petsStore.js', async () => {
   const interaction = makeInteraction();
   await expect(execute(interaction)).resolves.not.toThrow();

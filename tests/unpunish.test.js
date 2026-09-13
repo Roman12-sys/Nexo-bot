@@ -110,4 +110,18 @@ describe('/unpunish', () => {
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('error') }));
     expect(interaction.reply).not.toHaveBeenCalled(); // ya se había deferido — nunca un reply() después de eso
   });
+
+  // Auditoría 2026-09-12: si revokePunishment marca el error con partialRevoke (el
+  // registro interno ya se limpió pero roles.remove() falló), el mensaje debe avisarlo
+  // explícito en vez del "Ocurrió un error" genérico de siempre.
+  it('si revokePunishment falla con partialRevoke, avisa que el registro interno ya se limpió', async () => {
+    const error = new Error('Missing Permissions');
+    error.partialRevoke = true;
+    revokePunishment.mockRejectedValueOnce(error);
+    const interaction = makeInteraction({ staffRoleIds: ['role-admin'], targetMember: punishedMember() });
+
+    await unpunishExecute(interaction);
+
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('registro interno') }));
+  });
 });

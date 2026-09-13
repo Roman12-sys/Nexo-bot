@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T05:52:33.211Z",
+  "generatedAt": "2026-09-13T00:19:07.872Z",
   "commands": [
     {
       "name": "8ball",
@@ -73,6 +73,14 @@
         "ManageGuild"
       ],
       "options": [
+        {
+          "kind": "parameter",
+          "name": "json_import",
+          "description": "Importa un JSON de embed (máx 6000 caracteres, opcional)",
+          "required": false,
+          "type": "texto",
+          "choices": []
+        },
         {
           "kind": "parameter",
           "name": "color_predefinido",
@@ -1304,6 +1312,15 @@
       ]
     },
     {
+      "name": "owner-metricas",
+      "description": "Métricas cross-servidor del operador del bot.",
+      "category": "administracion",
+      "folder": "admin",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [],
+      "options": []
+    },
+    {
       "name": "pat",
       "description": "Le hacés cariño a alguien.",
       "category": "accion",
@@ -2003,6 +2020,17 @@
           ]
         }
       ]
+    },
+    {
+      "name": "staff",
+      "description": "Panel de administración de NEXO — moderación, economía, XP, roles y más, sin memorizar comandos.",
+      "category": "administracion",
+      "folder": "admin",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
+      "options": []
     },
     {
       "name": "stare",

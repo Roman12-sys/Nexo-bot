@@ -16,8 +16,13 @@ import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 import { withLock } from '../../utils/asyncLock.js';
 
-const MIN_MYSTERY = 50;
-const MAX_MYSTERY = 400;
+// Exportadas (no solo locales): /shop-admin necesita MAX_MYSTERY como piso de precio
+// al crear un ítem "caja misteriosa" — auditoría 2026-09-12, hallazgo de economía #1.
+// Sin ese piso, un precio configurado por debajo del payout máximo vuelve a la caja
+// positiva en expectativa, el mismo bug que este archivo ya arregló una vez (ver el
+// comentario de cabecera) pero ahora vía el precio en vez de vía MAX_MYSTERY.
+export const MIN_MYSTERY = 50;
+export const MAX_MYSTERY = 400;
 const XP_BOOST_DURATION_MS = 24 * 60 * 60 * 1000;
 const ROB_SHIELD_DURATION_MS = 2 * 60 * 60 * 1000;
 
@@ -118,102 +123,128 @@ export async function execute(interaction) {
     // siendo exactamente un chequeo de logro por compra.
     const checkFirstPurchaseAchievement = () => eventBus.emit('ACHIEVEMENT_CHECK', { guildId, userId, achievementId: 'primera_compra', interaction });
 
-    // --- Caso especial: caja misteriosa (solo existe en el catálogo por defecto) ---
-    // No se guarda en el inventario, se resuelve al instante con una recompensa al azar
-    if (item.type === 'mystery_box') {
-      const reward = Math.floor(Math.random() * (MAX_MYSTERY - MIN_MYSTERY + 1)) + MIN_MYSTERY;
-      const netChange = reward - item.price;
-      // QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): se agrega `netGain` — mismo
-      // motivo que gamble_win en casinoHelpers.js. Pagar 250 y sacar 400 es una ganancia
-      // neta de 150, no de 400; sin esto, misiones/analítica contaban el bruto.
-      const finalBalance = await addBalance(guildId, userId, reward, { type: 'mystery_box', reason: item.name, netGain: netChange });
+    // Auditoría 2026-09-12, hallazgo de economía #2: el reembolso de Fase 2B solo
+    // cubría el fallo de asignación de rol (el try/catch interno de más abajo, que
+    // sigue igual porque YA revierte inventario+cobro y responde). Este try/catch
+    // exterior generaliza el mismo principio ("no debe existir una compra pagada sin
+    // beneficio entregado") a las otras 3 ramas: si `addBalance`/`extendXpBoost`/
+    // `extendRobShield`/`incrementInventoryItem` fallan (timeout de red, 5xx
+    // transitorio de Supabase), antes quedaba cobrado sin nada a cambio. Antes de esta
+    // línea nada se entregó todavía, así que revertir acá siempre significa "devolver
+    // el precio", nunca "deshacer un inventario/rol ya aplicado" — eso lo sigue
+    // manejando el catch interno, que responde y no relanza (por eso este catch
+    // exterior nunca lo ve).
+    try {
+      // --- Caso especial: caja misteriosa (solo existe en el catálogo por defecto) ---
+      // No se guarda en el inventario, se resuelve al instante con una recompensa al azar
+      if (item.type === 'mystery_box') {
+        const reward = Math.floor(Math.random() * (MAX_MYSTERY - MIN_MYSTERY + 1)) + MIN_MYSTERY;
+        const netChange = reward - item.price;
+        // QUÉ CAMBIÓ (Fase A, segunda auditoría 2026-08-30): se agrega `netGain` — mismo
+        // motivo que gamble_win en casinoHelpers.js. Pagar 250 y sacar 400 es una ganancia
+        // neta de 150, no de 400; sin esto, misiones/analítica contaban el bruto.
+        const finalBalance = await addBalance(guildId, userId, reward, { type: 'mystery_box', reason: item.name, netGain: netChange });
 
-      const resultText =
-        netChange >= 0
-          ? `¡Ganaste **${reward.toLocaleString('es-ES')}** monedas! Ganancia neta: +${netChange.toLocaleString('es-ES')}.`
-          : `Solo salieron **${reward.toLocaleString('es-ES')}** monedas. Pérdida neta: ${netChange.toLocaleString('es-ES')}.`;
+        const resultText =
+          netChange >= 0
+            ? `¡Ganaste **${reward.toLocaleString('es-ES')}** monedas! Ganancia neta: +${netChange.toLocaleString('es-ES')}.`
+            : `Solo salieron **${reward.toLocaleString('es-ES')}** monedas. Pérdida neta: ${netChange.toLocaleString('es-ES')}.`;
 
-      await interaction.editReply({
-        content: `🎁 Abriste la caja misteriosa...\n${resultText}\nBalance actual: **${finalBalance.toLocaleString('es-ES')}**.`,
-      });
-      await checkFirstPurchaseAchievement();
-      return;
-    }
-
-    // --- Caso especial: impulso de XP (x2 por 24hs, se extiende si ya tenía uno activo) ---
-    if (item.type === 'xp_boost') {
-      const until = await extendXpBoost(guildId, userId, XP_BOOST_DURATION_MS);
-      await interaction.editReply({
-        content: `⚡ ¡Impulso de XP activado! Ganás el doble de XP hasta <t:${Math.floor(until / 1000)}:f>.\nBalance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`,
-      });
-      await checkFirstPurchaseAchievement();
-      return;
-    }
-
-    // --- Caso especial: escudo anti-robo (2hs, se extiende si ya tenía uno activo) ---
-    if (item.type === 'rob_shield') {
-      const until = await extendRobShield(guildId, userId, ROB_SHIELD_DURATION_MS);
-      await interaction.editReply({
-        content: `🛡️ ¡Escudo activado! Nadie puede robarte hasta <t:${Math.floor(until / 1000)}:f>.\nBalance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`,
-      });
-      await checkFirstPurchaseAchievement();
-      return;
-    }
-
-    // --- Ítems normales: se guardan en el inventario ---
-    await incrementInventoryItem(guildId, userId, item.id, 1);
-
-    // Si tiene un rol asociado, se lo damos automáticamente
-    if (item.roleId) {
-      try {
-        member = member || (await interaction.guild.members.fetch(userId));
-        await member.roles.add(item.roleId);
-      } catch (error) {
-        // QUÉ CAMBIÓ: antes este catch solo logueaba y seguía — la compra terminaba
-        // confirmándose como éxito (cobrada + en el inventario) aunque el rol nunca se
-        // hubiera entregado (ej. el rol se borró justo entre el chequeo de arriba y
-        // este punto, o el bot perdió el permiso Gestionar roles). Ahora revierte todo
-        // lo que ya se aplicó (inventario + cobro) y le avisa al usuario, en vez de
-        // confirmarle una compra que no recibió. No es un sistema financiero nuevo: usa
-        // los mismos primitivos atómicos que el resto de la economía
-        // (incrementInventoryItem con delta negativo, addBalance).
-        // MOTIVO: auditoría Fase 2B, sección 11 — "no debe existir una compra que el
-        // usuario pague y el bot confirme como exitosa sin entregar el beneficio".
-        console.error('⚠️ No se pudo asignar el rol del ítem comprado — revirtiendo la compra:', error);
-
-        await incrementInventoryItem(guildId, userId, item.id, -1).catch((e) =>
-          console.error('⚠️ No se pudo revertir el inventario tras el fallo de rol:', e),
-        );
-        const refundedBalance = await addBalance(guildId, userId, item.price, {
-          type: 'purchase_refund',
-          reason: `Reembolso: no se pudo entregar ${item.name}`,
-        }).catch((e) => {
-          console.error('⚠️ No se pudo reembolsar el cobro tras el fallo de rol:', e);
-          return null;
-        });
-
-        const balanceLine = refundedBalance !== null ? ` Balance actual: **${refundedBalance.toLocaleString('es-ES')}**.` : '';
         await interaction.editReply({
-          content: `❌ No se pudo entregar **${item.name}** (el rol ya no existe o no lo pude asignar). Se te reembolsaron ${item.price.toLocaleString('es-ES')} monedas.${balanceLine}`,
+          content: `🎁 Abriste la caja misteriosa...\n${resultText}\nBalance actual: **${finalBalance.toLocaleString('es-ES')}**.`,
         });
+        await checkFirstPurchaseAchievement();
         return;
       }
-    }
 
-    // Si es de entrega manual, avisamos al staff en el canal de logs de economía
-    if (item.fulfillment === 'manual') {
-      const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'economy');
-      if (logChannel) {
-        await logChannel.send({ embeds: [createShopPurchaseLogEmbed({ user: interaction.user, item })] });
+      // --- Caso especial: impulso de XP (x2 por 24hs, se extiende si ya tenía uno activo) ---
+      if (item.type === 'xp_boost') {
+        const until = await extendXpBoost(guildId, userId, XP_BOOST_DURATION_MS);
+        await interaction.editReply({
+          content: `⚡ ¡Impulso de XP activado! Ganás el doble de XP hasta <t:${Math.floor(until / 1000)}:f>.\nBalance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`,
+        });
+        await checkFirstPurchaseAchievement();
+        return;
       }
-    }
 
-    let confirmText = `✅ Compraste **${item.name}** por ${item.price.toLocaleString('es-ES')} monedas. Balance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`;
-    if (item.fulfillment === 'manual') {
-      confirmText += `\n📩 El staff fue notificado para completarte la entrega.`;
-    }
+      // --- Caso especial: escudo anti-robo (2hs, se extiende si ya tenía uno activo) ---
+      if (item.type === 'rob_shield') {
+        const until = await extendRobShield(guildId, userId, ROB_SHIELD_DURATION_MS);
+        await interaction.editReply({
+          content: `🛡️ ¡Escudo activado! Nadie puede robarte hasta <t:${Math.floor(until / 1000)}:f>.\nBalance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`,
+        });
+        await checkFirstPurchaseAchievement();
+        return;
+      }
 
-    await interaction.editReply({ content: confirmText });
-    await checkFirstPurchaseAchievement();
+      // --- Ítems normales: se guardan en el inventario ---
+      await incrementInventoryItem(guildId, userId, item.id, 1);
+
+      // Si tiene un rol asociado, se lo damos automáticamente
+      if (item.roleId) {
+        try {
+          member = member || (await interaction.guild.members.fetch(userId));
+          await member.roles.add(item.roleId);
+        } catch (error) {
+          // QUÉ CAMBIÓ: antes este catch solo logueaba y seguía — la compra terminaba
+          // confirmándose como éxito (cobrada + en el inventario) aunque el rol nunca se
+          // hubiera entregado (ej. el rol se borró justo entre el chequeo de arriba y
+          // este punto, o el bot perdió el permiso Gestionar roles). Ahora revierte todo
+          // lo que ya se aplicó (inventario + cobro) y le avisa al usuario, en vez de
+          // confirmarle una compra que no recibió. No es un sistema financiero nuevo: usa
+          // los mismos primitivos atómicos que el resto de la economía
+          // (incrementInventoryItem con delta negativo, addBalance).
+          // MOTIVO: auditoría Fase 2B, sección 11 — "no debe existir una compra que el
+          // usuario pague y el bot confirme como exitosa sin entregar el beneficio".
+          console.error('⚠️ No se pudo asignar el rol del ítem comprado — revirtiendo la compra:', error);
+
+          await incrementInventoryItem(guildId, userId, item.id, -1).catch((e) =>
+            console.error('⚠️ No se pudo revertir el inventario tras el fallo de rol:', e),
+          );
+          const refundedBalance = await addBalance(guildId, userId, item.price, {
+            type: 'purchase_refund',
+            reason: `Reembolso: no se pudo entregar ${item.name}`,
+          }).catch((e) => {
+            console.error('⚠️ No se pudo reembolsar el cobro tras el fallo de rol:', e);
+            return null;
+          });
+
+          const balanceLine = refundedBalance !== null ? ` Balance actual: **${refundedBalance.toLocaleString('es-ES')}**.` : '';
+          await interaction.editReply({
+            content: `❌ No se pudo entregar **${item.name}** (el rol ya no existe o no lo pude asignar). Se te reembolsaron ${item.price.toLocaleString('es-ES')} monedas.${balanceLine}`,
+          });
+          return;
+        }
+      }
+
+      // Si es de entrega manual, avisamos al staff en el canal de logs de economía
+      if (item.fulfillment === 'manual') {
+        const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'economy');
+        if (logChannel) {
+          await logChannel.send({ embeds: [createShopPurchaseLogEmbed({ user: interaction.user, item })] });
+        }
+      }
+
+      let confirmText = `✅ Compraste **${item.name}** por ${item.price.toLocaleString('es-ES')} monedas. Balance restante: **${balanceAfterCharge.toLocaleString('es-ES')}**.`;
+      if (item.fulfillment === 'manual') {
+        confirmText += `\n📩 El staff fue notificado para completarte la entrega.`;
+      }
+
+      await interaction.editReply({ content: confirmText });
+      await checkFirstPurchaseAchievement();
+    } catch (error) {
+      console.error('⚠️ Falló la entrega de la compra después de cobrar — revirtiendo el cargo:', error);
+      const refundedBalance = await addBalance(guildId, userId, item.price, {
+        type: 'purchase_refund',
+        reason: `Reembolso: no se pudo entregar ${item.name}`,
+      }).catch((e) => {
+        console.error('⚠️ No se pudo reembolsar el cobro tras el fallo de entrega:', e);
+        return null;
+      });
+      const balanceLine = refundedBalance !== null ? ` Balance actual: **${refundedBalance.toLocaleString('es-ES')}**.` : '';
+      await interaction.editReply({
+        content: `❌ Ocurrió un error al entregarte **${item.name}**. Se te reembolsaron ${item.price.toLocaleString('es-ES')} monedas.${balanceLine}`,
+      }).catch(() => {});
+    }
   });
 }

@@ -26,6 +26,18 @@ beforeEach(() => {
 });
 
 describe('/warn-editar', () => {
+  it('autocomplete: sin isStaff() responde [] sin leer advertencias reales (auditoría 2026-09-12)', async () => {
+    const { autocomplete } = await import('../src/commands/moderacion/warnEditar.js');
+    getGuildConfig.mockResolvedValue(NO_STAFF_CFG);
+    const interaction = makeInteraction({ staffRoleIds: [], options: { numero: 1 } });
+    interaction.respond = vi.fn().mockResolvedValue(undefined);
+
+    await autocomplete(interaction);
+
+    expect(getUserWarns).not.toHaveBeenCalled();
+    expect(interaction.respond).toHaveBeenCalledWith([]);
+  });
+
   it('sin permisos: no llama a updateWarnReasonAt', async () => {
     getGuildConfig.mockResolvedValue(NO_STAFF_CFG);
     const interaction = makeInteraction({ staffRoleIds: [], options: { numero: 1, motivo: 'corregido' } });

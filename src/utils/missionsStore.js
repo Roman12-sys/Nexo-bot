@@ -190,7 +190,11 @@ async function incrementMissionProgress(guildId, userId, missionId, amount) {
   // 'reward' — si algún día se agrega una misión nueva que dependa de COINS_EARNED, esa
   // exclusión es la que hay que mirar antes de tocar nada más.
   if (result.reward_coins > 0) await addBalance(guildId, userId, result.reward_coins, { type: 'mission', reason: def.description });
-  if (result.reward_xp > 0) await addXp(guildId, userId, result.reward_xp);
+  // source: 'mission' (auditoría 2026-09-12, hallazgo de economía #4) — mismo
+  // criterio que la línea de arriba: sin esto, resolveXpOrigin(undefined) caía a
+  // 'activity' en vez de 'reward', el único caso de addXp en todo el proyecto sin su
+  // origen etiquetado.
+  if (result.reward_xp > 0) await addXp(guildId, userId, result.reward_xp, { source: 'mission' });
 }
 
 // Para el dashboard (Fase 5) — cuántos usuarios DISTINTOS completaron al menos una

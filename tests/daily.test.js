@@ -85,6 +85,23 @@ describe('/daily — lógica básica', () => {
 
     expect(setDailyClaim).toHaveBeenCalledWith('guild-1', 'user-1', expect.objectContaining({ streak: 1 }));
   });
+
+  // Auditoría 2026-09-12, hallazgo de economía #3: antes addBalance corría ANTES que
+  // setDailyClaim — si el guardado del cooldown fallaba DESPUÉS de haber acreditado, el
+  // usuario podía reclamar dos veces en la misma ventana de 24hs (el balance ya había
+  // subido, lastDaily seguía viejo). Invertido el orden (mismo criterio que /crime):
+  // esta prueba confirma que ahora el cooldown queda persistido AUNQUE la recompensa
+  // falle después — el trade-off aceptado es "se le corta el intento", nunca "cobra dos
+  // veces".
+  it('si addBalance falla después de guardar el cooldown, el cooldown queda igual persistido', async () => {
+    addBalance.mockRejectedValueOnce(new Error('supabase timeout'));
+    const interaction = makeInteraction();
+
+    await expect(dailyExecute(interaction)).rejects.toThrow('supabase timeout');
+
+    expect(setDailyClaim).toHaveBeenCalledTimes(1);
+    expect(economyState.lastDaily).toBeGreaterThan(0);
+  });
 });
 
 // Concurrencia real (lock real de asyncLock.js, nunca mockeado) — mismo criterio que

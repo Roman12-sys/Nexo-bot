@@ -115,10 +115,17 @@ una vez que el bot se instala en servidores de terceros, no solo de gente de con
   `/voice`). Sin cambios de código en este tier.
 - **Tier 2 — Administrador** (`admin_role_id`, función nueva `isAdmin(interaction)` —
   chequea EXCLUSIVAMENTE `admin_role_id`, sin OR con `moderator_role_id`): todo lo del
-  Tier 1, más `/economia-staff` y `/xp` (los únicos comandos que pueden acreditar
-  balance/XP sin límite). `isStaffFromRoleIds` sigue dando `true` para un usuario que
-  solo tiene `admin_role_id` — el Tier 2 automáticamente pasa el Tier 1 sin necesitar
-  asignarle también el rol de moderador a mano.
+  Tier 1, más `/economia-staff`, `/xp` y `/shop-admin` (los únicos comandos que pueden
+  acreditar balance/XP sin límite). `isStaffFromRoleIds` sigue dando `true` para un
+  usuario que solo tiene `admin_role_id` — el Tier 2 automáticamente pasa el Tier 1 sin
+  necesitar asignarle también el rol de moderador a mano.
+  **`/shop-admin` se sumó recién en la auditoría del 2026-09-12** — quedó afuera del
+  análisis original de PERM-1: permite crear un ítem tipo "caja misteriosa" con precio
+  configurable, y el payout real (`buy.js`, `MIN_MYSTERY`-`MAX_MYSTERY`) es una constante
+  fija sin relación con ese precio — un precio bajo (ej. 1) lo vuelve una impresora de
+  dinero sin límite, alcanzable con Tier 1 puro y sin ninguna condición de carrera.
+  Defensa en profundidad agregada en el mismo fix: ni siquiera un Tier 2 legítimo puede
+  crear/editar una caja misteriosa con precio por debajo de `MAX_MYSTERY` (400 hoy).
 - **Tier 3 — Dueño / Administrator nativo de Discord** (sin cambios): `/setup`, `/config`.
 
 **Backward-compatible por construcción, no por un caso especial.** `/setup` sigue
@@ -617,11 +624,13 @@ incluir (hoy: nombre de comando + guild ID, nunca username/tag/contenido de mens
 **Dónde está conectada:** `uncaughtException`/`unhandledRejection` (bot y dashboard, en
 ambos casos esperando el intento de alerta antes de `process.exit(1)` — si no se espera,
 el proceso corta la conexión de red a mitad de camino), el catch-all de comandos e
-interacciones (`interactionCreate.js`), los 5 loops periódicos con estado propio
-(`giveawayEngine`, `reminderEngine`, `punishEngine`, `voiceXpEngine`, `lolPatchEngine`) y
-las 3 rutas del dashboard con try/catch propio (`/`, `/auth/callback`, `/guild/:id`).
-Verificado en vivo contra un canal de prueba real (Fase 4B): el envío llega, el throttle
-absorbe un segundo disparo idéntico, y un error distinto sí pasa.
+interacciones (`interactionCreate.js`), los 7 loops periódicos con estado propio
+(`giveawayEngine`, `reminderEngine`, `punishEngine`, `voiceXpEngine`, `lolPatchEngine`,
+`weeklyDigestEngine` y, desde la auditoría 2026-09-12, `logPurgeEngine` — el único que
+había quedado afuera de esta lista desde que se agregó) y las 3 rutas del dashboard con
+try/catch propio (`/`, `/auth/callback`, `/guild/:id`). Verificado en vivo contra un
+canal de prueba real (Fase 4B): el envío llega, el throttle absorbe un segundo disparo
+idéntico, y un error distinto sí pasa.
 
 ## Event Engine (`src/utils/eventBus.js`)
 
@@ -1111,9 +1120,10 @@ tabla por tabla contra `schema.sql`, no contra la lista previa.
 
 No es una fase de features nuevas — es la que hace que lo que ya existe se comporte de
 forma predecible frente a usuarios reales. Alcance explícitamente excluido (igual que
-Fase 2A): música, Pets, Premium/billing/landing. Código de esta fase, a diferencia de
-Fase 2A, **sin commitear todavía** — ver el informe final de la sesión para el estado
-exacto de tests.
+Fase 2A): música, Pets, Premium/billing/landing. **Commit `85d2a35`, pusheado y
+desplegado** (corregido 2026-09-12 — esta sección decía "sin commitear todavía", una
+afirmación que llevaba días desactualizada; ver "Higiene de documentación — drift
+CLAUDE.md vs git" al final de este archivo).
 
 **Panel `/sanciones` — dos inconsistencias reales contra los comandos directos.**
 (1) El select para borrar TODAS las advertencias de un usuario no aplicaba
@@ -1282,9 +1292,9 @@ de depender del orden de registro, sin tocar ningún prefijo existente.
 
 Objetivo explícito de esta fase: no "más rápido por las dudas", sino sacar costos
 reales y confirmados. Alcance excluido a propósito: música (sale del bot en un proyecto
-aparte) y Pets (se elimina después) — ninguna de las dos se tocó ni se optimizó. Código
-de esta fase, **sin commitear todavía** al momento de escribir esto — ver el informe de
-la sesión para el estado exacto de tests.
+aparte) y Pets (se elimina después) — ninguna de las dos se tocó ni se optimizó.
+**Commit `328ab61`, pusheado y desplegado** (corregido 2026-09-12 — decía "sin
+commitear todavía").
 
 **Dashboard — `listManagedGuilds` (home): cache de metadata, NUNCA de autorización.**
 Recorre TODOS los `guild_config` del bot (no solo los del usuario) para saber a cuáles
@@ -1505,8 +1515,8 @@ exclusivos (`musicEngine.js`, `musicSessionStore.js`, `musicSource.js`,
 `musicPermissions.js`, `musicEmbeds.js`, `musicVoiceState.js`, `spotifyResolver.js`,
 `spotifyAuthStore.js`), 1 archivo de dashboard (`dashboard/spotifyAuth.js`), 8 tests
 exclusivos, y 5 paquetes npm (`@discordjs/voice`, `@discordjs/opus`, `ffmpeg-static`,
-`libsodium-wrappers`, `youtube-dl-exec`). Código de esta fase, **sin commitear
-todavía** al momento de escribir esto.
+`libsodium-wrappers`, `youtube-dl-exec`). **Commit `136c8a0`, pusheado y desplegado**
+(corregido 2026-09-12 — decía "sin commitear todavía").
 
 **Aislamiento confirmado antes de tocar nada** (mismo criterio que Fase 3A/3B: mapa de
 dependencias primero, borrado después) — el sistema entero era autocontenido detrás de
@@ -1558,7 +1568,8 @@ motivo con `@everyone` pingeaba al servidor entero. Fix: `allowedMentions: { par
 everyone/here/roles sin importar el texto). `DATA-1` (contradicción sobre si
 `migration_2026_09_01_fase2c.sql` había corrido) se cerró **verificando en vivo contra
 Supabase real** — las dos RPC existen y funcionan, la nota de la sección de Fase 2C de
-arriba ya está corregida. 11 tests nuevos (433→444). Commit `56951b3`, **sin pushear**.
+arriba ya está corregida. 11 tests nuevos (433→444). **Commit `56951b3`, pusheado y
+desplegado** (corregido 2026-09-12 — decía "sin pushear").
 
 **Fase 4B — 9 de los 15 P1, elegidos a mano, no todos.** El resto (reaction-roles,
 `/report`, tuning de economía por servidor, PERF-1, revisión legal) se evaluaron y se
@@ -1572,8 +1583,9 @@ configuración real + link de invite + contacto de soporte (ver "Dashboard web" 
 las dos coberturas de test que faltaban de dinero/acceso (`casinoHelpers.js`, y el
 primer test HTTP real de `dashboard/server.js`, con servidor `node:http` real y cookies
 de sesión reales — el `app` exportado existía desde Fase 1 para esto exacto pero nadie
-lo había usado). 66 tests nuevos (444→510). **Sin commitear** — working tree completo
-pendiente de revisión del usuario antes de cualquier commit.
+lo había usado). 66 tests nuevos (444→510). **Ya commiteado y pusheado** (corregido
+2026-09-12 — decía "sin commitear", working tree pendiente de revisión; el commit real
+terminó siendo parte de la serie que llegó a `main` en los días siguientes).
 
 **Corrección de documentación:** la nota de Fase 2C sobre `migration_2026_09_01_fase2c.sql`
 decía "preparada, no ejecutada" — era información vieja. Ya corregida (ver esa sección).
@@ -1585,7 +1597,9 @@ que NEXO es técnicamente sólido pero el cuello de botella real para un primer 
 "instalo el bot → no sé qué hacer" — nada de esto es un bug. Alcance deliberadamente
 chico y quirúrgico (4 mejoras puntuales, nada de IA/Premium/monetización/sharding/
 reescrituras): `/report`, onboarding posterior a `/setup`, guía + detección de permisos,
-y posicionamiento del producto. **Sin commitear todavía** al momento de escribir esto.
+y posicionamiento del producto. **Ya commiteado y pusheado** (corregido 2026-09-12 —
+decía "sin commitear todavía"; `botPermissions.js` y el onboarding de `/setup` están
+confirmados en el `main` actual).
 
 **`/report` — reutiliza infraestructura existente, no un sistema paralelo.** Cualquier
 miembro puede reportar un usuario, un mensaje (link completo o ID de este canal) o una
@@ -1695,9 +1709,11 @@ tomó una lista ya cerrada de 11 hallazgos ya investigados (concurrencia de `/gi
 dashboard, confirmación faltante en `/sanciones`, semántica de error de `/crime`,
 discoverability de `/helpstaff`, mensaje de diagnóstico de rol de staff, micro-cleanup
 de `guildMemberAdd.js`, estado de `/report`, digest semanal) y se implementaron los 11
-en el mismo tramo de trabajo, sin volver a auditar entre bloques. Sin commitear todavía
-al momento de escribir esto — solo se documentan acá las dos piezas con una decisión
-arquitectónica real detrás; el resto son fixes puntuales que el propio diff explica.
+en el mismo tramo de trabajo, sin volver a auditar entre bloques. **Ya commiteado y
+pusheado** (commits `3631224`/`fd7c535`/`80867be`, confirmados ancestros de `main` —
+corregido 2026-09-12, decía "sin commitear todavía") — acá solo se documentan las dos
+piezas con una decisión arquitectónica real detrás; el resto son fixes puntuales que el
+propio diff explica.
 
 **`/give` — el cooldown ya existía (Fase 4B), lo que faltaba era el lock.** Tener un
 `Map` de cooldown no alcanza si el read-check-write no está serializado: dos `/give`
@@ -1865,6 +1881,29 @@ reset manual de `lolPatchEngine.js` (existe, funciona, no se promociona).
 **Fuera de esta fase, a propósito:** upgrade de Supabase a plan Pro (backup diario) —
 acción de negocio/facturación, no de código, queda para que el usuario la haga
 directamente en el dashboard de Supabase.
+
+## Higiene de documentación — drift CLAUDE.md vs git (2026-09-12)
+
+Una auditoría intensa (7 agentes en paralelo, mismo playbook de siempre) encontró que
+**≥7 secciones de fase** de este archivo (2B, 2C, 3C, 4A, 4B, 4C-1, Ciclo 2) afirmaban
+"sin commitear todavía"/"sin pushear" cuando, verificado con `git merge-base
+--is-ancestor <hash> main`, los commits reales de cada fase ya eran ancestros de `main`
+— que a su vez estaba al día con `origin/main`. El patrón de causa raíz: cada fase se
+documentó en el momento en que se escribió el código (antes del commit real), y esa
+frase nunca se actualizó una vez que el commit efectivamente ocurrió en una sesión
+posterior. Las 7 secciones ya se corrigieron con el hash real confirmado — buscar
+"corregido 2026-09-12" en el texto de cada una para ver el antes/después exacto.
+
+**Por qué importa esto más que un typo:** el propio criterio de este proyecto (ver
+"Flujo de trabajo de esta sesión", más arriba) es tratar CLAUDE.md como la fuente de
+verdad operativa de qué está desplegado y qué no. Una afirmación de "sin commitear"
+desactualizada puede hacer que una sesión futura (de este agente o de otro) evite tocar
+un archivo pensando que hay cambios sin revisar debajo, o vuelva a commitear algo que
+ya está en `main`, generando confusión real. **Regla para no repetir esto:** antes de
+citar el estado de commit/push de cualquier fase de este archivo como un hecho actual,
+verificar contra `git log`/`git merge-base --is-ancestor` en vez de confiar en el texto
+— exactamente el mismo criterio de "verificar, no confiar en rondas anteriores" que ya
+aplica a los propios hallazgos de auditoría.
 
 ## Stack
 

@@ -3,8 +3,17 @@
 // falta una librería para esto.
 import { AttachmentBuilder } from 'discord.js';
 
+// Mitigación de CSV/formula injection (OWASP) — auditoría 2026-09-12: un valor que
+// empiece con =/+/-/@ (o tab/CR) se abre como fórmula al abrirse en Excel/Sheets, ej.
+// un motivo de warn tipo `=HYPERLINK("http://evil","click")`. Estos CSV los arma
+// SIEMPRE staff (/economia-staff historial, /warns exportar), nunca un usuario común,
+// pero el campo en sí (motivo) es texto libre — anteponer un apóstrofo lo neutraliza
+// sin afectar la inmensa mayoría de valores reales (fechas, montos, tags, prosa normal).
+const FORMULA_INJECTION_PREFIX = /^[=+\-@\t\r]/;
+
 function escapeCsvValue(value) {
-  const str = value === null || value === undefined ? '' : String(value);
+  let str = value === null || value === undefined ? '' : String(value);
+  if (FORMULA_INJECTION_PREFIX.test(str)) str = `'${str}`;
   if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
   return str;
 }

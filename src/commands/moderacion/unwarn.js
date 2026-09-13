@@ -23,9 +23,15 @@ export const data = new SlashCommandBuilder()
 
 // Solo tiene sentido sugerir algo si ya se eligió a quién — sin "usuario" todavía no hay
 // de dónde sacar advertencias para listar.
+//
+// Gate de isStaff() acá también (auditoría 2026-09-12): setDefaultMemberPermissions
+// es un permiso NATIVO de Discord, independiente de guild_config — un admin puede darle
+// a un rol acceso a /unwarn desde Integraciones sin haberlo cargado como staff real del
+// bot. execute() ya bloquea la acción real, pero sin este chequeo el autocomplete le
+// mostraba igual los motivos reales de advertencias de otro usuario mientras escribía.
 export async function autocomplete(interaction) {
   const targetUser = interaction.options.getUser('usuario');
-  if (!targetUser) return interaction.respond([]);
+  if (!targetUser || !(await isStaff(interaction))) return interaction.respond([]);
 
   const warns = await getUserWarns(interaction.guildId, targetUser.id).catch(() => []);
   const choices = warns.map((w, i) => ({ name: `#${i + 1} — ${w.reason}`.slice(0, 100), value: i + 1 }));

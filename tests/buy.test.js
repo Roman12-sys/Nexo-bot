@@ -139,3 +139,73 @@ describe('/buy — ítem con rol', () => {
     expect(finalReply.content).toContain('reembolsaron');
   });
 });
+
+// Auditoría 2026-09-12, hallazgo de economía #2: el rollback de Fase 2B solo cubría el
+// fallo de asignación de rol. Estas 4 pruebas cubren las otras ramas (mystery_box,
+// xp_boost, rob_shield, ítem normal sin rol) — cada una simula un fallo de red DESPUÉS
+// del cobro y confirma que se reembolsa en vez de dejar al usuario cobrado sin nada.
+describe('/buy — reembolso generalizado a las 4 ramas (no solo rol)', () => {
+  const MYSTERY_ITEM = { id: 'box-1', name: 'Caja', price: 250, roleId: null, type: 'mystery_box' };
+  const XP_ITEM = { id: 'boost-1', name: 'Impulso', price: 300, roleId: null, type: 'xp_boost' };
+  const SHIELD_ITEM = { id: 'shield-1', name: 'Escudo', price: 150, roleId: null, type: 'rob_shield' };
+  const NORMAL_ITEM = { id: 'trofeo-1', name: 'Trofeo', price: 100, roleId: null, type: null };
+
+  it('mystery_box: si addBalance (el propio pago del premio) falla, reembolsa el precio', async () => {
+    getShopItem.mockResolvedValue(MYSTERY_ITEM);
+    deductBalanceIfSufficient.mockResolvedValue(9_750);
+    addBalance.mockRejectedValueOnce(new Error('supabase timeout')).mockResolvedValueOnce(10_000);
+    const interaction = makeInteraction({ options: { item: 'box-1' } });
+
+    await buyExecute(interaction);
+
+    expect(addBalance).toHaveBeenCalledWith('guild-1', 'user-1', 250, expect.objectContaining({ type: 'purchase_refund' }));
+    const finalReply = interaction.editReply.mock.calls.at(-1)[0];
+    expect(finalReply.content).toContain('reembolsaron');
+    expect(finalReply.content).not.toContain('Abriste la caja');
+  });
+
+  it('xp_boost: si extendXpBoost falla, reembolsa el precio en vez de confirmar la compra', async () => {
+    getShopItem.mockResolvedValue(XP_ITEM);
+    deductBalanceIfSufficient.mockResolvedValue(9_700);
+    extendXpBoost.mockRejectedValue(new Error('supabase timeout'));
+    addBalance.mockResolvedValue(10_000);
+    const interaction = makeInteraction({ options: { item: 'boost-1' } });
+
+    await buyExecute(interaction);
+
+    expect(addBalance).toHaveBeenCalledWith('guild-1', 'user-1', 300, expect.objectContaining({ type: 'purchase_refund' }));
+    const finalReply = interaction.editReply.mock.calls.at(-1)[0];
+    expect(finalReply.content).toContain('reembolsaron');
+    expect(finalReply.content).not.toContain('Impulso de XP activado');
+  });
+
+  it('rob_shield: si extendRobShield falla, reembolsa el precio en vez de confirmar la compra', async () => {
+    getShopItem.mockResolvedValue(SHIELD_ITEM);
+    deductBalanceIfSufficient.mockResolvedValue(9_850);
+    extendRobShield.mockRejectedValue(new Error('supabase timeout'));
+    addBalance.mockResolvedValue(10_000);
+    const interaction = makeInteraction({ options: { item: 'shield-1' } });
+
+    await buyExecute(interaction);
+
+    expect(addBalance).toHaveBeenCalledWith('guild-1', 'user-1', 150, expect.objectContaining({ type: 'purchase_refund' }));
+    const finalReply = interaction.editReply.mock.calls.at(-1)[0];
+    expect(finalReply.content).toContain('reembolsaron');
+    expect(finalReply.content).not.toContain('Escudo activado');
+  });
+
+  it('ítem normal sin rol: si incrementInventoryItem falla, reembolsa en vez de confirmar sin entregar nada', async () => {
+    getShopItem.mockResolvedValue(NORMAL_ITEM);
+    deductBalanceIfSufficient.mockResolvedValue(9_900);
+    incrementInventoryItem.mockRejectedValueOnce(new Error('supabase timeout'));
+    addBalance.mockResolvedValue(10_000);
+    const interaction = makeInteraction({ options: { item: 'trofeo-1' } });
+
+    await buyExecute(interaction);
+
+    expect(addBalance).toHaveBeenCalledWith('guild-1', 'user-1', 100, expect.objectContaining({ type: 'purchase_refund' }));
+    const finalReply = interaction.editReply.mock.calls.at(-1)[0];
+    expect(finalReply.content).toContain('reembolsaron');
+    expect(finalReply.content).not.toContain('✅ Compraste');
+  });
+});

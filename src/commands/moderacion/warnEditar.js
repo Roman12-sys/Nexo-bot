@@ -17,9 +17,11 @@ export const data = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
 
+// Gate de isStaff() acá también (auditoría 2026-09-12, mismo hallazgo que unwarn.js):
+// setDefaultMemberPermissions es nativo de Discord, independiente de guild_config.
 export async function autocomplete(interaction) {
   const targetUser = interaction.options.getUser('usuario');
-  if (!targetUser) return interaction.respond([]);
+  if (!targetUser || !(await isStaff(interaction))) return interaction.respond([]);
 
   const warns = await getUserWarns(interaction.guildId, targetUser.id).catch(() => []);
   const choices = warns.map((w, i) => ({ name: `#${i + 1} — ${w.reason}`.slice(0, 100), value: i + 1 }));
