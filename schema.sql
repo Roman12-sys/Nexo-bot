@@ -124,6 +124,21 @@ create table if not exists guild_config (
 
   setup_category_id text,
   setup_completed_at timestamptz,
+  -- Tuning de economía por servidor — núcleo (plan de ejecución 2026-09-15). Todas
+  -- nullable, sin default: null = usar la constante global de siempre (ver
+  -- src/utils/economyTuning.js). Porcentajes guardados como enteros 1-100.
+  economy_daily_min integer,
+  economy_daily_max integer,
+  economy_work_min integer,
+  economy_work_max integer,
+  economy_crime_min integer,
+  economy_crime_max integer,
+  economy_crime_success_percent smallint,
+  economy_rob_success_percent smallint,
+  economy_rob_steal_percent_min smallint,
+  economy_rob_steal_percent_max smallint,
+  economy_rob_fine_percent_min smallint,
+  economy_rob_fine_percent_max smallint,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -289,6 +304,23 @@ create table if not exists active_punishments (
   primary key (guild_id, user_id)
 );
 create index if not exists active_punishments_expires_idx on active_punishments (expires_at);
+
+-- =========================================================
+-- Reaction-roles (panel de botones — plan de ejecución 2026-09-15)
+-- =========================================================
+-- A diferencia de guild_config.selfassignable_roles (una sola lista plana por guild, ver
+-- selfRoles.js), acá cada guild puede tener VARIOS paneles independientes en canales
+-- distintos, con roles distintos — de ahí la tabla en vez de una columna más.
+create table if not exists reaction_role_panels (
+  id uuid primary key default gen_random_uuid(),
+  guild_id text not null,
+  channel_id text not null,
+  message_id text not null unique,
+  roles jsonb not null, -- [{ "roleId": "...", "label": "..." }, ...] — hasta 5
+  created_by text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists reaction_role_panels_guild_id_idx on reaction_role_panels (guild_id);
 
 -- =========================================================
 -- Sorteos

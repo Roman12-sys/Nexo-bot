@@ -38,6 +38,20 @@ function defaultConfig(guildId) {
     features: {},
     setup_category_id: null,
     setup_completed_at: null,
+    // Tuning de economía por servidor — núcleo (plan de ejecución 2026-09-15). Todos
+    // null = comportamiento global de siempre (ver src/utils/economyTuning.js).
+    economy_daily_min: null,
+    economy_daily_max: null,
+    economy_work_min: null,
+    economy_work_max: null,
+    economy_crime_min: null,
+    economy_crime_max: null,
+    economy_crime_success_percent: null,
+    economy_rob_success_percent: null,
+    economy_rob_steal_percent_min: null,
+    economy_rob_steal_percent_max: null,
+    economy_rob_fine_percent_min: null,
+    economy_rob_fine_percent_max: null,
   };
 }
 

@@ -3,10 +3,10 @@ import { getUserEconomy, addBalance, setCooldown } from '../../utils/economyStor
 import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
+import { getGuildConfig } from '../../utils/guildConfigStore.js';
+import { getEffectiveWorkRange } from '../../utils/economyTuning.js';
 
 export const COOLDOWN_MS = 60 * 60 * 1000; // 1 hora
-const MIN_REWARD = 50;
-const MAX_REWARD = 150;
 
 const FLAVOR_TEXTS = [
   'Ayudaste a moderar el chat un rato y te dieron una propina.',
@@ -39,6 +39,11 @@ export async function execute(interaction) {
   }
 
   await interaction.deferReply();
+
+  // Tuning de economía por servidor (plan de ejecución 2026-09-15) — ver el mismo
+  // comentario en daily.js.
+  const cfg = await getGuildConfig(guildId);
+  const { min: MIN_REWARD, max: MAX_REWARD } = getEffectiveWorkRange(cfg);
 
   const result = await withLock(`work:${guildId}:${userId}`, async () => {
     const economy = await getUserEconomy(guildId, userId);

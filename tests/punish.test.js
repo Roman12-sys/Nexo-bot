@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { PermissionFlagsBits } from 'discord.js';
 
 // /punish — Fase 2B, sección 3 (defer antes de member.roles.add, antes arriesgaba
 // "Unknown interaction") — sin cobertura previa pese a ser el comando con más ramas de
@@ -137,6 +138,21 @@ describe('/punish', () => {
     await punishExecute(interaction);
 
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('por encima de mi rol') }));
+  });
+
+  // Riesgo arquitectónico (auditoría intensa 2026-09-12, cerrado 2026-09-15):
+  // getDangerousRolePermission() antes solo se chequeaba al GUARDAR punish_role_id —
+  // si el rol se volvía peligroso DESPUÉS de configurado (editado nativo en Discord),
+  // /punish lo seguía aplicando. Ahora se revalida fresco en cada ejecución.
+  it('el rol de castigo tiene un permiso peligroso (revalidado al aplicar): rechaza sin tocar roles', async () => {
+    const member = targetMember();
+    const dangerousRole = { position: 1, name: 'Sancionado', permissions: { has: (flag) => flag === PermissionFlagsBits.Administrator } };
+    const interaction = makeInteraction({ targetMember: member, punishRole: dangerousRole });
+
+    await punishExecute(interaction);
+
+    expect(member.roles.add).not.toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Administrador') }));
   });
 
   it('caso exitoso SIN duración: agrega el rol y persiste la fila igual (expiresAt null), sin programar timer', async () => {

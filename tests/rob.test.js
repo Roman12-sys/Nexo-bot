@@ -69,6 +69,12 @@ vi.mock('../src/utils/economyStore.js', () => ({
   recordTransaction,
 }));
 
+// Tuning de economía por servidor (plan de ejecución 2026-09-15) — {} (sin overrides)
+// reproduce EXACTAMENTE el comportamiento de siempre. Mockeado para que estos tests de
+// concurrencia (ya sensibles al timing real) no dependan de una red real hacia Supabase.
+const getGuildConfig = vi.fn().mockResolvedValue({});
+vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig: (...a) => getGuildConfig(...a) }));
+
 // asyncLock.js se deja real: es justo la pieza que se está probando (junto con la
 // revalidación en fresco dentro del lock), no tiene sentido mockearla.
 const { execute } = await import('../src/commands/economia/rob.js');
@@ -87,6 +93,41 @@ function makeInteraction({ userId = 'robber-1', targetUser = { id: 'victim-1', t
 beforeEach(() => {
   vi.clearAllMocks();
   state.economy.clear();
+  getGuildConfig.mockResolvedValue({});
+});
+
+// Tuning de economía por servidor (plan de ejecución 2026-09-15).
+describe('/rob — tuning de economía por servidor', () => {
+  it('economy_rob_success_percent en 0: nunca sale exitoso, sin importar Math.random()', async () => {
+    getGuildConfig.mockResolvedValue({ economy_rob_success_percent: 0 });
+    ensure('guild-1', 'victim-1').balance = 10_000;
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.01); // exitoso con el 40% global
+    try {
+      const interaction = makeInteraction();
+      await execute(interaction);
+
+      expect(robWallet).not.toHaveBeenCalled();
+      const embed = interaction.editReply.mock.calls[0][0].embeds[0];
+      expect(embed.data.title).toBe('🚨 Te agarraron');
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it('economy_rob_steal_percent_min/max configurados: el % robado usa ese rango, no el 10-25% global', async () => {
+    getGuildConfig.mockResolvedValue({ economy_rob_success_percent: 100, economy_rob_steal_percent_min: 50, economy_rob_steal_percent_max: 50 });
+    ensure('guild-1', 'victim-1').balance = 10_000;
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.01);
+    try {
+      const interaction = makeInteraction();
+      await execute(interaction);
+
+      // 50% de 10_000 = 5_000 (tope STEAL_MAX_AMOUNT=5000, así que da justo eso)
+      expect(robWallet).toHaveBeenCalledWith('guild-1', 'robber-1', 'victim-1', 0.5, 5000);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
 });
 
 describe('/rob — cierre de la race condition de cooldown/protección', () => {

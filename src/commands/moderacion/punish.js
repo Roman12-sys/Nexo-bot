@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { createPunishLogEmbed } from '../../utils/logEmbeds.js';
-import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
+import { isStaff, getModerationBlockReason, getDangerousRolePermission } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { describeError } from '../../utils/errorMessages.js';
@@ -86,6 +86,20 @@ export async function execute(interaction) {
       await interaction.editReply({ content: '⚠️ El rol de restricción configurado ya no existe. Reconfigurálo con `/config rol-castigo`.' });
       return;
     }
+    // RIESGO ARQUITECTÓNICO (auditoría intensa 2026-09-12, cerrado 2026-09-15):
+    // getDangerousRolePermission() antes solo se chequeaba al GUARDAR punish_role_id
+    // (/config, /setup) — si un admin le sumaba un permiso peligroso al rol YA
+    // configurado desde Discord nativo, /punish lo seguía aplicando sin volver a
+    // revisar. Se revalida acá, fresco, cada vez — mismo criterio que ya usa
+    // selfRoles.js para roles autoasignables.
+    const dangerousPermission = getDangerousRolePermission(punishRole);
+    if (dangerousPermission) {
+      await interaction.editReply({
+        content: `❌ El rol de restricción configurado (${punishRole}) tiene el permiso **${dangerousPermission}** — aplicarlo sería una escalada de privilegios. Quitale ese permiso desde Discord o reconfiguralo con \`/config rol-castigo\`.`,
+      });
+      return;
+    }
+
     // MOD-4 (auditoría completa 2026-09-11): antes, sin este permiso, member.roles.add()
     // tiraba y el staff solo veía el catch genérico — mismo criterio explícito que
     // /lock/unlock, que avisan la causa real en vez de depender de un mensaje de error

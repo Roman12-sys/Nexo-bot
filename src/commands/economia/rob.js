@@ -5,15 +5,12 @@ import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, robWallet, setRobCooldowns, transferBalance, recordTransaction } from '../../utils/economyStore.js';
 import { BRAND_NAME, SUCCESS_COLOR, LOG_COLOR } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
+import { getGuildConfig } from '../../utils/guildConfigStore.js';
+import { getEffectiveRobConfig } from '../../utils/economyTuning.js';
 
 const ROB_COOLDOWN_MS = 60 * 60 * 1000; // 1 hora entre intentos, por quien roba
 const VICTIM_PROTECTION_MS = 3 * 60 * 60 * 1000; // 3 horas de protección después de un intento (gane o pierda quien robó)
-const SUCCESS_CHANCE = 0.4;
-const STEAL_PERCENT_MIN = 0.1;
-const STEAL_PERCENT_MAX = 0.25;
 const STEAL_MAX_AMOUNT = 5000;
-const FINE_PERCENT_MIN = 0.05;
-const FINE_PERCENT_MAX = 0.15;
 const FINE_MAX_AMOUNT = 2000;
 const MIN_VICTIM_WALLET = 100; // no vale la pena robar a alguien con menos que esto
 
@@ -65,6 +62,12 @@ export async function execute(interaction) {
   }
 
   await interaction.deferReply();
+
+  // Tuning de economía por servidor (plan de ejecución 2026-09-15) — ver el mismo
+  // comentario en daily.js.
+  const cfg = await getGuildConfig(guildId);
+  const { successChance: SUCCESS_CHANCE, stealPercentMin: STEAL_PERCENT_MIN, stealPercentMax: STEAL_PERCENT_MAX, finePercentMin: FINE_PERCENT_MIN, finePercentMax: FINE_PERCENT_MAX } =
+    getEffectiveRobConfig(cfg);
 
   // Dos locks anidados, siempre en el MISMO orden (atacante afuera, víctima adentro):
   // el lock del atacante (namespace `rob:`) solo serializaba ejecuciones del MISMO

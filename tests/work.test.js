@@ -13,6 +13,11 @@ vi.mock('../src/utils/economyStore.js', () => ({ getUserEconomy, addBalance, set
 const emit = vi.fn().mockResolvedValue(undefined);
 vi.mock('../src/utils/eventBus.js', () => ({ eventBus: { emit } }));
 
+// Tuning de economía por servidor (plan de ejecución 2026-09-15) — {} (sin overrides)
+// reproduce EXACTAMENTE el comportamiento de siempre.
+const getGuildConfig = vi.fn().mockResolvedValue({});
+vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig: (...a) => getGuildConfig(...a) }));
+
 const { execute } = await import('../src/commands/economia/work.js');
 
 function makeInteraction() {
@@ -29,6 +34,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   getUserEconomy.mockResolvedValue({ lastWork: 0, balance: 0 });
   addBalance.mockResolvedValue(50);
+  getGuildConfig.mockResolvedValue({});
   vi.spyOn(Math, 'random').mockReturnValue(0);
 });
 
@@ -59,6 +65,16 @@ it('si addBalance falla después de guardar el cooldown, el cooldown queda igual
   await expect(execute(interaction)).rejects.toThrow('supabase timeout');
 
   expect(setCooldown).toHaveBeenCalledWith('guild-1', 'user-1', 'work', expect.any(Number));
+});
+
+// Tuning de economía por servidor (plan de ejecución 2026-09-15).
+it('con economy_work_min/max configurados: usa ese rango, no el default global', async () => {
+  getGuildConfig.mockResolvedValue({ economy_work_min: 777, economy_work_max: 777 });
+  const interaction = makeInteraction();
+
+  await execute(interaction);
+
+  expect(addBalance).toHaveBeenCalledWith('guild-1', 'user-1', 777, { type: 'work', reason: expect.any(String) });
 });
 
 it('no importa ni ejecuta nada de petsStore.js', async () => {

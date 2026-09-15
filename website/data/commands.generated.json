@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-13T00:19:07.872Z",
+  "generatedAt": "2026-09-15T03:54:36.145Z",
   "commands": [
     {
       "name": "8ball",
@@ -687,6 +687,158 @@
               "required": true,
               "type": "sí/no",
               "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand-group",
+          "name": "economia",
+          "description": "Ajustá los montos/probabilidades de la economía de este servidor.",
+          "options": [
+            {
+              "kind": "subcommand",
+              "name": "diario",
+              "description": "Rango de pago de /daily (por defecto: 100-300).",
+              "options": [
+                {
+                  "kind": "parameter",
+                  "name": "minimo",
+                  "description": "Monto mínimo",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                },
+                {
+                  "kind": "parameter",
+                  "name": "maximo",
+                  "description": "Monto máximo",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                }
+              ]
+            },
+            {
+              "kind": "subcommand",
+              "name": "trabajo",
+              "description": "Rango de pago de /work (por defecto: 50-150).",
+              "options": [
+                {
+                  "kind": "parameter",
+                  "name": "minimo",
+                  "description": "Monto mínimo",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                },
+                {
+                  "kind": "parameter",
+                  "name": "maximo",
+                  "description": "Monto máximo",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                }
+              ]
+            },
+            {
+              "kind": "subcommand",
+              "name": "crimen",
+              "description": "Rango de pago y % de éxito de /crime (por defecto: 150-400, 60%).",
+              "options": [
+                {
+                  "kind": "parameter",
+                  "name": "minimo",
+                  "description": "Monto mínimo si sale bien",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                },
+                {
+                  "kind": "parameter",
+                  "name": "maximo",
+                  "description": "Monto máximo si sale bien",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                },
+                {
+                  "kind": "parameter",
+                  "name": "exito",
+                  "description": "Probabilidad de éxito, 1-100",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                }
+              ]
+            },
+            {
+              "kind": "subcommand",
+              "name": "robo",
+              "description": "% de éxito, robo y multa de /rob (por defecto: 40%, 10-25%, 5-15%).",
+              "options": [
+                {
+                  "kind": "parameter",
+                  "name": "exito",
+                  "description": "Probabilidad de éxito, 1-100",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                },
+                {
+                  "kind": "parameter",
+                  "name": "robo-minimo",
+                  "description": "% mínimo robado del wallet, 1-100",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                },
+                {
+                  "kind": "parameter",
+                  "name": "robo-maximo",
+                  "description": "% máximo robado del wallet, 1-100",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                },
+                {
+                  "kind": "parameter",
+                  "name": "multa-minimo",
+                  "description": "% mínimo de multa si falla, 1-100",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                },
+                {
+                  "kind": "parameter",
+                  "name": "multa-maximo",
+                  "description": "% máximo de multa si falla, 1-100",
+                  "required": true,
+                  "type": "número entero",
+                  "choices": []
+                }
+              ]
+            },
+            {
+              "kind": "subcommand",
+              "name": "restablecer",
+              "description": "Vuelve un sistema de economía a su valor global de siempre.",
+              "options": [
+                {
+                  "kind": "parameter",
+                  "name": "sistema",
+                  "description": "Qué sistema restablecer",
+                  "required": true,
+                  "type": "texto",
+                  "choices": [
+                    "Diario (/daily)",
+                    "Trabajo (/work)",
+                    "Crimen (/crime)",
+                    "Robo (/rob)",
+                    "Todo"
+                  ]
+                }
+              ]
             }
           ]
         },
@@ -1586,6 +1738,110 @@
           "required": false,
           "type": "número entero",
           "choices": []
+        }
+      ]
+    },
+    {
+      "name": "rolreacciones",
+      "description": "Paneles de botones para que los miembros elijan roles solos.",
+      "category": "administracion",
+      "folder": "admin",
+      "dmAllowed": false,
+      "requiredDiscordPermissions": [
+        "Administrator"
+      ],
+      "options": [
+        {
+          "kind": "subcommand",
+          "name": "crear",
+          "description": "Crea un panel nuevo con hasta 5 roles.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "rol1",
+              "description": "Primer rol",
+              "required": true,
+              "type": "rol",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "rol2",
+              "description": "Segundo rol",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "rol3",
+              "description": "Tercer rol",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "rol4",
+              "description": "Cuarto rol",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "rol5",
+              "description": "Quinto rol",
+              "required": false,
+              "type": "rol",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "canal",
+              "description": "Canal donde postear el panel (por defecto: este canal)",
+              "required": false,
+              "type": "canal",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "titulo",
+              "description": "Título del panel (por defecto: \"Elegí tus roles\")",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            },
+            {
+              "kind": "parameter",
+              "name": "descripcion",
+              "description": "Texto opcional debajo del título",
+              "required": false,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "eliminar",
+          "description": "Elimina un panel de reaction-roles ya creado.",
+          "options": [
+            {
+              "kind": "parameter",
+              "name": "mensaje_id",
+              "description": "ID del mensaje del panel",
+              "required": true,
+              "type": "texto",
+              "choices": []
+            }
+          ]
+        },
+        {
+          "kind": "subcommand",
+          "name": "listar",
+          "description": "Muestra los paneles de reaction-roles activos en este servidor.",
+          "options": []
         }
       ]
     },

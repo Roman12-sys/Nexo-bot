@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { PermissionFlagsBits } from 'discord.js';
 
 // guildMemberAdd.js — CICLO 1, Mejora 2/2: el mensaje de bienvenida ahora incluye texto
 // guiando a /help y, si el server configuró roles autoasignables, el select menu de
@@ -134,6 +135,40 @@ describe('guildMemberAdd — reaplicación de /punish al reingresar (MOD-2)', ()
 
     await expect(execute(member, client)).resolves.not.toThrow();
     expect(member._channel.send).toHaveBeenCalledTimes(1); // la bienvenida se manda igual
+  });
+
+  // Riesgo arquitectónico (auditoría intensa 2026-09-12, cerrado 2026-09-15): el rol
+  // pudo volverse peligroso DESPUÉS de configurado (editado nativo en Discord) — se
+  // revalida fresco en cada reingreso, en vez de reaplicar ciegamente.
+  it('el rol de castigo tiene un permiso peligroso (revalidado al aplicar): no reaplica y avisa al canal de moderación', async () => {
+    const dangerousRole = { id: 'role-sancionado', name: 'Sancionado', permissions: { has: (flag) => flag === PermissionFlagsBits.ManageRoles } };
+    getActivePunishment.mockResolvedValue({ guildId: 'guild-1', userId: 'user-1', roleId: 'role-sancionado', expiresAt: null });
+    const logChannel = { send: vi.fn().mockResolvedValue(undefined) };
+    getGuildLogChannel.mockResolvedValue(logChannel);
+    const member = makeMember();
+    member.guild.roles.cache.set('role-sancionado', dangerousRole);
+
+    await execute(member, client);
+
+    expect(member.roles.add).not.toHaveBeenCalled();
+    expect(recordModerationAction).not.toHaveBeenCalled();
+    expect(logChannel.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('guildMemberAdd — rol automático con permiso peligroso (revalidado al aplicar)', () => {
+  it('assignAutoRole: no asigna y avisa al canal de moderación en vez de escalar privilegios', async () => {
+    const dangerousRole = { id: 'role-auto', name: 'Auto', position: 1, permissions: { has: (flag) => flag === PermissionFlagsBits.Administrator } };
+    getGuildConfig.mockResolvedValue({ auto_role_id: 'role-auto', welcome_channel_id: null });
+    const logChannel = { send: vi.fn().mockResolvedValue(undefined) };
+    getGuildLogChannel.mockResolvedValue(logChannel);
+    const member = makeMember();
+    member.guild.roles.cache.set('role-auto', dangerousRole);
+
+    await execute(member, client);
+
+    expect(member.roles.add).not.toHaveBeenCalled();
+    expect(logChannel.send).toHaveBeenCalledTimes(1);
   });
 });
 

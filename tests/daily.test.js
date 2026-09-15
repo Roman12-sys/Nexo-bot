@@ -27,6 +27,13 @@ vi.mock('../src/utils/economyStore.js', () => ({
 const emit = vi.fn().mockResolvedValue(undefined);
 vi.mock('../src/utils/eventBus.js', () => ({ eventBus: { emit } }));
 
+// Tuning de economía por servidor (plan de ejecución 2026-09-15) — {} (sin overrides)
+// reproduce EXACTAMENTE el comportamiento de siempre (getEffectiveDailyRange cae al
+// default en cada campo ausente). Mockeado acá para que estos tests no dependan de una
+// red real hacia Supabase.
+const getGuildConfig = vi.fn().mockResolvedValue({});
+vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig: (...a) => getGuildConfig(...a) }));
+
 const { execute: dailyExecute, COOLDOWN_MS } = await import('../src/commands/economia/daily.js');
 
 function makeInteraction({ guildId = 'guild-1', userId = 'user-1' } = {}) {
@@ -43,6 +50,7 @@ function makeInteraction({ guildId = 'guild-1', userId = 'user-1' } = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   economyState = { balance: 0, lastDaily: 0, dailyStreak: 0 };
+  getGuildConfig.mockResolvedValue({});
 });
 
 describe('/daily — lógica básica', () => {
@@ -55,6 +63,19 @@ describe('/daily — lógica básica', () => {
     expect(amount).toBeGreaterThanOrEqual(100);
     expect(amount).toBeLessThanOrEqual(300); // sin bonus de racha en el primer daily
     expect(emit).toHaveBeenCalledWith('ACHIEVEMENT_CHECK', expect.objectContaining({ achievementId: 'primera_moneda' }));
+  });
+
+  // Tuning de economía por servidor (plan de ejecución 2026-09-15): con un override en
+  // guild_config, el rango efectivo cambia; sin él (resto de los tests de este archivo),
+  // sigue siendo EXACTAMENTE 100-300 de siempre.
+  it('con economy_daily_min/max configurados: usa ese rango, no el default global', async () => {
+    getGuildConfig.mockResolvedValue({ economy_daily_min: 1000, economy_daily_max: 1000 });
+    const interaction = makeInteraction();
+
+    await dailyExecute(interaction);
+
+    const [, , amount] = addBalance.mock.calls[0];
+    expect(amount).toBe(1000); // sin bonus de racha en el primer daily
   });
 
   it('todavía en cooldown: responde ephemeral sin tocar el balance', async () => {

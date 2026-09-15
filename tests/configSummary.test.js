@@ -49,4 +49,36 @@ describe('buildConfigSummaryEmbed', () => {
     expect(fieldValue(embed, '✨ Roles de nivel')).toMatch(/2 configurado\(s\) \(modo: replace\)/);
     expect(embed.data.fields.some((f) => f.name.includes('Última vez que se corrió'))).toBe(true);
   });
+
+  // Tuning de economía por servidor (plan de ejecución 2026-09-15) — describeRange/
+  // describePercent marcan "personalizado" vs "por defecto" usando la MISMA resolución
+  // que aplican /daily /work /crime /rob, para que el resumen nunca diverja.
+  it('sin overrides de economía: el campo "Economía" muestra los defaults globales', async () => {
+    getGuildConfig.mockResolvedValue({ features: {}, level_roles: {} });
+
+    const embed = await buildConfigSummaryEmbed('guild-1');
+
+    const economia = fieldValue(embed, '💰 Economía');
+    expect(economia).toContain('Diario: 100–300 (por defecto)');
+    expect(economia).toContain('Trabajo: 50–150 (por defecto)');
+    expect(economia).toContain('Crimen: 150–400 (por defecto), éxito 60% (por defecto)');
+    expect(economia).toContain('Robo: éxito 40% (por defecto)');
+  });
+
+  it('con overrides de economía: el campo "Economía" marca "personalizado" y usa los valores guardados', async () => {
+    getGuildConfig.mockResolvedValue({
+      features: {},
+      level_roles: {},
+      economy_daily_min: 1000,
+      economy_daily_max: 2000,
+      economy_rob_success_percent: 90,
+    });
+
+    const embed = await buildConfigSummaryEmbed('guild-1');
+
+    const economia = fieldValue(embed, '💰 Economía');
+    expect(economia).toContain(`Diario: ${(1000).toLocaleString('es-ES')}–${(2000).toLocaleString('es-ES')} (personalizado)`);
+    expect(economia).toContain('Robo: éxito 90% (personalizado)');
+    expect(economia).toContain('Trabajo: 50–150 (por defecto)'); // sin override propio: sigue en el default
+  });
 });

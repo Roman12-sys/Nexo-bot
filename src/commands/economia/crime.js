@@ -6,11 +6,10 @@ import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { getUserEconomy, addBalance, deductBalanceIfSufficient, recordTransaction, setCooldown } from '../../utils/economyStore.js';
 import { BRAND_NAME, SUCCESS_COLOR, LOG_COLOR } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
+import { getGuildConfig } from '../../utils/guildConfigStore.js';
+import { getEffectiveCrimeConfig } from '../../utils/economyTuning.js';
 
 export const COOLDOWN_MS = 45 * 60 * 1000; // 45 minutos
-const SUCCESS_CHANCE = 0.6;
-const MIN_REWARD = 150;
-const MAX_REWARD = 400;
 const MIN_FINE = 50;
 const MAX_FINE = 150;
 
@@ -47,6 +46,12 @@ export async function execute(interaction) {
   }
 
   await interaction.deferReply();
+
+  // Tuning de economía por servidor (plan de ejecución 2026-09-15) — ver el mismo
+  // comentario en daily.js. successChance también se usa después del lock, para el
+  // footer del embed.
+  const cfg = await getGuildConfig(guildId);
+  const { min: MIN_REWARD, max: MAX_REWARD, successChance: SUCCESS_CHANCE } = getEffectiveCrimeConfig(cfg);
 
   const result = await withLock(`crime:${guildId}:${userId}`, async () => {
     const economy = await getUserEconomy(guildId, userId);

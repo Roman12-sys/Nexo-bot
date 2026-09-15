@@ -47,6 +47,7 @@ export const GUILD_SCOPED_TABLES = [
   'announcement_templates',
   'command_usage',
   'guild_daily_stats',
+  'reaction_role_panels',
 ];
 
 export const name = 'guildDelete';

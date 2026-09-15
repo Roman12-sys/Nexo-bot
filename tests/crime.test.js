@@ -17,6 +17,11 @@ vi.mock('../src/utils/economyStore.js', () => ({
   setCooldown,
 }));
 
+// Tuning de economía por servidor (plan de ejecución 2026-09-15) — {} (sin overrides)
+// reproduce EXACTAMENTE el comportamiento de siempre.
+const getGuildConfig = vi.fn().mockResolvedValue({});
+vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig: (...a) => getGuildConfig(...a) }));
+
 const { execute } = await import('../src/commands/economia/crime.js');
 
 function makeInteraction() {
@@ -33,6 +38,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   getUserEconomy.mockResolvedValue({ lastCrime: 0, balance: 0 });
   addBalance.mockResolvedValue(150);
+  getGuildConfig.mockResolvedValue({});
   // Math.random() fijo en 0: exito = (0 < 0.6) = true, reward = MIN_REWARD (150),
   // flavorText = índice 0 — determinístico para poder afirmar el monto exacto.
   vi.spyOn(Math, 'random').mockReturnValue(0);
@@ -51,6 +57,25 @@ it('golpe exitoso: la recompensa es el mínimo del rango sin multiplicador (sin 
   const embed = interaction.editReply.mock.calls.at(-1)[0].embeds[0];
   expect(embed.data.description).toContain('150');
   expect(embed.data.description).not.toMatch(/mascota/i);
+});
+
+// Tuning de economía por servidor (plan de ejecución 2026-09-15).
+it('con economy_crime_min/max/success_percent configurados: usa esos valores, no los globales', async () => {
+  getGuildConfig.mockResolvedValue({ economy_crime_min: 999, economy_crime_max: 999, economy_crime_success_percent: 60 });
+  const interaction = makeInteraction();
+
+  await execute(interaction);
+
+  expect(addBalance).toHaveBeenCalledWith('guild-1', 'user-1', 999, { type: 'crime_win', reason: expect.any(String) });
+});
+
+it('economy_crime_success_percent en 0: el golpe nunca sale bien, sin importar el rango de pago', async () => {
+  getGuildConfig.mockResolvedValue({ economy_crime_success_percent: 0 });
+  const interaction = makeInteraction();
+
+  await execute(interaction);
+
+  expect(addBalance).not.toHaveBeenCalled();
 });
 
 it('no importa ni ejecuta nada de petsStore.js', async () => {

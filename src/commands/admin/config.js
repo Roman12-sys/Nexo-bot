@@ -4,6 +4,14 @@ import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getDangerousRolePermission } from '../../utils/permissions.js';
 import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
+import {
+  getEffectiveDailyRange,
+  getEffectiveWorkRange,
+  getEffectiveCrimeConfig,
+  getEffectiveRobConfig,
+  describeRange,
+  describePercent,
+} from '../../utils/economyTuning.js';
 
 // Best-effort: /config ya le confirmó el cambio a quien lo hizo — un log fallido acá
 // nunca debe aparentar que el cambio en sí no se aplicó.
@@ -143,10 +151,149 @@ export const data = new SlashCommandBuilder()
       .setDescription('Resumen semanal de actividad (mensajes, comandos, economía, XP) al canal de logs de actividad.')
       .addBooleanOption((o) => o.setName('activo').setDescription('Activar o desactivar el digest semanal').setRequired(true)),
   )
+  .addSubcommandGroup((group) =>
+    group
+      .setName('economia')
+      .setDescription('Ajustá los montos/probabilidades de la economía de este servidor.')
+      .addSubcommand((sub) =>
+        sub
+          .setName('diario')
+          .setDescription('Rango de pago de /daily (por defecto: 100-300).')
+          .addIntegerOption((o) => o.setName('minimo').setDescription('Monto mínimo').setRequired(true).setMinValue(1).setMaxValue(100000))
+          .addIntegerOption((o) => o.setName('maximo').setDescription('Monto máximo').setRequired(true).setMinValue(1).setMaxValue(100000)),
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName('trabajo')
+          .setDescription('Rango de pago de /work (por defecto: 50-150).')
+          .addIntegerOption((o) => o.setName('minimo').setDescription('Monto mínimo').setRequired(true).setMinValue(1).setMaxValue(100000))
+          .addIntegerOption((o) => o.setName('maximo').setDescription('Monto máximo').setRequired(true).setMinValue(1).setMaxValue(100000)),
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName('crimen')
+          .setDescription('Rango de pago y % de éxito de /crime (por defecto: 150-400, 60%).')
+          .addIntegerOption((o) => o.setName('minimo').setDescription('Monto mínimo si sale bien').setRequired(true).setMinValue(1).setMaxValue(100000))
+          .addIntegerOption((o) => o.setName('maximo').setDescription('Monto máximo si sale bien').setRequired(true).setMinValue(1).setMaxValue(100000))
+          .addIntegerOption((o) => o.setName('exito').setDescription('Probabilidad de éxito, 1-100').setRequired(true).setMinValue(1).setMaxValue(100)),
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName('robo')
+          .setDescription('% de éxito, robo y multa de /rob (por defecto: 40%, 10-25%, 5-15%).')
+          .addIntegerOption((o) => o.setName('exito').setDescription('Probabilidad de éxito, 1-100').setRequired(true).setMinValue(1).setMaxValue(100))
+          .addIntegerOption((o) => o.setName('robo-minimo').setDescription('% mínimo robado del wallet, 1-100').setRequired(true).setMinValue(1).setMaxValue(100))
+          .addIntegerOption((o) => o.setName('robo-maximo').setDescription('% máximo robado del wallet, 1-100').setRequired(true).setMinValue(1).setMaxValue(100))
+          .addIntegerOption((o) => o.setName('multa-minimo').setDescription('% mínimo de multa si falla, 1-100').setRequired(true).setMinValue(1).setMaxValue(100))
+          .addIntegerOption((o) => o.setName('multa-maximo').setDescription('% máximo de multa si falla, 1-100').setRequired(true).setMinValue(1).setMaxValue(100)),
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName('restablecer')
+          .setDescription('Vuelve un sistema de economía a su valor global de siempre.')
+          .addStringOption((o) =>
+            o
+              .setName('sistema')
+              .setDescription('Qué sistema restablecer')
+              .setRequired(true)
+              .addChoices(
+                { name: 'Diario (/daily)', value: 'diario' },
+                { name: 'Trabajo (/work)', value: 'trabajo' },
+                { name: 'Crimen (/crime)', value: 'crimen' },
+                { name: 'Robo (/rob)', value: 'robo' },
+                { name: 'Todo', value: 'todo' },
+              ),
+          ),
+      ),
+  )
   .addSubcommand((sub) => sub.setName('ver').setDescription('Muestra la configuración actual de estos campos.'))
   .addSubcommand((sub) => sub.setName('exportar').setDescription('Descarga la configuración actual como JSON (respaldo, o para clonarla a otro servidor).'))
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .setDMPermission(false);
+
+// Tuning de economía por servidor (plan de ejecución 2026-09-15) — cada par min/max se
+// pide COMPLETO (nunca "solo minimo"), para que nunca quede un min>max implícito contra
+// el default global si el admin solo tocara la mitad. Éxito/percent son enteros 1-100
+// (ver economyTuning.js) — Discord ya los acota con setMinValue/setMaxValue en la
+// opción, sin chequeo manual aparte acá.
+async function handleEconomiaSubcommand(interaction, sub, guildId) {
+  if (sub === 'diario' || sub === 'trabajo') {
+    const minimo = interaction.options.getInteger('minimo');
+    const maximo = interaction.options.getInteger('maximo');
+    if (minimo > maximo) {
+      await interaction.reply({ content: '❌ El mínimo no puede ser mayor que el máximo.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const column = sub === 'diario' ? 'daily' : 'work';
+    const comando = sub === 'diario' ? '/daily' : '/work';
+    await setGuildConfig(guildId, { [`economy_${column}_min`]: minimo, [`economy_${column}_max`]: maximo });
+    await interaction.reply({ content: `✅ Rango de ${comando} configurado: ${minimo}–${maximo} monedas.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `💰 Rango de ${comando} → ${minimo}–${maximo}`);
+    return;
+  }
+
+  if (sub === 'crimen') {
+    const minimo = interaction.options.getInteger('minimo');
+    const maximo = interaction.options.getInteger('maximo');
+    const exito = interaction.options.getInteger('exito');
+    if (minimo > maximo) {
+      await interaction.reply({ content: '❌ El mínimo no puede ser mayor que el máximo.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await setGuildConfig(guildId, { economy_crime_min: minimo, economy_crime_max: maximo, economy_crime_success_percent: exito });
+    await interaction.reply({ content: `✅ /crime configurado: ${minimo}–${maximo} monedas, ${exito}% de éxito.`, flags: MessageFlags.Ephemeral });
+    await logConfigChange(interaction, `💰 /crime → ${minimo}–${maximo} monedas, ${exito}% de éxito`);
+    return;
+  }
+
+  if (sub === 'robo') {
+    const exito = interaction.options.getInteger('exito');
+    const roboMin = interaction.options.getInteger('robo-minimo');
+    const roboMax = interaction.options.getInteger('robo-maximo');
+    const multaMin = interaction.options.getInteger('multa-minimo');
+    const multaMax = interaction.options.getInteger('multa-maximo');
+    if (roboMin > roboMax || multaMin > multaMax) {
+      await interaction.reply({ content: '❌ El mínimo no puede ser mayor que el máximo (ni en robo ni en multa).', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await setGuildConfig(guildId, {
+      economy_rob_success_percent: exito,
+      economy_rob_steal_percent_min: roboMin,
+      economy_rob_steal_percent_max: roboMax,
+      economy_rob_fine_percent_min: multaMin,
+      economy_rob_fine_percent_max: multaMax,
+    });
+    await interaction.reply({
+      content: `✅ /rob configurado: ${exito}% de éxito, roba ${roboMin}–${roboMax}% del wallet, multa ${multaMin}–${multaMax}% si falla.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    await logConfigChange(interaction, `💰 /rob → ${exito}% éxito, roba ${roboMin}–${roboMax}%, multa ${multaMin}–${multaMax}%`);
+    return;
+  }
+
+  if (sub === 'restablecer') {
+    const sistema = interaction.options.getString('sistema');
+    const patches = {
+      diario: { economy_daily_min: null, economy_daily_max: null },
+      trabajo: { economy_work_min: null, economy_work_max: null },
+      crimen: { economy_crime_min: null, economy_crime_max: null, economy_crime_success_percent: null },
+      robo: {
+        economy_rob_success_percent: null,
+        economy_rob_steal_percent_min: null,
+        economy_rob_steal_percent_max: null,
+        economy_rob_fine_percent_min: null,
+        economy_rob_fine_percent_max: null,
+      },
+    };
+    const patch = sistema === 'todo' ? Object.assign({}, ...Object.values(patches)) : patches[sistema];
+    await setGuildConfig(guildId, patch);
+    await interaction.reply({
+      content: `✅ ${sistema === 'todo' ? 'Toda la economía' : `El sistema "${sistema}"`} volvió a su valor global de siempre.`,
+      flags: MessageFlags.Ephemeral,
+    });
+    await logConfigChange(interaction, `💰 Economía restablecida → ${sistema}`);
+  }
+}
 
 export async function execute(interaction) {
   const isOwnerOrAdmin =
@@ -158,6 +305,14 @@ export async function execute(interaction) {
 
   const sub = interaction.options.getSubcommand();
   const guildId = interaction.guildId;
+
+  // Tuning de economía por servidor (plan de ejecución 2026-09-15) — subcommand GROUP
+  // en vez de 5 subcomandos sueltos al nivel de arriba: /config ya tiene ~18, un grupo
+  // mantiene el nivel superior limpio y dentro del límite real de 25 de Discord.
+  if (interaction.options.getSubcommandGroup?.(false) === 'economia') {
+    await handleEconomiaSubcommand(interaction, sub, guildId);
+    return;
+  }
 
   // Las 4 confirmaciones de abajo son ephemeral — es configuración del bot en sí, no una
   // acción con consecuencia visible sobre un usuario puntual (a diferencia de /ban, /warn,
@@ -484,6 +639,34 @@ export async function buildConfigSummaryEmbed(guildId) {
     // comandos mencionaba al otro, así que un admin tenía que descubrirlos por separado.
     .setFooter({ text: `${BRAND_NAME} • La mayoría de esto también se edita con botones desde /staff` })
     .setTimestamp();
+
+  // Tuning de economía por servidor (plan de ejecución 2026-09-15) — describeRange/
+  // describePercent marcan "personalizado" vs "por defecto" campo por campo, usando la
+  // MISMA resolución (getEffective*) que aplican /daily /work /crime /rob, para que el
+  // resumen nunca diverja de lo que en verdad se está aplicando.
+  const daily = getEffectiveDailyRange(cfg);
+  const work = getEffectiveWorkRange(cfg);
+  const crimeCfg = getEffectiveCrimeConfig(cfg);
+  const robCfg = getEffectiveRobConfig(cfg);
+  const dailyCustom = cfg.economy_daily_min != null || cfg.economy_daily_max != null;
+  const workCustom = cfg.economy_work_min != null || cfg.economy_work_max != null;
+  const crimeCustom = cfg.economy_crime_min != null || cfg.economy_crime_max != null || cfg.economy_crime_success_percent != null;
+  const robCustom =
+    cfg.economy_rob_success_percent != null ||
+    cfg.economy_rob_steal_percent_min != null ||
+    cfg.economy_rob_steal_percent_max != null ||
+    cfg.economy_rob_fine_percent_min != null ||
+    cfg.economy_rob_fine_percent_max != null;
+
+  embed.addFields({
+    name: '💰 Economía',
+    value: [
+      `Diario: ${describeRange(daily.min, daily.max, dailyCustom)}`,
+      `Trabajo: ${describeRange(work.min, work.max, workCustom)}`,
+      `Crimen: ${describeRange(crimeCfg.min, crimeCfg.max, crimeCustom)}, éxito ${describePercent(crimeCfg.successChance, crimeCustom)}`,
+      `Robo: éxito ${describePercent(robCfg.successChance, robCustom)}, roba ${Math.round(robCfg.stealPercentMin * 100)}–${Math.round(robCfg.stealPercentMax * 100)}%, multa ${Math.round(robCfg.finePercentMin * 100)}–${Math.round(robCfg.finePercentMax * 100)}%`,
+    ].join('\n'),
+  });
 
   if (cfg.setup_completed_at) {
     embed.addFields({ name: '🛠️ Última vez que se corrió /setup', value: `<t:${Math.floor(new Date(cfg.setup_completed_at).getTime() / 1000)}:R>` });

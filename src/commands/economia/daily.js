@@ -3,10 +3,10 @@ import { getUserEconomy, addBalance, setDailyClaim } from '../../utils/economySt
 import { EMERALD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { withLock } from '../../utils/asyncLock.js';
 import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
+import { getGuildConfig } from '../../utils/guildConfigStore.js';
+import { getEffectiveDailyRange } from '../../utils/economyTuning.js';
 
 export const COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const MIN_REWARD = 100;
-const MAX_REWARD = 300;
 // Bonus por racha: +10 monedas por día consecutivo, tope en el día 31 (+300) para que
 // no crezca sin límite. La racha se corta si pasan más de 48hs desde el último /daily
 // (24hs de cooldown + 24hs de margen — un día de gracia antes de perderla del todo).
@@ -39,6 +39,13 @@ export async function execute(interaction) {
   }
 
   await interaction.deferReply();
+
+  // Tuning de economía por servidor (plan de ejecución 2026-09-15) — cfg leído una vez
+  // antes del lock (cache de 30s, no es un dato que necesite revalidarse fresco dentro
+  // del lock como el balance/cooldown de abajo). Sin override configurado, MIN_REWARD/
+  // MAX_REWARD son exactamente los de siempre (ver DAILY_DEFAULT en economyTuning.js).
+  const cfg = await getGuildConfig(guildId);
+  const { min: MIN_REWARD, max: MAX_REWARD } = getEffectiveDailyRange(cfg);
 
   const result = await withLock(`daily:${guildId}:${userId}`, async () => {
     const economy = await getUserEconomy(guildId, userId);
