@@ -72,21 +72,29 @@ async function handleCrear(interaction) {
   const panelRoles = roles.map((r) => ({ roleId: r.id, label: r.name }));
   const { embeds, components } = buildReactionRolePanelMessage({ titulo, descripcion, roles: panelRoles });
 
-  let message;
+  // GIVE-1 (auditoría completa 2026-09-11, mismo bug class que /sorteo crear): postear
+  // el mensaje (canal.send) y RECIÉN DESPUÉS guardar la fila (createReactionRolePanel)
+  // son 2 llamadas de red secuenciales — sin un ack inmediato, podían superar la ventana
+  // de 3s de Discord aunque el panel se hubiera posteado de verdad. `registered` marca el
+  // punto sin retorno: si el guardado falla DESPUÉS de postear, se borra el mensaje para
+  // no dejar un panel "fantasma" (visible, con botones que van a dar "ya no es válido"
+  // para siempre porque nunca quedó una fila que los respalde).
+  await interaction.reply({ content: '🎭 Creando el panel...', flags: MessageFlags.Ephemeral });
+
+  let message = null;
+  let registered = false;
   try {
     message = await canal.send({ embeds, components });
+    await createReactionRolePanel(interaction.guildId, canal.id, message.id, panelRoles, interaction.user.id);
+    registered = true;
   } catch (error) {
-    console.error('❌ Error posteando el panel de reaction-roles:', error);
-    await interaction.reply({
-      content: `❌ No pude postear el panel en ${canal} — revisá que NEXO tenga permiso para escribir ahí.`,
-      flags: MessageFlags.Ephemeral,
-    });
+    console.error('❌ Error creando el panel de reaction-roles:', error);
+    if (message && !registered) await message.delete().catch(() => {});
+    await interaction.editReply({ content: `❌ No se pudo crear el panel en ${canal} — revisá que NEXO tenga permiso para escribir ahí. Probá de nuevo.` });
     return;
   }
 
-  await createReactionRolePanel(interaction.guildId, canal.id, message.id, panelRoles, interaction.user.id);
-
-  await interaction.reply({ content: `✅ Panel creado en ${canal} con ${roles.length} rol(es): ${message.url}`, flags: MessageFlags.Ephemeral });
+  await interaction.editReply({ content: `✅ Panel creado en ${canal} con ${roles.length} rol(es): ${message.url}` });
   await logConfigChange(interaction, `🎭 Panel de reaction-roles creado en ${canal} (${roles.length} rol(es))`);
 }
 

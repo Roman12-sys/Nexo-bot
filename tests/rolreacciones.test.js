@@ -37,7 +37,12 @@ function makeInteraction({
   mensajeId = 'msg-1',
   sendImpl,
 } = {}) {
-  const message = { id: 'msg-nuevo', url: 'https://discord.com/channels/g/c/m', embeds: [{ title: 'Elegí tus roles' }] };
+  const message = {
+    id: 'msg-nuevo',
+    url: 'https://discord.com/channels/g/c/m',
+    embeds: [{ title: 'Elegí tus roles' }],
+    delete: vi.fn().mockResolvedValue(undefined),
+  };
   const defaultChannel = { id: 'chan-actual', send: sendImpl || vi.fn().mockResolvedValue(message), toString: () => '<#chan-actual>' };
 
   return {
@@ -57,6 +62,7 @@ function makeInteraction({
       getString: (name) => (name === 'titulo' ? titulo : name === 'descripcion' ? descripcion : name === 'mensaje_id' ? mensajeId : null),
     },
     reply: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue(undefined),
     _defaultChannel: defaultChannel,
     _message: message,
   };
@@ -90,7 +96,7 @@ describe('/rolreacciones crear', () => {
       { roleId: 'role-a', label: 'Gamer' },
       { roleId: 'role-b', label: 'Artista' },
     ], 'user-1');
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('✅ Panel creado') }));
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('✅ Panel creado') }));
     expect(logConfigChange).toHaveBeenCalled();
   });
 
@@ -122,7 +128,20 @@ describe('/rolreacciones crear', () => {
     await execute(interaction);
 
     expect(createReactionRolePanel).not.toHaveBeenCalled();
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No pude postear') }));
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No se pudo crear') }));
+  });
+
+  // GIVE-1 (auditoría completa 2026-09-11, mismo bug class que /sorteo crear): si el
+  // mensaje SÍ se posteó pero guardar la fila falla después, no puede quedar un panel
+  // "fantasma" (visible, con botones que nunca van a encontrar una fila real).
+  it('si createReactionRolePanel falla DESPUÉS de postear: borra el mensaje para no dejarlo fantasma', async () => {
+    createReactionRolePanel.mockRejectedValueOnce(new Error('supabase timeout'));
+    const interaction = makeInteraction();
+
+    await execute(interaction);
+
+    expect(interaction._message.delete).toHaveBeenCalledTimes(1);
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No se pudo crear') }));
   });
 
   it('sin canal explícito: usa el canal donde se corrió el comando', async () => {
