@@ -76,7 +76,9 @@ export function getRoleValidationError(guild, role) {
 }
 
 // { embeds, components } listos para .send()/.editReply() — reusado por
-// /rolreacciones crear. roles: [{ roleId, label }], ya validados por el caller.
+// /rolreacciones crear. roles: [{ roleId, label, emoji? }], ya validados por el caller.
+// emoji es opcional (builder interactivo, plan 2026-09-15) — un panel sin emoji se ve
+// exactamente igual que antes de que existiera el campo.
 export function buildReactionRolePanelMessage({ titulo, descripcion, roles }) {
   const embed = new EmbedBuilder()
     .setColor(MAGENTA_COLOR)
@@ -85,7 +87,11 @@ export function buildReactionRolePanelMessage({ titulo, descripcion, roles }) {
   if (descripcion) embed.setDescription(descripcion);
 
   const row = new ActionRowBuilder().addComponents(
-    roles.map((r) => new ButtonBuilder().setCustomId(`${BUTTON_PREFIX}${r.roleId}`).setLabel(r.label.slice(0, 80)).setStyle(ButtonStyle.Secondary)),
+    roles.map((r) => {
+      const button = new ButtonBuilder().setCustomId(`${BUTTON_PREFIX}${r.roleId}`).setLabel(r.label.slice(0, 80)).setStyle(ButtonStyle.Secondary);
+      if (r.emoji) button.setEmoji(r.emoji);
+      return button;
+    }),
   );
 
   return { embeds: [embed], components: [row] };

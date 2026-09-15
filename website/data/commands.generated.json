@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T03:54:36.145Z",
+  "generatedAt": "2026-09-15T04:15:05.750Z",
   "commands": [
     {
       "name": "8ball",
@@ -1754,73 +1754,8 @@
         {
           "kind": "subcommand",
           "name": "crear",
-          "description": "Crea un panel nuevo con hasta 5 roles.",
-          "options": [
-            {
-              "kind": "parameter",
-              "name": "rol1",
-              "description": "Primer rol",
-              "required": true,
-              "type": "rol",
-              "choices": []
-            },
-            {
-              "kind": "parameter",
-              "name": "rol2",
-              "description": "Segundo rol",
-              "required": false,
-              "type": "rol",
-              "choices": []
-            },
-            {
-              "kind": "parameter",
-              "name": "rol3",
-              "description": "Tercer rol",
-              "required": false,
-              "type": "rol",
-              "choices": []
-            },
-            {
-              "kind": "parameter",
-              "name": "rol4",
-              "description": "Cuarto rol",
-              "required": false,
-              "type": "rol",
-              "choices": []
-            },
-            {
-              "kind": "parameter",
-              "name": "rol5",
-              "description": "Quinto rol",
-              "required": false,
-              "type": "rol",
-              "choices": []
-            },
-            {
-              "kind": "parameter",
-              "name": "canal",
-              "description": "Canal donde postear el panel (por defecto: este canal)",
-              "required": false,
-              "type": "canal",
-              "choices": []
-            },
-            {
-              "kind": "parameter",
-              "name": "titulo",
-              "description": "Título del panel (por defecto: \"Elegí tus roles\")",
-              "required": false,
-              "type": "texto",
-              "choices": []
-            },
-            {
-              "kind": "parameter",
-              "name": "descripcion",
-              "description": "Texto opcional debajo del título",
-              "required": false,
-              "type": "texto",
-              "choices": []
-            }
-          ]
+          "description": "Abre el constructor de paneles con vista previa en vivo.",
+          "options": []
         },
         {
           "kind": "subcommand",
