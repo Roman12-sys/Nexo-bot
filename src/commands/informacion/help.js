@@ -93,20 +93,33 @@ export function buildBackRow() {
   );
 }
 
+// Auditoría UX/UI (2026-09-18), formato de comandos: campo por comando → lista agrupada
+// con el comando en `código` (mismo estilo que ya tenía "🟢 Cualquier staff" en
+// /helpstaff), unificado en TODAS las categorías de /help y /helpstaff.
 export function buildInfoEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('ℹ️ Información')
     .addFields(
-      { name: '/info [usuario]', value: 'Muestra información de tu perfil o el de otro usuario.' },
-      { name: '/perfil [usuario]', value: 'Perfil completo: nivel, XP, monedas, trivia, warns, sorteos ganados y logros desbloqueados.' },
-      { name: '/nivel [usuario]', value: 'Muestra tu tarjeta de nivel, XP y progreso hacia el siguiente nivel.' },
-      { name: '/ranking', value: 'Top de niveles/XP del servidor.' },
-      { name: '/prestigio', value: 'Desde nivel 50: reseteá tu nivel a cambio de una insignia permanente.' },
-      { name: '/mision', value: 'Misiones diarias y semanales — se completan y pagan solas (monedas y XP) al cumplir el objetivo, sin nada que reclamar.' },
-      { name: '/servidor', value: 'Muestra información general sobre el servidor.' },
-      { name: '/avatar [usuario]', value: 'Muestra el avatar de un usuario en tamaño completo.' },
-      { name: '/ping', value: 'Latencia del bot — para confirmar que está funcionando.' },
+      {
+        name: '👤 Perfil y progreso',
+        value: [
+          '`/info [usuario]` — Muestra información de tu perfil o el de otro usuario.',
+          '`/perfil [usuario]` — Perfil completo: nivel, XP, monedas, trivia, warns, sorteos ganados y logros desbloqueados.',
+          '`/nivel [usuario]` — Muestra tu tarjeta de nivel, XP y progreso hacia el siguiente nivel.',
+          '`/ranking` — Top de niveles/XP del servidor.',
+          '`/prestigio` — Desde nivel 50: reseteá tu nivel a cambio de una insignia permanente.',
+          '`/mision` — Misiones diarias y semanales — se completan y pagan solas (monedas y XP) al cumplir el objetivo, sin nada que reclamar.',
+        ].join('\n'),
+      },
+      {
+        name: '🖥️ Servidor y utilidad',
+        value: [
+          '`/servidor` — Muestra información general sobre el servidor.',
+          '`/avatar [usuario]` — Muestra el avatar de un usuario en tamaño completo.',
+          '`/ping` — Latencia del bot — para confirmar que está funcionando.',
+        ].join('\n'),
+      },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -159,12 +172,15 @@ export function buildCasinoEmbed() {
     .setColor(GOLD_COLOR)
     .setTitle('🎰 Casino')
     .setDescription('Todos apuestan monedas de tu wallet — usá `/bank depositar` para guardar lo que no querés arriesgar.')
-    .addFields(
-      { name: '/coinflip <apuesta> <cara/cruz>', value: 'Cara o cruz. 50/50, sin ventaja de la casa.' },
-      { name: '/dado <apuesta>', value: 'Duelo de dados contra el bot (1-100). Empate devuelve la apuesta.' },
-      { name: '/slots <apuesta>', value: 'Tragamonedas: 3 iguales pagan según el símbolo, 2 iguales devuelve la apuesta.' },
-      { name: '/ruleta <apuesta> <color>', value: 'Rojo/negro pagan x2, verde (el 0) paga x30.' },
-    )
+    .addFields({
+      name: '🎲 Comandos',
+      value: [
+        '`/coinflip <apuesta> <cara/cruz>` — Cara o cruz. 50/50, sin ventaja de la casa.',
+        '`/dado <apuesta>` — Duelo de dados contra el bot (1-100). Empate devuelve la apuesta.',
+        '`/slots <apuesta>` — Tragamonedas: 3 iguales pagan según el símbolo, 2 iguales devuelve la apuesta.',
+        '`/ruleta <apuesta> <color>` — Rojo/negro pagan x2, verde (el 0) paga x30.',
+      ].join('\n'),
+    })
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
@@ -178,20 +194,30 @@ export function buildDiversionEmbed() {
     .setColor(BRAND_COLOR)
     .setTitle('🎲 Diversión')
     .addFields(
-      { name: '/8ball <pregunta>', value: 'Le preguntás algo a la bola mágica.' },
-      { name: '/roll [caras] [cantidad]', value: 'Tirá uno o varios dados.' },
-      { name: '/choose <opciones>', value: 'El bot elige una opción al azar por vos.' },
-      { name: '/trivia jugar [dificultad]', value: 'Respondé una pregunta de trivia y ganá puntos.' },
-      { name: '/trivia ranking', value: 'Muestra el ranking de puntos de trivia.' },
-      { name: '/banana', value: 'Comando sin ningún sentido, pero divertido.' },
-      { name: '/guess <numero>', value: 'Adiviná un número secreto entre 1 y 100.' },
-      { name: '/lucky', value: 'Consultá tu número y frase de la suerte del día.' },
-      { name: '/kitty', value: 'Muestra una foto random de un gato.' },
-      { name: '/pupper', value: 'Muestra una foto random de un perro.' },
-      { name: '/confession <mensaje>', value: 'Enviá una confesión anónima al canal de confesiones.' },
-      { name: '/encuesta <pregunta> [opciones]', value: 'Creá una encuesta pública con reacciones.' },
-      { name: '/afk [motivo]', value: 'Te marca como ausente — se te quita solo al escribir de nuevo.' },
-      { name: '/recordatorio crear/listar/cancelar', value: 'Recordatorios personales, te avisa por DM.' },
+      {
+        name: '🎲 Juegos y azar',
+        value: [
+          '`/8ball <pregunta>` — Le preguntás algo a la bola mágica.',
+          '`/roll [caras] [cantidad]` — Tirá uno o varios dados.',
+          '`/choose <opciones>` — El bot elige una opción al azar por vos.',
+          '`/trivia jugar [dificultad]` — Respondé una pregunta de trivia y ganá puntos.',
+          '`/trivia ranking` — Muestra el ranking de puntos de trivia.',
+          '`/guess <numero>` — Adiviná un número secreto entre 1 y 100.',
+          '`/lucky` — Consultá tu número y frase de la suerte del día.',
+          '`/banana` — Comando sin ningún sentido, pero divertido.',
+        ].join('\n'),
+      },
+      {
+        name: '🐾 Social y utilidad',
+        value: [
+          '`/kitty` — Muestra una foto random de un gato.',
+          '`/pupper` — Muestra una foto random de un perro.',
+          '`/confession <mensaje>` — Enviá una confesión anónima al canal de confesiones.',
+          '`/encuesta <pregunta> [opciones]` — Creá una encuesta pública con reacciones.',
+          '`/afk [motivo]` — Te marca como ausente — se te quita solo al escribir de nuevo.',
+          '`/recordatorio crear/listar/cancelar` — Recordatorios personales, te avisa por DM.',
+        ].join('\n'),
+      },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();

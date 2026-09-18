@@ -14,23 +14,26 @@ import {
 // no aparecía en ningún lugar de /helpstaff (a diferencia de /report, que sí tenía su
 // propio campo dedicado desde Fase 4C-1) — un admin que no sabía que la función existía
 // no tenía ningún camino de descubrimiento dentro de Discord.
+//
+// Auditoría UX/UI (2026-09-18), formato de comandos: Administración pasó de un campo por
+// comando a 3 campos agrupados por tema — las aserciones ahora buscan el comando dentro
+// del VALUE del grupo correspondiente, no como field.name exacto.
 describe('/helpstaff — Administración: roles autoasignables (Bloque 7)', () => {
-  it('tiene un campo dedicado mencionando ambos subcommands', () => {
+  it('el grupo de roles y permisos menciona ambos subcommands', () => {
     const embed = buildAdministracionEmbed();
-    const field = embed.data.fields.find((f) => f.name.includes('Roles autoasignables'));
+    const field = embed.data.fields.find((f) => f.value.includes('rol-autoasignable-agregar'));
 
     expect(field).toBeDefined();
-    expect(field.name).toContain('rol-autoasignable-agregar');
-    expect(field.name).toContain('rol-autoasignable-quitar');
+    expect(field.value).toContain('rol-autoasignable-quitar');
   });
 
-  it('el resto de los campos de Administración (setup, config ver, rol-admin) siguen intactos', () => {
+  it('el resto de los comandos de Administración (setup, config ver, rol-admin) siguen intactos', () => {
     const embed = buildAdministracionEmbed();
-    const names = embed.data.fields.map((f) => f.name);
+    const allValues = embed.data.fields.map((f) => f.value).join('\n');
 
-    expect(names.some((n) => n === '/setup')).toBe(true);
-    expect(names.some((n) => n === '/config ver')).toBe(true);
-    expect(names.some((n) => n === '/config rol-admin')).toBe(true);
+    expect(allValues).toContain('/setup');
+    expect(allValues).toContain('/config ver');
+    expect(allValues).toContain('/config rol-admin');
   });
 });
 
@@ -55,8 +58,9 @@ describe('/helpstaff — otras categorías intactas', () => {
   });
 
   it('Advertencias y sanciones sigue con sus comandos de siempre', () => {
-    const names = buildAdvertenciasEmbed().data.fields.map((f) => f.name);
-    expect(names).toEqual(expect.arrayContaining(['/warn <usuario> <motivo>', '/sanciones']));
+    const value = buildAdvertenciasEmbed().data.fields.map((f) => f.value).join('\n');
+    expect(value).toContain('/warn <usuario> <motivo>');
+    expect(value).toContain('/sanciones');
   });
 
   it('Sorteos y anuncios, Economía, Roles, XP y Bot siguen sin cambios de estructura', () => {

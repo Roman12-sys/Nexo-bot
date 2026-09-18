@@ -84,6 +84,9 @@ export function buildBackRow() {
 // tema en vez de listar las ~15 subcommands de /config una por una, para no convertir
 // esto en una enciclopedia.
 // MOTIVO: auditoría Fase 2B, sección 9.
+// Auditoría UX/UI (2026-09-18), formato de comandos: campo por comando → lista agrupada
+// con el comando en `código` (mismo estilo que ya tenía "🟢 Cualquier staff" más abajo),
+// unificado en TODAS las categorías de /help y /helpstaff.
 export function buildAdministracionEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
@@ -91,29 +94,27 @@ export function buildAdministracionEmbed() {
     .setDescription('Configuración del servidor — separado de "Moderación" (sanciones del día a día).')
     .addFields(
       {
-        name: '/setup',
-        value:
-          'Configuración inicial guiada: elegí una plantilla, activá módulos (moderación/economía/XP) y extras opcionales (bienvenida, confesiones, rol automático, rol de castigo). Crea los canales/roles que falten. Se puede volver a correr sin duplicar nada.',
-      },
-      { name: '/config ver', value: 'Resumen completo de la configuración actual (todo lo que dejó armado /setup, más lo que se haya tocado después).' },
-      {
-        name: '/config rol-admin',
-        value:
-          'Separa el rol de Administrador del de Moderador (por defecto son el mismo). Solo el rol de Administrador puede usar /economia-staff y /xp — el de Moderador conserva toda la moderación normal.',
+        name: '🚀 Setup y config',
+        value: [
+          '`/setup` — Configuración inicial guiada: elegí una plantilla, activá módulos (moderación/economía/XP) y extras opcionales (bienvenida, confesiones, rol automático, rol de castigo). Crea los canales/roles que falten. Se puede volver a correr sin duplicar nada.',
+          '`/config ver` — Resumen completo de la configuración actual (todo lo que dejó armado /setup, más lo que se haya tocado después).',
+          '`/config exportar` — Descarga un JSON de respaldo de toda la configuración (solo lectura, no cambia nada).',
+        ].join('\n'),
       },
       {
-        name: '/config rol-castigo / rol-automatico / canal-bienvenida / canal-confesiones / ...',
-        value: 'Apuntá a un rol/canal que YA existe en el server en vez de crear uno nuevo con /setup.',
+        name: '🔐 Roles y permisos',
+        value: [
+          '`/config rol-admin` — Separa el rol de Administrador del de Moderador (por defecto son el mismo). Solo el rol de Administrador puede usar /economia-staff y /xp — el de Moderador conserva toda la moderación normal.',
+          '`/config rol-autoasignable-agregar / rol-autoasignable-quitar` — Elegí qué roles pueden elegir solos los miembros (hasta 25). Se ofrecen desde `/help` ("Mis roles") y desde el mensaje de bienvenida — nunca un rol con permisos peligrosos.',
+        ].join('\n'),
       },
       {
-        name: '/config rol-nivel / modo-roles-nivel / xp-finde-boost / xp-canal-ignorar / xp-canal-permitir',
-        value: 'Ajustes finos del sistema de XP y niveles.',
-      },
-      { name: '/config confesiones-revision / confesion-bloquear / confesion-desbloquear', value: 'Controles del sistema de confesiones anónimas.' },
-      { name: '/config exportar', value: 'Descarga un JSON de respaldo de toda la configuración (solo lectura, no cambia nada).' },
-      {
-        name: '🎭 Roles autoasignables (/config rol-autoasignable-agregar / rol-autoasignable-quitar)',
-        value: 'Elegí qué roles pueden elegir solos los miembros (hasta 25). Se ofrecen desde `/help` ("Mis roles") y desde el mensaje de bienvenida — nunca un rol con permisos peligrosos.',
+        name: '🔔 Canales, extras y XP',
+        value: [
+          '`/config rol-castigo / rol-automatico / canal-bienvenida / canal-confesiones / ...` — Apuntá a un rol/canal que YA existe en el server en vez de crear uno nuevo con /setup.',
+          '`/config rol-nivel / modo-roles-nivel / xp-finde-boost / xp-canal-ignorar / xp-canal-permitir` — Ajustes finos del sistema de XP y niveles.',
+          '`/config confesiones-revision / confesion-bloquear / confesion-desbloquear` — Controles del sistema de confesiones anónimas.',
+        ].join('\n'),
       },
     )
     .setFooter({ text: BRAND_NAME })
@@ -159,16 +160,19 @@ export function buildAdvertenciasEmbed() {
   return new EmbedBuilder()
     .setColor(INDIGO_COLOR)
     .setTitle('⚠️ Advertencias y sanciones')
-    .addFields(
-      { name: '/warn <usuario> <motivo>', value: 'Aplica una advertencia a un usuario.' },
-      { name: '/warn-editar <usuario> <número> <motivo>', value: 'Corrige el motivo de una advertencia ya aplicada, sin perder la fecha original.' },
-      { name: '/warns <usuario>', value: 'Muestra las advertencias de un usuario.' },
-      { name: '/unwarn <usuario> [número]', value: 'Quita una advertencia (o todas si no se indica número).' },
-      { name: '/punish <usuario>', value: 'Impide que un usuario envíe imágenes o enlaces (requiere `/config rol-castigo`).' },
-      { name: '/unpunish <usuario>', value: 'Quita esa restricción.' },
-      { name: '/unban <usuario>', value: 'Desbanea directamente (con autocompletado de baneados), sin pasar por el panel.' },
-      { name: '/sanciones', value: 'Panel para ver y quitar timeouts, restricciones, baneos y advertencias activas.' },
-    )
+    .addFields({
+      name: '📋 Comandos',
+      value: [
+        '`/warn <usuario> <motivo>` — Aplica una advertencia a un usuario.',
+        '`/warn-editar <usuario> <número> <motivo>` — Corrige el motivo de una advertencia ya aplicada, sin perder la fecha original.',
+        '`/warns <usuario>` — Muestra las advertencias de un usuario.',
+        '`/unwarn <usuario> [número]` — Quita una advertencia (o todas si no se indica número).',
+        '`/punish <usuario>` — Impide que un usuario envíe imágenes o enlaces (requiere `/config rol-castigo`).',
+        '`/unpunish <usuario>` — Quita esa restricción.',
+        '`/unban <usuario>` — Desbanea directamente (con autocompletado de baneados), sin pasar por el panel.',
+        '`/sanciones` — Panel para ver y quitar timeouts, restricciones, baneos y advertencias activas.',
+      ].join('\n'),
+    })
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
@@ -177,10 +181,13 @@ export function buildSorteosAnunciosEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('📢 Sorteos y anuncios')
-    .addFields(
-      { name: '/sorteo crear/terminar/reroll/cancelar', value: 'Sistema de sorteos con botón de participación (con rol requerido opcional).' },
-      { name: '/anuncio', value: 'Abre el formulario para crear un anuncio profesional (con opción de mencionar rol/usuario/@everyone).' },
-    )
+    .addFields({
+      name: '📋 Comandos',
+      value: [
+        '`/sorteo crear/terminar/reroll/cancelar` — Sistema de sorteos con botón de participación (con rol requerido opcional).',
+        '`/anuncio` — Abre el formulario para crear un anuncio profesional (con opción de mencionar rol/usuario/@everyone).',
+      ].join('\n'),
+    })
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
@@ -192,16 +199,19 @@ export function buildEconomiaEmbed() {
     .setColor(EMERALD_COLOR)
     .setTitle('💰 Economía (staff)')
     .setDescription('🔒 Todo este panel requiere el rol de Administrador (`/config rol-admin`) — un Moderador no puede usar estos comandos.')
-    .addFields(
-      { name: '/economia-staff balance <usuario>', value: 'Ver el balance de cualquiera.' },
-      { name: '/economia-staff agregar <usuario> <cantidad> [motivo]', value: 'Agrega monedas.' },
-      { name: '/economia-staff quitar <usuario> <cantidad> [motivo]', value: 'Quita monedas.' },
-      { name: '/economia-staff establecer <usuario> <cantidad> [motivo]', value: 'Fija un balance exacto.' },
-      { name: '/economia-staff historial <usuario> [cantidad]', value: 'Últimos movimientos: tipo, monto, balance resultante, quién lo causó y motivo.' },
-      { name: '/economia-staff perfil <usuario>', value: 'Balance + cooldowns de /daily y /work + inventario, todo junto.' },
-      { name: '/economia-staff pendientes', value: 'Compras pendientes de ítems de entrega manual (cambio de apodo, etc.) — se pueden marcar como entregadas desde el mismo panel.' },
-      { name: '/shop-admin agregar/editar/quitar/listar', value: 'Arma el catálogo de /shop propio de este servidor. "editar" corrige un ítem sin romper el inventario de quien ya lo compró. "agregar" admite un tipo especial (impulso de XP o caja misteriosa) además del ítem normal.' },
-    )
+    .addFields({
+      name: '📋 Comandos',
+      value: [
+        '`/economia-staff balance <usuario>` — Ver el balance de cualquiera.',
+        '`/economia-staff agregar <usuario> <cantidad> [motivo]` — Agrega monedas.',
+        '`/economia-staff quitar <usuario> <cantidad> [motivo]` — Quita monedas.',
+        '`/economia-staff establecer <usuario> <cantidad> [motivo]` — Fija un balance exacto.',
+        '`/economia-staff historial <usuario> [cantidad]` — Últimos movimientos: tipo, monto, balance resultante, quién lo causó y motivo.',
+        '`/economia-staff perfil <usuario>` — Balance + cooldowns de /daily y /work + inventario, todo junto.',
+        '`/economia-staff pendientes` — Compras pendientes de ítems de entrega manual (cambio de apodo, etc.) — se pueden marcar como entregadas desde el mismo panel.',
+        '`/shop-admin agregar/editar/quitar/listar` — Arma el catálogo de /shop propio de este servidor. "editar" corrige un ítem sin romper el inventario de quien ya lo compró. "agregar" admite un tipo especial (impulso de XP o caja misteriosa) además del ítem normal.',
+      ].join('\n'),
+    })
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
@@ -210,7 +220,7 @@ export function buildRolesEmbed() {
   return new EmbedBuilder()
     .setColor(MAGENTA_COLOR)
     .setTitle('🎭 Roles')
-    .addFields({ name: '/roles', value: 'Lista todos los roles del servidor, agrupados por categoría, con su cantidad de miembros.' })
+    .addFields({ name: '📋 Comandos', value: '`/roles` — Lista todos los roles del servidor, agrupados por categoría, con su cantidad de miembros.' })
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
@@ -221,12 +231,15 @@ export function buildXpEmbed() {
     .setColor(GOLD_COLOR)
     .setTitle('⭐ XP y niveles (staff)')
     .setDescription('🔒 Todo este panel requiere el rol de Administrador (`/config rol-admin`) — un Moderador no puede usar estos comandos.')
-    .addFields(
-      { name: '/xp agregar <usuario> <cantidad> [motivo]', value: 'Agrega XP. Si el usuario sube de nivel, se procesan roles automáticos, anuncio y log igual que si lo hubiera ganado jugando.' },
-      { name: '/xp quitar <usuario> <cantidad> [motivo]', value: 'Quita XP.' },
-      { name: '/xp establecer <usuario> <cantidad> [motivo]', value: 'Fija la XP total exacta.' },
-      { name: '/xp nivel <usuario> <nivel> [motivo]', value: 'Fija el nivel exacto (calcula la XP correspondiente automáticamente).' },
-    )
+    .addFields({
+      name: '📋 Comandos',
+      value: [
+        '`/xp agregar <usuario> <cantidad> [motivo]` — Agrega XP. Si el usuario sube de nivel, se procesan roles automáticos, anuncio y log igual que si lo hubiera ganado jugando.',
+        '`/xp quitar <usuario> <cantidad> [motivo]` — Quita XP.',
+        '`/xp establecer <usuario> <cantidad> [motivo]` — Fija la XP total exacta.',
+        '`/xp nivel <usuario> <nivel> [motivo]` — Fija el nivel exacto (calcula la XP correspondiente automáticamente).',
+      ].join('\n'),
+    })
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
@@ -236,8 +249,13 @@ export function buildBotEmbed() {
     .setColor(BRAND_COLOR)
     .setTitle('🩺 Bot')
     .addFields(
-      { name: '/estado', value: 'Salud técnica: latencia del gateway, conexión a Supabase, sorteos y salas de voz temporales activas en este servidor.' },
-      { name: '/metricas', value: 'Los comandos más usados de este servidor y cuántas veces se usaron en total.' },
+      {
+        name: '📋 Comandos',
+        value: [
+          '`/estado` — Salud técnica: latencia del gateway, conexión a Supabase, sorteos y salas de voz temporales activas en este servidor.',
+          '`/metricas` — Los comandos más usados de este servidor y cuántas veces se usaron en total.',
+        ].join('\n'),
+      },
       {
         name: '🔍 Auditoría de configuración (automática, sin comando)',
         value: 'Cada cambio hecho con `/setup` o `/config` queda registrado en el canal de logs de actividad — quién lo cambió y qué. No solo se audita a los usuarios, también al propio bot.',
