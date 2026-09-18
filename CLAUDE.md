@@ -2248,6 +2248,403 @@ tests de `rolreacciones.test.js` reescritos para el nuevo flujo de emoji/JSON, v
 propio diff). Nada commiteado — el working tree queda para el tooling externo del
 usuario, como siempre.
 
+## Auditoría UX/UI/Design System (2026-09-18) — plan de fases, Fase 1 ejecutada
+
+Auditoría nueva y distinta de "NEXO V" de arriba: 3 agentes especializados en paralelo
+(UX/UI, visual/CSS, investigación competitiva contra 9 bots reales), solo lectura, sin
+tocar código — entregada como Artifact ("NEXO — Producto Terminado") con Top 20 cambios,
+propuesta de Design System (10 colores, antes 9) y rediseños conceptuales de `/help`/
+`/helpstaff`. A partir de eso se armó un plan de 7 fases (color/confianza → contenido de
+ayuda → embeds de moderación → confirmaciones/permisos → interfaces nuevas → dashboard/
+sitio → pulido menor), y el usuario pidió arrancar por la Fase 1 con autonomía completa
+("no consultes nada, tenés vía libre") — implementada y verificada en el mismo tramo.
+
+**Fase 1 — confianza y sistema de color (fundacional, sin features nuevas):**
+
+- **`/staff → Economía → Límites` ya no miente (hallazgo Crítico #2 del Top 20).**
+  `buildEconomiaLimitesView()` decía textualmente que los rangos de `/daily /work /crime
+  /rob` "son fijos en el código... no son un ajuste por-servidor" — falso desde el
+  15/09 (ver "Plan de ejecución post-auditoría (parte 2)" más arriba, tuning de
+  economía). `staff.js` nunca importó `economyTuning.js` tras esa fase; el panel
+  pensado como "la cara fácil" del bot le daba a un admin un modelo mental incorrecto
+  de una feature que puede haber configurado él mismo. Ahora llama las MISMAS
+  `getEffective*`/`describeRange`/`describePercent` que ya usa `buildConfigSummaryEmbed`
+  (`config.js`) — nunca dos fuentes de verdad para el mismo dato — y aclara qué SÍ sigue
+  siendo fijo de verdad (tope de robo 5.000/2.000, escudo 3h, cooldowns), en vez de
+  mezclarlo sin aclarar con lo que ahora varía por servidor. El handler pasa `cfg` real
+  (antes la vista no recibía ningún argumento). Footer nuevo apunta a `/config economia`
+  para editar — el panel se mantiene 100% solo lectura, mover el ajuste de balance/XP de
+  staff a una interfaz visual (hallazgo #8 del Top 20) queda para la Fase 5 del plan
+  (interfaces nuevas), no es parte de este fix.
+- **`logEmbeds.js` tenía su propia paleta paralela a la oficial (hallazgo Crítico #3).**
+  Declaraba `OK_COLOR`/`NEUTRAL_COLOR`/`WARN_COLOR` locales — el `NEUTRAL_COLOR` local
+  (`#8D99AE`) era un gris ligeramente distinto del oficial de `embeds.js` (`#8A8F9C`),
+  invisible para el usuario final pero significaba que el verde de "éxito" que ve el
+  staff en un comando nunca era el mismo que el verde del log archivado de esa misma
+  acción. `WARN_COLOR` (`#E9C46A`) se formalizó como 10º color oficial del sistema en
+  `embeds.js` (antes vivía sin nombre oficial en 3 lugares: esta constante local, y hex
+  sueltos en el picker de `/anuncio`) — `logEmbeds.js` ahora importa los 3
+  (`SUCCESS_COLOR` en vez del viejo `OK_COLOR`) desde `embeds.js`, cero constantes
+  locales de color propias. De paso, el naranja `#F4A261` reusado 2 veces sin nombre
+  (kick + compra pendiente de entrega) pasó a `PENDING_ACCENT_COLOR`, una constante
+  local con su rol documentado — deliberadamente NO se fusionó con ningún color oficial
+  de los 10, es un acento secundario a propósito distinto de `LOG_COLOR` (kick es menos
+  severo que ban).
+- **Casino con dos colores contradictorios en dos paneles del mismo bot (hallazgo
+  Crítico #4).** `staff.js` coloreaba su categoría análoga ("Minijuegos") con
+  `GOLD_COLOR` (coherente con "progresión... minijuegos"), pero `help.js` coloreaba
+  "🎰 Casino" — los mismos comandos, coinflip/dado/slots/ruleta — con `EMERALD_COLOR`
+  (economía). Casino es apuesta+resultado inmediato, no wallet/banco/transferencias:
+  `buildCasinoEmbed()` en `help.js` pasa a `GOLD_COLOR`, mismo criterio que ya usaba
+  `staff.js`. `EMERALD_COLOR` sigue en uso en `help.js` para `buildEconomiaEmbed` — el
+  import no quedó huérfano.
+- **`/anuncio` — picker de color con hex redigitados a mano, no constantes con nombre
+  (hallazgo Importante).** `color_predefinido` ofrecía 8 valores hardcodeados que
+  duplicaban a mano colores de `logEmbeds.js` (`#E9C46A`, `#2A9D8F`) más un "Azul"
+  (`#3A86FF`) que NO coincidía con el `SKY_COLOR` real (`#4EA8DE`) — un admin podía
+  terminar usando dos "azules de sistema" distintos sin saberlo. Los 8 valores ahora
+  importan las constantes con nombre de `embeds.js` (Púrpura→`BRAND_COLOR`,
+  Rojo→`LOG_COLOR`, Dorado→`GOLD_COLOR`, Advertencia→`WARN_COLOR` — antes "🟡 Dorado"
+  apuntaba al valor que hoy es `WARN_COLOR`, renombrado para que el nombre coincida con
+  el color real —, Verde→`SUCCESS_COLOR`, Azul→`SKY_COLOR`); Blanco/Negro quedan como
+  hex genéricos a propósito (no son colores semánticos del sistema, no tienen constante
+  que los represente).
+- **`setup.js` — verde obsoleto de Discord pre-2020 para el rol "Miembro" (pulido).**
+  `#43B581` (verde de la marca vieja de Discord, descontinuada en 2020) hardcodeado a
+  mano → `SUCCESS_COLOR` oficial.
+- **`BRAND_COLOR` diluido como "color por defecto" en 20+ comandos (hallazgo Importante,
+  documentación únicamente, sin recolorear nada).** Rol-play (`actionCommandFactory.js`),
+  `/trivia /roll /choose /confession /encuesta` comparten el mismo violeta documentado
+  como "marca, navegación, home, ayuda, config" — si el violeta está en todo, deja de
+  comunicar nada. Solución de la auditoría: documentar que también cubre "social/sin
+  categoría propia" (ya cumple ese rol de facto), no forzar una categoría nueva sin
+  necesidad real — comentario agregado en `embeds.js`, cero comandos tocados.
+
+**Deliberadamente NO tocado en esta fase — decisión, no olvido:**
+- **Colores de estado del dashboard/sitio** (`#4ade80`/`#facc15`/`#f87171` tipo Tailwind
+  vs. `SUCCESS_COLOR`/`WARN_COLOR`/`LOG_COLOR` de Discord, hallazgo Importante). Medí a
+  mano el contraste WCAG de reemplazar el rojo (`#f87171`→`#E63946` sobre los fondos
+  casi negros de `dashboard/html.js`/`website/layout.js`): pasa de ~7.15:1 a ~4.75:1 —
+  sigue sobre el mínimo AA (4.5:1) pero con mucho menos margen, un cálculo a mano sin
+  poder verificarlo visualmente (no hay herramienta de screenshot en este entorno). Dado
+  que este mismo proyecto ya midió contraste WCAG con precisión real en el sitio (ver
+  "Sitio web", corrección de `--text-dim`), preferí no introducir una degradación de
+  contraste sin poder confirmarla visualmente — queda para la Fase 6 del plan
+  (dashboard/sitio), donde además correspondería resolver junto con el hallazgo
+  hermano ("dos paletas oscuras primas pero no idénticas", `#0c0a14` vs `#0a0912`) en
+  un solo módulo de tokens compartido, en vez de un parche a mano en 2 archivos.
+- **Ajuste de balance/XP de staff sin interfaz visual en `/staff`** (hallazgo Importante
+  #8) y **`/shop`+`/buy` sin fusionar** (hallazgo Importante) — ambos son features
+  nuevas reales (`UserSelectMenu`+modal, `StringSelectMenu` de compra), quedan para la
+  Fase 5 del plan (interfaces nuevas), fuera del alcance "rápido y mecánico" de la
+  Fase 1.
+
+**Verificación:** `node --check` en los 6 archivos tocados, `npx vitest run` completo en
+verde (117 archivos, 1114→1115 tests — el único test que rompió esperaba la mentira
+vieja de `/staff → Límites`, reescrito en 2 casos: default y personalizado). Nada
+commiteado — working tree para el tooling externo del usuario, como siempre.
+
+**Fase 2 — contenido de `/help` y `/helpstaff` (hallazgo Crítico #1 y afines):**
+
+- **`/help` — Diversión y Acción ya no son 34 nombres de comando sin descripción.**
+  `buildDiversionEmbed`/`buildAccionEmbed` mostraban 14 y 20 nombres pegados entre
+  backticks — "la lista interminable de comandos" que se pidió evitar explícitamente,
+  en las únicas 2 de las 5 categorías que todavía la tenían (Información/Economía/
+  Casino ya usaban campo-por-comando). Diversión pasó a 14 campos individuales, mismo
+  formato que esas 3 — cabe cómodo bajo el límite de 25 campos de Discord. Acción, con
+  20 comandos, se agrupó en 3 sub-bloques temáticos DENTRO de 3 campos en vez de un
+  campo por comando (🤗 Cariñosas: hug/kiss/pat/cuddle/feed/highfive/claps/
+  handholding/hi · 😤 Molestas: slap/punch/shoot/bite/baka/kickbutt/poke/tickle · 😳
+  Reacciones: laugh/angry/scared/stare) — un campo por cada uno de los 20 hubiera sido
+  técnicamente posible pero ilegible, y la propia auditoría pidió agrupar por tema acá
+  en vez de mantener la lista plana. Cada descripción sale del `description`/
+  `selfText`/`targetText` real de `actionCommandFactory.js` o del `.setDescription()`
+  real del comando — ninguna inventada.
+- **`/help` — Economía dejó de ser una pared de 14 campos idénticos (hallazgo
+  Importante).** Reagrupada en 2 campos: "🌱 Para empezar" (`/daily` `/work` `/shop` —
+  los mismos 3 que ya recomienda `buildPrimerosPasosLines()` del home, mismo criterio
+  en los dos lugares) y "📈 El resto" (los 11 restantes, cada uno con su descripción
+  original intacta, solo reagrupados). Bajó de 14 campos a 2, sin perder ninguna
+  descripción.
+- **Casino recoloreado** — ver Fase 1 arriba (mismo commit conceptual, hallazgo Crítico
+  #4 del Top 20).
+- **`/helpstaff` — puente hacia `/staff` en el home (hallazgo Importante).** Antes ese
+  puente solo existía dentro de `/setup` (una sola vez, al instalar) y en el footer de
+  `/config ver` — nunca en el punto de entrada real donde el staff busca ayuda del día
+  a día. `buildMainMenuEmbed()` ahora lo menciona explícitamente.
+- **`/helpstaff` — Tier 1 vs Tier 2 ya no vive escondido en el texto de un campo
+  (hallazgo Importante).** `/say` (Tier 2 desde la Fase 4 de "post-auditoría
+  Fases 1-4") era el único comando Tier 2 mezclado campo-a-campo con Tier 1 dentro de
+  "🧹 Moderación" — su límite de permiso vivía como una frase en negrita dentro del
+  valor de un campo, no como estructura visual. Ahora son 2 campos: "🟢 Cualquier
+  staff" (clear/lock/unlock/kick/ban/timeout/voice) y "🔒 Solo Administrador" (`/say`).
+  "💰 Economía (staff)" y "⭐ XP y niveles (staff)" son categorías ENTERAS Tier 2 (nunca
+  tuvieron un comando Tier 1 mezclado adentro) — ahí el marcador se puso en la
+  `description` del embed en vez de fabricar un campo "Cualquier staff" vacío sin
+  sentido.
+- **`/sanciones` — el único punto de entrada en texto plano pasó a embed (hallazgo
+  Mejora).** El resto del panel (historial, las 4 listas paginadas) ya usaba
+  `EmbedBuilder` con `INDIGO_COLOR` desde siempre; solo el mensaje inicial ("Elegí qué
+  querés revisar...") seguía en `content` plano. Mismo color, mismo texto, ahora en
+  embed.
+
+**Deliberadamente NO tocado en esta fase:** `/help` sin buscador ni paginación nueva —
+la propia auditoría concluyó que a 74 comandos y 5 categorías ninguna de las dos
+resuelve un problema real hoy. Reducir el catálogo de comandos o unificar
+Diversión/Acción en un tercer eje "qué tan perdido estás" (patrón Dank Memer/Sapphire
+de la investigación competitiva) — decisión de producto reversible, queda pendiente
+hasta que se pida explícitamente, mismo criterio que el resto de decisiones de producto
+de este proyecto.
+
+**Verificación:** `node --check` en los 4 archivos de código tocados, `npx vitest run`
+completo en verde (117 archivos, 1115 tests — 1 test de `helpstaff.test.js` reescrito
+para la nueva estructura de 2 campos de Moderación, conteo total sin cambios). Nada
+commiteado — working tree para el tooling externo del usuario, como siempre.
+
+**Fase 3 — moderación con embeds propios (hallazgo Crítico #5 del Top 20):**
+
+12 de 17 archivos de `src/commands/moderacion/` (`ban kick unban lock unlock timeout
+warn clear unwarn warnEditar unpunish punish`) respondían siempre con texto plano
+(`content: '✅ Se expulsó a...'`) — `INDIGO_COLOR` (moderación) solo aparecía en los
+paneles de consulta y en los logs, nunca en la respuesta directa del comando. La
+categoría de mayor responsabilidad del producto era, visualmente, la más pobre. Los 12
+ahora responden con `EmbedBuilder().setColor(INDIGO_COLOR)` + título con emoji +
+descripción, mismo esqueleto que ya usan `/daily /work /rob /give` — solo se tocó el
+mensaje de ÉXITO final de cada uno, nunca los rechazos ephemeral de validación
+("no tenés permisos", "rango", etc.), que siguen en `content` plano, consistente con
+el resto del proyecto (`/daily` hace exactamente lo mismo: `content` para su rechazo de
+cooldown, embed solo para el resultado).
+
+**Alcance mantenido idéntico a propósito — sin agregar `motivo` donde antes no
+aparecía.** Al escribir el primer borrador de `kick.js`/`unban.js`/`timeout.js` agregué
+`motivo` a la descripción pública (antes esos 3 comandos NUNCA lo mostraban ahí, solo en
+el log de moderación) — autocorregido antes de seguir: `motivo` es texto libre de staff
+sin sanear, y mostrarlo en un embed público SIN `allowedMentions` habría sido reabrir
+exactamente el vector de SEC-1/SEC-2 (Fase 4A) que ya se cerró para `/warn` y el panel
+de confirmación. Revertido a mostrar solo lo que cada comando ya mostraba antes de esta
+fase — `warn.js`, `warnEditar.js` y `unwarn.js` siguen con su propio manejo de menciones
+sin cambios (`warn.js` preserva `allowedMentions: { parse: ['users'] }` tal cual estaba,
+ahora aplicado al mensaje con embed en vez de a `content` — es una opción del mensaje
+entero, no de `content` puntualmente).
+
+**Confirmación de `/ban`/`/clear`/`/unwarn` — solo se tocó el mensaje final de
+`confirmBan`/`confirmClear`/`confirmUnwarn`, nunca `confirmations.js`.** El panel
+genérico "⚠️ Confirmar acción" (`buildConfirmation`) sigue en `content` plano tal cual
+— está en la lista "No tocar" de la propia auditoría ("ejemplar"), y el pedido era
+moderación con embeds, no rediseñar el panel de confirmación.
+
+**Impacto en tests — 8 archivos de test tenían aserciones directas sobre `content` del
+mensaje de éxito** (`moderation.test.js`, `moderationDeferredCommands.test.js`,
+`permMatrix.test.js`, `punish.test.js`, `unpunish.test.js`, `warnEditar.test.js`, más
+`staffPanel.test.js`/`helpstaff.test.js` de las Fases 1-2) — todas reescritas para leer
+`embeds[0].data.description`/`.title` en vez de `content`, sin cambiar qué se verifica.
+Detalle curioso sin relación con esta fase: los mocks de `targetUser`/`interaction.channel`
+en varios de estos tests no implementan `toString()` como lo hace un `User`/`Channel`
+real de discord.js — interpolarlos en una aserción de texto completo da `[object
+Object]` en el entorno de test (nunca en producción, donde sí son instancias reales).
+No se tocaron esos mocks; las aserciones nuevas evitan depender de esa interpolación.
+
+**Verificación:** `node --check` en los 12 comandos tocados, `npx vitest run` completo
+en verde (117 archivos, 1115 tests — mismo conteo, ninguno nuevo ni perdido, todas las
+aserciones de contenido migradas a embeds). Nada commiteado — working tree para el
+tooling externo del usuario, como siempre.
+
+**Fase 4 — confirmaciones y mensajes de permiso (hallazgos Importantes del Top 20):**
+
+- **`/kick` suma panel de confirmación (antes era el único comando de remoción sin
+  uno, sin ningún criterio documentado de por qué quedaba afuera).** Mismo patrón
+  EXACTO que `ban.js`: `execute()` valida (permiso, jerarquía, `kickable`) y responde
+  con `buildConfirmation()` en vez de expulsar directo; `confirmKick()` (nueva función,
+  corre solo si el staff confirma) revalida todo desde cero — incluida una validación
+  que `ban.js` no necesita: el usuario puede haberse ido del server durante la espera
+  ("❌ Ese usuario ya no está en el servidor" en vez de asumir que sigue ahí). De paso
+  se sacó el `deferReply()` que tenía antes — igual que `ban.js`, el primer ack ahora es
+  el panel de confirmación (`interaction.reply(confirmation)`), no un defer.
+- **Mensajes de permiso denegado en los 4 comandos Tier 2 explican la causa real
+  (`/shop-admin` ×2, `/economia-staff` ×3, `/xp` ×1, `/say` ×1 — 7 sitios en total).**
+  Todos mostraban "❌ No tenés permisos"/"Solo un administrador puede usar esto" sin
+  decir que el gate es un ROL de NEXO (`admin_role_id`, `/config rol-admin`), no un
+  permiso nativo de Discord — un moderador con "Gestionar servidor" nativo (dado por
+  error vía Integraciones) veía el comando pero se topaba con un rechazo que sonaba a
+  bug ("esto está roto") en vez de "te falta un rol puntual". Mensaje nuevo, idéntico en
+  los 7 sitios: "❌ Este comando requiere el rol de Administrador configurado con
+  `/config rol-admin` — no es un permiso nativo de Discord, un Moderador no puede
+  usarlo." Sin constante compartida a propósito — mismo criterio que el resto del
+  proyecto con mensajes ephemeral repetidos (ej. "❌ No tenés permisos para usar este
+  comando." ya se repite tal cual en decenas de archivos sin extraerse).
+
+**Verificación:** `node --check` en los 5 archivos tocados, `npx vitest run` completo en
+verde (117 archivos, 1115→1117 tests — 2 tests nuevos de `/kick` (revalidación de
+permisos al confirmar + cancelar), 4 aserciones de mensaje de permiso actualizadas al
+texto nuevo en `permMatrix.test.js`/`say.test.js`/`shopAdminCommand.test.js`). Nada
+commiteado — working tree para el tooling externo del usuario, como siempre.
+
+**Fase 5 — interfaces nuevas (los 4 hallazgos que necesitaban feature real, no un
+fix puntual):**
+
+- **`/shop` + `/buy` fusionados (hallazgo Importante del Top 20).** Eran dos comandos
+  separados — ver y comprar exigía copiar el nombre del ítem entre uno y otro. La
+  lógica de compra completa de `buy.js` (cobro, las 4 ramas especiales, reembolso si
+  falla la entrega) se extrajo a `runBuy(interaction, itemId)` exportada (mismo patrón
+  que `runClear()` ya establecido en Fase 2B) — `execute()` de `/buy` queda como
+  wrapper fino que solo lee `interaction.options`. `/shop` suma un
+  `StringSelectMenu` con los ítems de la categoría/página actual (hasta 25, el máximo
+  real de Discord — con más se corta, mismo criterio "+N más" que el resto del
+  proyecto) que llama a `runBuy` directo. **El mensaje de `/shop` es público y
+  compartido por cualquiera en el canal** — el select handler nunca usa
+  `i.update()` (pisaría el catálogo con el resultado de la compra de una sola
+  persona); `runBuy` responde con su propio mensaje sobre esa misma interacción,
+  dejando el panel intacto para todos los demás. **Bug real encontrado con un test
+  propio, no en producción:** el margen de corte del texto de una categoría con
+  muchos ítems (950 caracteres) no dejaba espacio de sobra para el sufijo "(+N ítems
+  más)" — con la cantidad justa de ítems, el embed terminaba pasándose de los 1024
+  reales de Discord y `addFields` tiraba. Bajado a 900, verificado con un test que
+  arma 30 ítems en una sola categoría.
+- **Ajuste de balance en `/staff` (hallazgo Importante #8 del Top 20).** El panel
+  visual solo tenía lectura — acreditar seguía siendo 100% `/economia-staff` de
+  memoria, la acción de staff más sensible del bot sin ninguna interfaz.
+  `economiaStaff.js` expone `runBalanceAdjust`/`runBalanceSet` (misma extracción que
+  `runBuy`) — `/staff → Economía → Ajustar` (botón nuevo, Tier 2 vía `isAdmin()`, NO
+  `isOwnerOrAdmin()` — deshabilitado con nota en el footer para un Tier 1) abre un
+  `UserSelectMenu` → 3 botones (➕ Agregar / ➖ Quitar / 🛠️ Establecer, el ID del
+  usuario codificado en el customId, sin sesión en memoria para este paso) → modal de
+  cantidad/motivo. **Las 4 superficies (botón, select, botones de tipo, modal)
+  revalidan `isAdmin()` cada una por su cuenta** — un botón deshabilitado en el
+  cliente no impide una interacción armada a mano contra la API. Público (no
+  ephemeral), mismo criterio que `/economia-staff` directo: un ajuste de balance es
+  visible, no una acción para esconder.
+- **`/config economia` con modal, desde `/staff → Límites` (hallazgo Mejora).** Tier 3
+  (`isOwnerOrAdmin`, el mismo gate que `/config` — nunca se baja el nivel de permiso
+  al sumarle una interfaz visual). Un `StringSelectMenu` nuevo en la vista de Límites
+  (solo visible con permiso de editar) deja elegir diario/trabajo/crimen/robo; cada
+  uno abre un modal con hasta 5 `TextInputBuilder` (robo, el caso con más campos,
+  coincide exacto con el máximo real de un modal) **prellenado con el valor EFECTIVO
+  real de este server** (personalizado si ya lo estaba, default si no — nunca el
+  default a ciegas). La validación (min≤max, porcentajes 1-100) es la misma que
+  `handleEconomiaSubcommand` en `config.js`, reimplementada a mano porque un modal no
+  tiene `interaction.options` para reusar la función tal cual — mismas reglas, nunca
+  puede divergir en lo que acepta. Guardar refresca el panel de Límites en el mismo
+  mensaje (`i.update`), mostrando al toque "personalizado" en vez de tener que volver
+  a abrir la vista.
+- **`/shop-admin agregar/editar` con modal + vista previa (hallazgo Mejora: "se
+  beneficiaría de un modal con preview, mismo patrón que /anuncio").** Alcance
+  deliberadamente más chico que `/anuncio` (922 líneas) o `/rolreacciones` — un ítem
+  de tienda son 7 campos simples, sin imagen. Botones nuevos "🎨 Agregar" / "✏️
+  Editar" en `/shop-admin listar` (siempre visibles, no solo con más de una página):
+  Agregar abre una vista previa vacía; Editar primero pide elegir el ítem
+  (`StringSelectMenu`, hasta 25) y precarga el draft con sus datos reales. La vista
+  previa usa el MISMO formato de línea que ya arma `buildListarEmbed` para un ítem
+  real (nunca un resumen aparte que puede divergir) y se actualiza en vivo:
+  modal de nombre/precio/descripción/categoría, `RoleSelectMenu` nativo para el rol
+  (min 0 — se puede dejar sin rol), `StringSelectMenu` para el tipo especial. **Al
+  editar, tipo y entrega manual vienen deshabilitados con una nota explícita** —
+  `updateShopItem` (`shopStore.js`) nunca aceptó esas dos columnas en un patch, así
+  que dejarlas editables ahí habría sido un cambio que el botón "Guardar" ignoraría
+  en silencio. Guardar reusa `addShopItem`/`updateShopItem` tal cual, con el mismo
+  piso de precio para caja misteriosa que ya tenían `handleAgregar`/`handleEditar`.
+  **Efecto secundario correcto, no un bug:** a diferencia de `/shop-admin editar`
+  (que solo pisa el campo que se completó, porque todas sus opciones son
+  opcionales), el builder SÍ puede vaciar un rol ya asignado — el draft es el estado
+  completo del ítem tal como se ve en la vista previa, nunca un patch parcial, y
+  `roleId: null` sí limpia la columna porque la clave está presente en el objeto
+  (`'roleId' in patch`, ver `shopStore.js`).
+
+**Deliberadamente NO se tocó ninguna SHAPE de comando** (`/shop`, `/buy`, `/staff`,
+`/config`, `/shop-admin` conservan exactamente las mismas opciones/subcomandos que
+antes) — toda la Fase 5 son superficies visuales nuevas sobre lógica ya existente,
+nunca un cambio de contrato. No hace falta regenerar
+`website/data/commands.generated.json`.
+
+**Verificación:** `node --check` en los 3 archivos de código tocados
+(`buy.js`/`shop.js`/`staff.js`/`economiaStaff.js`/`shopAdmin.js`), `npx vitest run`
+completo en verde (118→119 archivos, 1141→1155 tests — sumó `tests/shop.test.js` (5),
+11 tests de ajuste de balance + 8 de edición de economía en `staffPanel.test.js`, y
+`tests/shopAdminBuilder.test.js` (14)). Nada commiteado — working tree para el
+tooling externo del usuario, como siempre.
+
+**Fase 7 — pulido menor (3 ítems chicos, sin relación entre sí):**
+
+- **`/encuesta cerrar` usa `buildProgressBar` en los resultados (hallazgo Mejora).**
+  Antes era una pared de números ("👍 — 12 voto(s)") sin ninguna referencia visual de
+  qué opción ganaba de un vistazo. Mismo patrón que ya usa `/metricas` — barra
+  relativa al MÁXIMO real entre las opciones (no al total de votos), así la opción
+  líder siempre se ve con la barra llena y el resto proporcional a ella. Sin
+  división por cero si nadie votó todavía (`buildProgressBar` ya lo maneja).
+- **Emoji duplicado (📋) en dos botones de `/staff` (hallazgo Bajo).** "Canal de
+  logs" (Moderación) y "Logs de actividad" (Canales) usaban el mismo ícono en
+  pantallas distintas — nunca aparecen juntos, pero un admin que las compara pierde
+  la distinción visual. "Logs de actividad" pasa a 📈, el mismo ícono que ya usa el
+  módulo Digest semanal (justo lo que más postea a ese canal) — 📋 queda como el
+  ícono real de "log de moderación", consistente con `config.js`.
+- **Regla de `ButtonStyle` documentada en `buttons.js` (hallazgo del Design System,
+  comentario únicamente — cero código funcional tocado).** Primary/Success/Danger/
+  Secondary con su criterio de cuándo usar cada uno, en el router en vez de
+  repetirla en cada archivo de comando — es la única regla que aplica a cualquier
+  botón nuevo del proyecto sin importar qué feature lo registre.
+
+**Verificación:** `node --check` en los 3 archivos tocados (`encuesta.js`/`staff.js`/
+`buttons.js`), `npx vitest run` completo en verde (119 archivos, 1155→1157 tests — 2
+tests nuevos de `/encuesta` cubriendo el escalado relativo de la barra y el caso
+"nadie votó"). Nada commiteado — working tree para el tooling externo del usuario,
+como siempre.
+
+**Corrección:** esta sección decía "con esto se cierran las 7 fases" — inexacto, la
+Fase 6 (dashboard/sitio) todavía no se había hecho en ese momento; el usuario eligió
+saltar directo a la Fase 7 antes de volver a esta. Implementada después, ver abajo.
+
+**Fase 6 — dashboard/sitio: tokens de color compartidos (los 3 hallazgos de paridad
+visual entre `dashboard/` y `website/`):**
+
+- **Módulo nuevo `src/utils/webTheme.js`** — única fuente de los tokens de color que
+  usan los DOS procesos Express de solo-interfaz (`dashboard/`, `website/`). No pueden
+  compartir estado en runtime (son servicios de Railway separados), pero sí pueden
+  importar la misma constante — que es justo lo que faltaba: cada uno tenía su propia
+  paleta oscura "prima pero no idéntica" (`#0c0a14`/`#2c2645` en el dashboard vs.
+  `#0a0912`/`#2a2440` en el sitio, valores parecidos pero distintos, copiados a mano).
+  Se tomó la paleta de `website/layout.js` como la de referencia (no un promedio a
+  ciegas entre las dos) — ya había pasado una revisión real de contraste WCAG en su
+  propia Fase 5, documentada ahí. `website/layout.js` ahora importa desde este módulo
+  nuevo en vez de tener sus propias constantes — la fuente de verdad se movió, el
+  valor no cambió para el sitio.
+- **`dashboard/html.js` migrado al mismo patrón `:root { --var }` que ya usaba el
+  sitio (hallazgo Importante "dashboard sin tokens CSS").** Antes tenía sus valores
+  hardcodeados repetidos por toda la hoja de estilos; ahora una sola declaración
+  `:root` poblada desde `webTheme.js`, y el resto de la hoja usa `var(--bg)`,
+  `var(--surface)`, etc. Los fondos tintados de cada badge (`#123524` para el verde,
+  etc.) quedaron como estaban a propósito — la auditoría solo flageó el color de
+  texto/estado, no esos tintes de fondo.
+- **`dashboard/views.js` — 18 repeticiones de
+  `style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;"` en la tarjeta
+  "Configuración actual" pasaron a una clase `.label`** (agregada en `dashboard/html.js`,
+  mismo valor que el `--text-muted` compartido).
+- **Colores de estado (ok/advertencia/peligro) alineados a los que ya usa Discord
+  (hallazgo Importante "no coinciden entre Discord y dashboard/sitio").** Antes
+  dashboard y sitio usaban una paleta tipo Tailwind (`#4ade80`/`#facc15`/`#f87171`)
+  sin relación con `SUCCESS_COLOR`/`WARN_COLOR`/`LOG_COLOR` del bot. Ahora
+  `WEB_STATUS_OK`/`WEB_STATUS_WARN`/`WEB_STATUS_DANGER` en `webTheme.js` son
+  literalmente esos 3 valores — un solo criterio de color en las 3 superficies del
+  proyecto (bot, dashboard, sitio).
+  **Contraste verificado con un script real (no a mano esta vez)** — luminancia
+  relativa de WCAG contra `#0a0912` (el fondo más oscuro de los 3 reales, el peor
+  caso): OK 11.10:1 (antes 11.36:1), WARN 11.85:1 (antes 12.93:1), DANGER **4.75:1**
+  (antes 7.16:1) — el único que pierde margen real, documentado en el propio
+  `webTheme.js`. Sigue pasando el mínimo AA (4.5:1) pero raspando; **no verificado
+  visualmente** (sin herramienta de screenshot en este entorno) — pendiente de que el
+  usuario le eche un vistazo una vez desplegado.
+
+**Verificación:** `node --check` en los 4 archivos tocados
+(`webTheme.js`/`dashboard/html.js`/`dashboard/views.js`/`website/layout.js`), un
+render real de `dashboard/html.js`'s `layout()` y `website/layout.js`'s `renderPage()`
+confirmando que los tokens quedan idénticos entre los dos procesos y que ningún
+`undefined` se filtró al CSS, `npx vitest run` completo en verde (119 archivos, 1157
+tests — mismo conteo, esto es CSS puro sin comportamiento JS nuevo que cubrir). Nada
+commiteado — working tree para el tooling externo del usuario, como siempre.
+
+**Con esto sí se cierran las 7 fases completas del plan de la auditoría UX/UI/Design
+System (2026-09-18)** — sin ningún ítem pendiente del plan en sí. El único punto
+abierto es la verificación visual del contraste de `WEB_STATUS_DANGER` mencionada
+arriba, que quedó explícitamente a cargo del usuario.
+
 ## Stack
 
 Node 22+, discord.js 14 (ESM, `"type": "module"` en `package.json`), Supabase

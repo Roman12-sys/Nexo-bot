@@ -1,10 +1,11 @@
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { createPunishLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { describeError } from '../../utils/errorMessages.js';
 import { revokePunishment } from '../../utils/punishEngine.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('unpunish')
@@ -60,7 +61,13 @@ export async function execute(interaction) {
     // secuencia duplicada en cada lugar.
     await revokePunishment(interaction.client, { guildId: interaction.guildId, userId: targetUser.id, roleId: cfg.punish_role_id, member });
 
-    await interaction.editReply({ content: `✅ Se le quitó la restricción a ${targetUser.tag}.` });
+    const embed = new EmbedBuilder()
+      .setColor(INDIGO_COLOR)
+      .setTitle('✅ Restricción removida')
+      .setDescription(`Se le quitó la restricción a **${targetUser.tag}**.`)
+      .setFooter({ text: BRAND_NAME })
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
 
     // Try/catch propio: ya se quitó la restricción y ya se confirmó — un log fallido
     // no debe mostrarle un error al staff.

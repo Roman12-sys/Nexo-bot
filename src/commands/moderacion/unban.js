@@ -1,12 +1,13 @@
 // Antes, desbanear solo se podía hacer desde el panel /sanciones (abrir → esperar a que
 // cargue la lista completa de baneados → buscar). Con muchos baneos, es lento comparado
 // con escribir directamente el usuario acá con autocomplete.
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { isStaff } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { createUnbanAutoLogEmbed } from '../../utils/logEmbeds.js';
 import { describeError } from '../../utils/errorMessages.js';
 import { recordModerationAction } from '../../utils/moderationActionsStore.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('unban')
@@ -45,7 +46,13 @@ export async function execute(interaction) {
   try {
     const user = await interaction.client.users.fetch(userId).catch(() => null);
     await interaction.guild.members.unban(userId, motivo);
-    await interaction.editReply({ content: `✅ Se desbaneó a ${user?.tag || userId}.` });
+    const embed = new EmbedBuilder()
+      .setColor(INDIGO_COLOR)
+      .setTitle('✅ Usuario desbaneado')
+      .setDescription(`Se desbaneó a **${user?.tag || userId}**.`)
+      .setFooter({ text: BRAND_NAME })
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
 
     // Try/catch propio: el desbaneo ya se aplicó y ya se confirmó — un log fallido no
     // debe mostrarle un error al staff (lo llevaría a reintentar uno ya aplicado).

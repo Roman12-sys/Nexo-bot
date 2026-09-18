@@ -48,6 +48,16 @@ export async function autocomplete(interaction) {
 
 export async function execute(interaction) {
   const itemId = interaction.options.getString('item');
+  await runBuy(interaction, itemId);
+}
+
+// Auditoría UX/UI (2026-09-18), hallazgo Importante del Top 20: /shop (mirar) y /buy
+// (comprar) eran dos comandos separados — ver y comprar exigía memorizar o copiar el
+// nombre del ítem entre uno y otro. Extraído a función reusable (mismo patrón que
+// runClear() en moderacion/clear.js, compartido con el botón rápido de /helpstaff) para
+// que el StringSelectMenu de /shop pueda disparar la MISMA lógica de compra sin
+// duplicarla — nunca dos caminos de cobro/entrega para el mismo ítem.
+export async function runBuy(interaction, itemId) {
   const item = await getShopItem(interaction.guildId, itemId);
 
   if (!item) {

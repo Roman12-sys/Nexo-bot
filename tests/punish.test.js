@@ -168,8 +168,8 @@ describe('/punish', () => {
     expect(member.roles.add).toHaveBeenCalledWith('role-sancionado', 'spam');
     expect(createActivePunishment).toHaveBeenCalledWith('guild-1', 'target-1', 'role-sancionado', null);
     expect(schedulePunishExpiry).not.toHaveBeenCalled();
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('ya no puede enviar') }));
-    expect(interaction.editReply.mock.calls[0][0].content).not.toContain('quita sola');
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('ya no puede enviar');
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.description).not.toContain('quita sola');
   });
 
   it('caso exitoso CON duración: programa la expiración y lo dice en la respuesta', async () => {
@@ -183,6 +183,6 @@ describe('/punish', () => {
       interaction.client,
       expect.objectContaining({ guildId: 'guild-1', userId: 'target-1', roleId: 'role-sancionado' }),
     );
-    expect(interaction.editReply.mock.calls[0][0].content).toContain('quita sola');
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('quita sola');
   });
 });

@@ -106,7 +106,17 @@ export async function execute(interaction) {
     new ButtonBuilder().setCustomId('sanciones_warns').setLabel('⚠️ Con advertencias').setStyle(ButtonStyle.Secondary),
   );
 
-  await interaction.reply({ content: 'Elegí qué querés revisar (o usá `/sanciones usuario:` para ver el historial de alguien puntual):', components: [row], flags: MessageFlags.Ephemeral });
+  // Auditoría UX/UI (2026-09-18), hallazgo Mejora: era el único punto de entrada de
+  // /sanciones en texto plano — el resto del panel (historial, listas paginadas) ya
+  // usa EmbedBuilder con INDIGO_COLOR desde siempre.
+  const embed = new EmbedBuilder()
+    .setColor(INDIGO_COLOR)
+    .setTitle('🛡️ Sanciones')
+    .setDescription('Elegí qué querés revisar, o usá `/sanciones usuario:` para ver el historial de alguien puntual.')
+    .setFooter({ text: BRAND_NAME })
+    .setTimestamp();
+
+  await interaction.reply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
 }
 
 registerButtonPrefix('sanciones_hist_page_', async (i) => {

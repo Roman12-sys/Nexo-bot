@@ -102,6 +102,7 @@ import {
   ButtonStyle,
   ChannelSelectMenuBuilder,
   RoleSelectMenuBuilder,
+  UserSelectMenuBuilder,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
   ModalBuilder,
@@ -112,8 +113,16 @@ import {
   MessageFlags,
 } from 'discord.js';
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
+import {
+  getEffectiveDailyRange,
+  getEffectiveWorkRange,
+  getEffectiveCrimeConfig,
+  getEffectiveRobConfig,
+  describeRange,
+  describePercent,
+} from '../../utils/economyTuning.js';
 import { getGuildCirculatingBalance, getTopBalances } from '../../utils/economyStore.js';
-import { isStaff, getDangerousRolePermission } from '../../utils/permissions.js';
+import { isStaff, isAdmin, getDangerousRolePermission } from '../../utils/permissions.js';
 import { resolveLiveSelfRoles } from '../../utils/selfRoles.js';
 import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
 import { getGuildAnnouncementTemplates } from '../../utils/announcementTemplatesStore.js';
@@ -129,6 +138,7 @@ import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
 import { registerModalPrefix } from '../../components/modals.js';
 import { logConfigChange } from './config.js';
+import { runBalanceAdjust, runBalanceSet } from '../moderacion/economiaStaff.js';
 
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutos, mismo criterio que /setup y /anuncio
 
@@ -391,18 +401,28 @@ function buildEconomyLogChannelEditView() {
   return { embeds: [embed], components: [selectRow, cancelRow] };
 }
 
-async function buildEconomiaScreen(guildId) {
+async function buildEconomiaScreen(guildId, interaction) {
   const circulating = await getGuildCirculatingBalance(guildId);
+  // Auditoría UX/UI (2026-09-18), hallazgo Importante del Top 20: hasta acá el panel
+  // solo tenía botones de lectura — acreditar/quitar/fijar balance seguía siendo 100%
+  // /economia-staff de memoria, la acción de staff más sensible del bot sin ninguna
+  // interfaz. "Ajustar" es Tier 2 (mismo gate que /economia-staff, isAdmin() — no
+  // isOwnerOrAdmin()) — se deshabilita para un Tier 1 igual que XP/Roles deshabilitan
+  // sus botones de edición para quien no puede usarlos.
+  const canAdjust = await isAdmin(interaction);
   const embed = baseEmbed('economia')
     .setDescription('El sistema económico de NEXO está **siempre activo** — a diferencia de moderación/XP, no tiene un interruptor propio.')
     .addFields(
       { name: 'Coins en circulación', value: `${circulating.toLocaleString('es-AR')}`, inline: true },
       { name: 'Comandos disponibles', value: '`/daily` `/work` `/crime` `/rob` `/coinflip` `/dado` `/slots` `/ruleta` `/bank` `/shop`' },
     );
-  embed.setFooter({ text: BRAND_NAME });
+  embed.setFooter({
+    text: canAdjust ? BRAND_NAME : `${BRAND_NAME} • 🔒 "Ajustar" requiere el rol de Administrador (/config rol-admin).`,
+  });
   const buttonsRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('staff_econ_ver').setLabel('Ver economía').setEmoji('📊').setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId('staff_econ_limites').setLabel('Límites').setEmoji('📏').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('staff_econ_adjust').setLabel('Ajustar').setEmoji('🛠️').setStyle(ButtonStyle.Secondary).setDisabled(!canAdjust),
     new ButtonBuilder().setCustomId('staff_econ_staff').setLabel('Staff').setEmoji('👮').setStyle(ButtonStyle.Secondary),
   );
   return { embeds: [embed], components: [buttonsRow, navRow('economia')] };
@@ -438,20 +458,161 @@ function buildEconomiaStaffView() {
   return { embeds: [embed], components: [backRow] };
 }
 
-function buildEconomiaLimitesView() {
+// Auditoría NEXO V (2026-09-18), hallazgo Crítico #2: esta vista decía textualmente que
+// los rangos de /daily /work /crime /rob "son fijos en el código... no son un ajuste
+// por-servidor" — falso desde el 15/09, cuando /config economia agregó exactamente ese
+// ajuste (economyTuning.js). staff.js nunca se actualizó tras esa fase, así que el panel
+// pensado como "la cara fácil" del bot le mentía a un admin sobre una feature que puede
+// haber configurado él mismo. Ahora llama las MISMAS getEffective*/describe* que ya usa
+// buildConfigSummaryEmbed (config.js) — nunca dos fuentes de verdad para el mismo dato.
+// Los topes/cooldowns que sí son fijos de verdad (tope de robo, escudo, cooldowns) se
+// marcan como tales explícitamente, en vez de mezclarlos sin aclarar con lo que sí varía.
+// Auditoría UX/UI (2026-09-18), hallazgo Mejora "/config economia sin ninguna
+// superficie visual": 5 subcomandos con hasta 5 parámetros numéricos cada uno (robo
+// pide los 5 de una) — candidato claro para modal. Tier 3 (isOwnerOrAdmin, mismo gate
+// que /config), no Tier 2 — /config economia YA es un comando de owner/Administrator
+// nativo, esto solo le suma una superficie visual al mismo gate, nunca lo baja.
+function buildEconomiaLimitesView(cfg, interaction) {
+  const daily = getEffectiveDailyRange(cfg);
+  const work = getEffectiveWorkRange(cfg);
+  const crime = getEffectiveCrimeConfig(cfg);
+  const rob = getEffectiveRobConfig(cfg);
+  const dailyCustom = cfg.economy_daily_min != null || cfg.economy_daily_max != null;
+  const workCustom = cfg.economy_work_min != null || cfg.economy_work_max != null;
+  const crimeCustom = cfg.economy_crime_min != null || cfg.economy_crime_max != null || cfg.economy_crime_success_percent != null;
+  const robCustom =
+    cfg.economy_rob_success_percent != null ||
+    cfg.economy_rob_steal_percent_min != null ||
+    cfg.economy_rob_steal_percent_max != null ||
+    cfg.economy_rob_fine_percent_min != null ||
+    cfg.economy_rob_fine_percent_max != null;
+
   const embed = baseEmbed('economia')
     .setTitle('📏 Economía — límites')
     .setDescription(
-      'Estos valores son **fijos en el código, iguales para todos los servidores** — no son un ajuste por-servidor en guild_config, ' +
-        'así que no hay nada que "guardar" acá. Mostrados solo como referencia rápida.',
+      'Rangos y probabilidades: valor **real de este servidor** — "por defecto" si nadie los tocó, "personalizado" si se ajustaron ' +
+        'con `/config economia`. Los topes y cooldowns marcados "fijo" son iguales para todos los servidores, sin excepción.',
     )
     .addFields(
-      { name: '/rob', value: 'Éxito 40% · roba 10-25% del wallet de la víctima (tope 5.000) · si falla, multa 5-15% (tope 2.000, va a la víctima) · escudo de víctima 3h · cooldown del atacante 1h', inline: false },
-      { name: '/crime', value: 'Éxito 60% · cooldown 45 min · paga 150-400 si sale bien · multa 50-150 si falla (se destruye, no va a nadie — sumidero real)', inline: false },
+      { name: '/daily', value: `Recompensa: ${describeRange(daily.min, daily.max, dailyCustom)}`, inline: true },
+      { name: '/work', value: `Recompensa: ${describeRange(work.min, work.max, workCustom)}`, inline: true },
+      {
+        name: '/crime',
+        value: `Paga ${describeRange(crime.min, crime.max, crimeCustom)} · éxito ${describePercent(crime.successChance, crimeCustom)} · multa 50-150 si falla (fijo, se destruye) · cooldown 45 min (fijo)`,
+      },
+      {
+        name: '/rob',
+        value: `Éxito ${describePercent(rob.successChance, robCustom)} · roba ${Math.round(rob.stealPercentMin * 100)}-${Math.round(rob.stealPercentMax * 100)}% del wallet (tope 5.000, fijo) · si falla, multa ${Math.round(rob.finePercentMin * 100)}-${Math.round(rob.finePercentMax * 100)}% (tope 2.000, fijo, va a la víctima) · escudo de víctima 3h (fijo) · cooldown del atacante 1h (fijo)`,
+      },
     );
-  embed.setFooter({ text: 'Convertir esto en un ajuste por-servidor sería una feature nueva, no algo que este panel ya tenga para mostrar.' });
+  const canEdit = isOwnerOrAdmin(interaction);
+  embed.setFooter({
+    text: canEdit
+      ? 'Elegí un sistema del select de abajo para editarlo acá mismo, o usá /config economia directo.'
+      : '🔒 Editar requiere ser dueño o Administrator — usá /config economia si lo sos.',
+  });
   const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
-  return { embeds: [embed], components: [backRow] };
+  const components = [backRow];
+  if (canEdit) {
+    const editSelect = new StringSelectMenuBuilder()
+      .setCustomId('staff_econ_edit_select')
+      .setPlaceholder('✏️ Editar un sistema...')
+      .addOptions(
+        { label: 'Diario (/daily)', value: 'diario', emoji: '🎁' },
+        { label: 'Trabajo (/work)', value: 'trabajo', emoji: '💼' },
+        { label: 'Crimen (/crime)', value: 'crimen', emoji: '🕵️' },
+        { label: 'Robo (/rob)', value: 'robo', emoji: '🥷' },
+      );
+    components.unshift(new ActionRowBuilder().addComponents(editSelect));
+  }
+  return { embeds: [embed], components };
+}
+
+const ECONOMIA_EDIT_TITLES = { diario: 'Economía — /daily', trabajo: 'Economía — /work', crimen: 'Economía — /crime', robo: 'Economía — /rob' };
+
+function numberInput(customId, label, value) {
+  return new TextInputBuilder().setCustomId(customId).setLabel(label).setStyle(TextInputStyle.Short).setValue(String(value)).setRequired(true);
+}
+
+function buildEconomiaEditModal(system, cfg) {
+  const modal = new ModalBuilder().setCustomId(`modal_staff_econ_edit_${system}`).setTitle(ECONOMIA_EDIT_TITLES[system]);
+  const rows = [];
+
+  if (system === 'diario' || system === 'trabajo') {
+    const range = system === 'diario' ? getEffectiveDailyRange(cfg) : getEffectiveWorkRange(cfg);
+    rows.push(numberInput('minimo', 'Monto mínimo', range.min), numberInput('maximo', 'Monto máximo', range.max));
+  } else if (system === 'crimen') {
+    const crime = getEffectiveCrimeConfig(cfg);
+    rows.push(
+      numberInput('minimo', 'Monto mínimo si sale bien', crime.min),
+      numberInput('maximo', 'Monto máximo si sale bien', crime.max),
+      numberInput('exito', 'Probabilidad de éxito (1-100)', Math.round(crime.successChance * 100)),
+    );
+  } else if (system === 'robo') {
+    const rob = getEffectiveRobConfig(cfg);
+    rows.push(
+      numberInput('exito', 'Probabilidad de éxito (1-100)', Math.round(rob.successChance * 100)),
+      numberInput('robo-minimo', '% mínimo robado del wallet (1-100)', Math.round(rob.stealPercentMin * 100)),
+      numberInput('robo-maximo', '% máximo robado del wallet (1-100)', Math.round(rob.stealPercentMax * 100)),
+      numberInput('multa-minimo', '% mínimo de multa si falla (1-100)', Math.round(rob.finePercentMin * 100)),
+      numberInput('multa-maximo', '% máximo de multa si falla (1-100)', Math.round(rob.finePercentMax * 100)),
+    );
+  }
+
+  modal.addComponents(...rows.map((input) => new ActionRowBuilder().addComponents(input)));
+  return modal;
+}
+
+// ---------- Sub-vista de edición: ajuste de balance (hallazgo Importante #8 del Top
+// 20, "ajuste de balance/XP de staff no está en /staff") ----------
+// Mismo patrón que /rolreacciones: UserSelectMenu para elegir a quién, botones para
+// elegir QUÉ hacer (agregar/quitar/establecer no caben en un TextInput sin ambigüedad),
+// y recién ahí un modal para cantidad/motivo. Los 3 pasos revalidan isAdmin() cada uno
+// — un usuario que arma la URL de la interacción a mano no debería poder saltarse el
+// gate solo porque el botón de arriba ya estaba deshabilitado para él.
+function buildEconomiaAdjustUserSelectView() {
+  const embed = baseEmbed('economia')
+    .setTitle('🛠️ Ajustar balance — elegí a quién')
+    .setDescription('Elegí el usuario cuyo balance querés agregar, quitar o fijar.');
+  embed.setFooter({ text: BRAND_NAME });
+  const selectRow = new ActionRowBuilder().addComponents(
+    new UserSelectMenuBuilder().setCustomId('staff_econ_adjust_user').setPlaceholder('Elegí un usuario...'),
+  );
+  const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+  return { embeds: [embed], components: [selectRow, backRow] };
+}
+
+function buildEconomiaAdjustTypeView(targetUser) {
+  const embed = baseEmbed('economia')
+    .setTitle('🛠️ Ajustar balance')
+    .setDescription(`Elegí qué hacer con el balance de ${targetUser}.`);
+  embed.setFooter({ text: BRAND_NAME });
+  const buttonsRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`staff_econ_adjust_type_add_${targetUser.id}`).setLabel('Agregar').setEmoji('➕').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId(`staff_econ_adjust_type_remove_${targetUser.id}`).setLabel('Quitar').setEmoji('➖').setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId(`staff_econ_adjust_type_set_${targetUser.id}`).setLabel('Establecer').setEmoji('🛠️').setStyle(ButtonStyle.Secondary),
+  );
+  const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
+  return { embeds: [embed], components: [buttonsRow, backRow] };
+}
+
+function buildAdjustAmountModal(type, targetUserId) {
+  const titles = { add: 'Agregar monedas', remove: 'Quitar monedas', set: 'Establecer balance' };
+  const modal = new ModalBuilder().setCustomId(`modal_staff_econ_adjust_${type}_${targetUserId}`).setTitle(titles[type]);
+  const cantidad = new TextInputBuilder()
+    .setCustomId('cantidad')
+    .setLabel(type === 'set' ? 'Balance exacto a fijar' : 'Cantidad')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder(type === 'set' ? 'Ej: 5000' : 'Ej: 500')
+    .setRequired(true);
+  const motivo = new TextInputBuilder()
+    .setCustomId('motivo')
+    .setLabel('Motivo (opcional)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(512)
+    .setRequired(false);
+  modal.addComponents(new ActionRowBuilder().addComponents(cantidad), new ActionRowBuilder().addComponents(motivo));
+  return modal;
 }
 
 // FASE 4 (XP/Roles funcional) — bug real corregido de paso: el valor real de
@@ -634,7 +795,13 @@ function buildCanalesScreen(cfg, interaction) {
     text: canEdit ? 'Logs de moderación se edita desde el módulo Moderación.' : '🔒 Editar requiere ser dueño o Administrator.',
   });
   const editRow = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('staff_edit_activitylog_channel').setLabel('Logs de actividad').setEmoji('📋').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
+    // Auditoría UX/UI (2026-09-18), hallazgo Bajo: duplicaba el 📋 que ya usa el botón
+    // de "Canal de logs" de Moderación (pantallas distintas, pero el mismo ícono para
+    // dos canales de log distintos no ayuda a distinguirlos si un admin las compara).
+    // 📈 en vez de uno inventado — es el mismo ícono que ya usa el módulo Digest
+    // semanal (categoría 'digest' de STAFF_CATEGORIES), que es justo lo que más postea
+    // a este canal.
+    new ButtonBuilder().setCustomId('staff_edit_activitylog_channel').setLabel('Logs de actividad').setEmoji('📈').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
     new ButtonBuilder().setCustomId('staff_edit_economylog_channel').setLabel('Logs de economía').setEmoji('💰').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
     new ButtonBuilder().setCustomId('staff_edit_confession_channel').setLabel('Confesiones').setEmoji('🤫').setStyle(ButtonStyle.Secondary).setDisabled(!canEdit),
   );
@@ -788,7 +955,7 @@ async function buildScreen(screen, interaction) {
   if (screen === 'home') return buildHomeScreen(interaction);
   if (screen === 'config') return buildConfigScreen();
   if (screen === 'sistema') return buildSistemaScreen(interaction);
-  if (screen === 'economia') return buildEconomiaScreen(interaction.guildId); // no depende de guild_config — sin toggle propio
+  if (screen === 'economia') return buildEconomiaScreen(interaction.guildId, interaction); // no depende de guild_config — sin toggle propio
   if (screen === 'sorteos') return buildSorteosScreen(interaction.guildId);
   if (screen === 'anuncios') return buildAnunciosScreen(interaction.guildId);
   if (screen === 'estadisticas') return buildEstadisticasScreen(interaction.guildId);
@@ -899,7 +1066,137 @@ registerButtonPrefix('staff_econ_staff', async (i) => {
 });
 
 registerButtonPrefix('staff_econ_limites', async (i) => {
-  await i.update(buildEconomiaLimitesView());
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildEconomiaLimitesView(cfg, i));
+});
+
+registerSelectPrefix('staff_econ_edit_select', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const cfg = await getGuildConfig(i.guildId);
+  await i.showModal(buildEconomiaEditModal(i.values[0], cfg));
+});
+
+// Mismo validador que handleEconomiaSubcommand (config.js) — a propósito NO se
+// reimporta desde ahí (esas funciones leen interaction.options, un modal no tiene eso)
+// pero las reglas (min<=max, 1-100 en porcentajes) son idénticas para que nunca diverja
+// lo que /config economia acepta de lo que este modal acepta.
+function parseModalInt(i, fieldId) {
+  const raw = i.fields.getTextInputValue(fieldId).trim();
+  const value = Number.parseInt(raw, 10);
+  return Number.isInteger(value) && String(value) === raw ? value : null;
+}
+
+registerModalPrefix('modal_staff_econ_edit_', async (i) => {
+  if (!isOwnerOrAdmin(i)) {
+    return i.reply({ content: '❌ Solo el dueño del servidor o un administrador puede cambiar esto.', flags: MessageFlags.Ephemeral });
+  }
+  const system = i.customId.slice('modal_staff_econ_edit_'.length);
+  const invalid = (msg) => i.reply({ content: `❌ ${msg}`, flags: MessageFlags.Ephemeral });
+
+  let patch;
+  let logLine;
+
+  if (system === 'diario' || system === 'trabajo') {
+    const minimo = parseModalInt(i, 'minimo');
+    const maximo = parseModalInt(i, 'maximo');
+    if (minimo === null || maximo === null || minimo < 1 || maximo < 1 || minimo > 100000 || maximo > 100000) {
+      return invalid('Ingresá números enteros entre 1 y 100.000.');
+    }
+    if (minimo > maximo) return invalid('El mínimo no puede ser mayor que el máximo.');
+    const column = system === 'diario' ? 'daily' : 'work';
+    const comando = system === 'diario' ? '/daily' : '/work';
+    patch = { [`economy_${column}_min`]: minimo, [`economy_${column}_max`]: maximo };
+    logLine = `💰 Rango de ${comando} → ${minimo}–${maximo} (desde /staff)`;
+  } else if (system === 'crimen') {
+    const minimo = parseModalInt(i, 'minimo');
+    const maximo = parseModalInt(i, 'maximo');
+    const exito = parseModalInt(i, 'exito');
+    if (minimo === null || maximo === null || minimo < 1 || maximo < 1 || minimo > 100000 || maximo > 100000) {
+      return invalid('Los montos tienen que ser números enteros entre 1 y 100.000.');
+    }
+    if (exito === null || exito < 1 || exito > 100) return invalid('El % de éxito tiene que ser un número entero entre 1 y 100.');
+    if (minimo > maximo) return invalid('El mínimo no puede ser mayor que el máximo.');
+    patch = { economy_crime_min: minimo, economy_crime_max: maximo, economy_crime_success_percent: exito };
+    logLine = `💰 /crime → ${minimo}–${maximo} monedas, ${exito}% de éxito (desde /staff)`;
+  } else if (system === 'robo') {
+    const exito = parseModalInt(i, 'exito');
+    const roboMin = parseModalInt(i, 'robo-minimo');
+    const roboMax = parseModalInt(i, 'robo-maximo');
+    const multaMin = parseModalInt(i, 'multa-minimo');
+    const multaMax = parseModalInt(i, 'multa-maximo');
+    const percents = [exito, roboMin, roboMax, multaMin, multaMax];
+    if (percents.some((v) => v === null || v < 1 || v > 100)) {
+      return invalid('Todos los porcentajes tienen que ser números enteros entre 1 y 100.');
+    }
+    if (roboMin > roboMax || multaMin > multaMax) return invalid('El mínimo no puede ser mayor que el máximo (ni en robo ni en multa).');
+    patch = {
+      economy_rob_success_percent: exito,
+      economy_rob_steal_percent_min: roboMin,
+      economy_rob_steal_percent_max: roboMax,
+      economy_rob_fine_percent_min: multaMin,
+      economy_rob_fine_percent_max: multaMax,
+    };
+    logLine = `💰 /rob → ${exito}% éxito, roba ${roboMin}–${roboMax}%, multa ${multaMin}–${multaMax}% (desde /staff)`;
+  } else {
+    return; // customId inesperado — nunca debería alcanzarse
+  }
+
+  await setGuildConfig(i.guildId, patch);
+  await logConfigChange(i, logLine);
+
+  const freshCfg = await getGuildConfig(i.guildId);
+  await i.update(buildEconomiaLimitesView(freshCfg, i));
+});
+
+const ADJUST_ADMIN_ONLY_MESSAGE =
+  '❌ Este comando requiere el rol de Administrador configurado con `/config rol-admin` — no es un permiso nativo de Discord, un Moderador no puede usarlo.';
+
+registerButtonPrefix('staff_econ_adjust', async (i) => {
+  if (!(await isAdmin(i))) return i.reply({ content: ADJUST_ADMIN_ONLY_MESSAGE, flags: MessageFlags.Ephemeral });
+  await i.update(buildEconomiaAdjustUserSelectView());
+});
+
+registerSelectPrefix('staff_econ_adjust_user', async (i) => {
+  if (!(await isAdmin(i))) return i.reply({ content: ADJUST_ADMIN_ONLY_MESSAGE, flags: MessageFlags.Ephemeral });
+  const targetUser = i.users.first();
+  await i.update(buildEconomiaAdjustTypeView(targetUser));
+});
+
+registerButtonPrefix('staff_econ_adjust_type_', async (i) => {
+  if (!(await isAdmin(i))) return i.reply({ content: ADJUST_ADMIN_ONLY_MESSAGE, flags: MessageFlags.Ephemeral });
+  const [type, targetUserId] = i.customId.slice('staff_econ_adjust_type_'.length).split('_');
+  await i.showModal(buildAdjustAmountModal(type, targetUserId));
+});
+
+registerModalPrefix('modal_staff_econ_adjust_', async (i) => {
+  if (!(await isAdmin(i))) return i.reply({ content: ADJUST_ADMIN_ONLY_MESSAGE, flags: MessageFlags.Ephemeral });
+
+  const [type, targetUserId] = i.customId.slice('modal_staff_econ_adjust_'.length).split('_');
+  const cantidad = parseInt(i.fields.getTextInputValue('cantidad'), 10);
+  const minValue = type === 'set' ? 0 : 1;
+  if (Number.isNaN(cantidad) || cantidad < minValue) {
+    return i.reply({
+      content: `❌ Ingresá un número entero ${type === 'set' ? 'de 0 o más' : 'de 1 o más'}.`,
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const motivo = i.fields.getTextInputValue('motivo') || 'Sin motivo especificado';
+
+  const targetUser = await i.client.users.fetch(targetUserId).catch(() => null);
+  if (!targetUser) {
+    return i.reply({ content: '❌ No se pudo encontrar a ese usuario.', flags: MessageFlags.Ephemeral });
+  }
+
+  // Público (no ephemeral) — mismo criterio que /economia-staff directo: un ajuste de
+  // balance es visible, no una acción que deba esconderse del server.
+  await i.deferReply();
+  if (type === 'set') {
+    await runBalanceSet(i, targetUser, cantidad, motivo);
+  } else {
+    await runBalanceAdjust(i, targetUser, type === 'add' ? 1 : -1, cantidad, motivo);
+  }
 });
 
 registerSelectPrefix('staff_modlog_channel_select', async (i) => {

@@ -98,7 +98,7 @@ describe('/unpunish', () => {
       roleId: 'role-sancionado',
       member: targetMember,
     });
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se le quitó la restricción') }));
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('Se le quitó la restricción');
   });
 
   it('si revokePunishment falla, responde con error en vez de reventar o responder dos veces', async () => {

@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
-import { BRAND_COLOR, BRAND_NAME, NEUTRAL_COLOR } from '../../utils/embeds.js';
+import { BRAND_COLOR, BRAND_NAME, NEUTRAL_COLOR, buildProgressBar } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { eventBus } from '../../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
@@ -107,12 +107,18 @@ registerButtonPrefix('encuesta_cerrar_', async (interaction) => {
   // sea, sigue con lo que ya tenía en vez de romper el cierre.
   // MOTIVO: bug reportado en vivo 2026-09-01 (votos en 0 al cerrar).
   const message = await interaction.message.fetch().catch(() => interaction.message);
-  const counts = message.reactions.cache
+  // -1 porque el bot reaccionó primero para sembrar cada opción — no es un voto real.
+  const results = message.reactions.cache
     .filter((r) => ALL_POLL_EMOJIS.includes(r.emoji.name))
     .sort((a, b) => ALL_POLL_EMOJIS.indexOf(a.emoji.name) - ALL_POLL_EMOJIS.indexOf(b.emoji.name))
-    // -1 porque el bot reaccionó primero para sembrar cada opción — no es un voto real.
-    .map((r) => `${r.emoji.name} — **${Math.max(0, r.count - 1)}** voto(s)`)
-    .join('\n');
+    .map((r) => ({ emoji: r.emoji.name, votes: Math.max(0, r.count - 1) }));
+
+  // Auditoría UX/UI (2026-09-18), hallazgo Mejora: resultados como pared de números
+  // ("👍 — 12 voto(s)") sin ninguna referencia visual de cuál opción ganó de un
+  // vistazo — mismo patrón que ya usa /metricas (barra relativa al MÁXIMO, no al total,
+  // para que se note claro cuál opción lidera).
+  const maxVotes = Math.max(0, ...results.map((r) => r.votes));
+  const counts = results.map((r) => `${r.emoji} ${buildProgressBar(r.votes, maxVotes)} — **${r.votes}** voto(s)`).join('\n');
 
   const originalEmbed = message.embeds[0];
   const closedEmbed = EmbedBuilder.from(originalEmbed)

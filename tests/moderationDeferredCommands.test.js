@@ -73,7 +73,7 @@ describe('/timeout', () => {
     await timeoutExecute(interaction);
 
     expect(targetMember.timeout).toHaveBeenCalledWith(3600000, 'flood');
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se silenció') }));
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('Se silenció');
     expect(recordModerationAction).toHaveBeenCalledWith('guild-1', 'target-1', expect.objectContaining({ actionType: 'timeout', extra: { until: expect.any(Number) } }));
   });
 });
@@ -121,7 +121,7 @@ describe('/lock', () => {
     await lockExecute(interaction);
 
     expect(interaction.channel.permissionOverwrites.edit).toHaveBeenCalledWith('guild-1', { SendMessages: false });
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('bloqueado') }));
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.title).toContain('bloqueado');
   });
 
   it('si el edit de permisos falla, responde con error en vez de reventar', async () => {
@@ -140,7 +140,7 @@ describe('/unlock', () => {
     await unlockExecute(interaction);
 
     expect(interaction.channel.permissionOverwrites.edit).toHaveBeenCalledWith('guild-1', { SendMessages: null });
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('desbloqueado') }));
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.title).toContain('desbloqueado');
   });
 });
 
@@ -222,7 +222,7 @@ describe('/unban', () => {
     await unbanExecute(interaction);
 
     expect(interaction.guild.members.unban).toHaveBeenCalledWith('target-1', 'sin motivo');
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se desbaneó') }));
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('Se desbaneó');
   });
 
   it('usuario no baneado: responde con error en vez de reventar o responder dos veces', async () => {

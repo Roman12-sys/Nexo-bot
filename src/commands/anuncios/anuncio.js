@@ -13,7 +13,7 @@ import {
   AttachmentBuilder,
   MessageFlags,
 } from 'discord.js';
-import { buildAnuncioEmbed, SKY_COLOR } from '../../utils/embeds.js';
+import { buildAnuncioEmbed, SKY_COLOR, BRAND_COLOR, LOG_COLOR, GOLD_COLOR, WARN_COLOR, SUCCESS_COLOR } from '../../utils/embeds.js';
 import { isStaff } from '../../utils/permissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
@@ -506,13 +506,17 @@ export const data = new SlashCommandBuilder()
       .setName('color_predefinido')
       .setDescription('Elegí un color de la paleta (opcional, podés poner un HEX propio en el panel)')
       .setRequired(false)
+      // Auditoría NEXO V (2026-09-18): antes hardcodeaba hex a mano que duplicaban (o
+      // casi duplicaban, ver el "Azul" viejo #3A86FF vs. el SKY_COLOR real #4EA8DE) los
+      // colores del sistema — ahora importa las constantes con nombre, nunca redigita
+      // un hex suelto.
       .addChoices(
-        { name: '🟣 Púrpura Nexo (predeterminado)', value: '#7F5AF0' },
-        { name: '🔴 Rojo', value: '#E63946' },
-        { name: '🟠 Naranja', value: '#F4A261' },
-        { name: '🟡 Dorado', value: '#E9C46A' },
-        { name: '🟢 Verde', value: '#2A9D8F' },
-        { name: '🔵 Azul', value: '#3A86FF' },
+        { name: '🟣 Púrpura Nexo (predeterminado)', value: BRAND_COLOR },
+        { name: '🔴 Rojo', value: LOG_COLOR },
+        { name: '🟠 Dorado', value: GOLD_COLOR },
+        { name: '🟡 Advertencia', value: WARN_COLOR },
+        { name: '🟢 Verde', value: SUCCESS_COLOR },
+        { name: '🔵 Azul', value: SKY_COLOR },
         { name: '⚪ Blanco', value: '#FFFFFF' },
         { name: '⚫ Negro', value: '#111111' },
       ),

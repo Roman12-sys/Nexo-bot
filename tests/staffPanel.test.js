@@ -7,8 +7,17 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 // Bloque 1) — y (3) que cada pantalla muestre datos REALES de guild_config, nunca
 // inventados.
 const isStaff = vi.fn();
+const isAdmin = vi.fn();
 const getDangerousRolePermission = vi.fn(() => null);
-vi.mock('../src/utils/permissions.js', () => ({ isStaff, getDangerousRolePermission }));
+vi.mock('../src/utils/permissions.js', () => ({ isStaff, isAdmin, getDangerousRolePermission }));
+
+// Ajuste de balance (hallazgo Importante #8 del Top 20, auditoría UX/UI 2026-09-18) —
+// mismo criterio que anuncio.js más abajo: staff.js llama runBalanceAdjust/runBalanceSet
+// como funciones externas, así que se mockean acá (su propio comportamiento real ya
+// está cubierto por buy.test.js/economiaStaffPanel.test.js — no hace falta duplicarlo).
+const runBalanceAdjust = vi.fn().mockResolvedValue(undefined);
+const runBalanceSet = vi.fn().mockResolvedValue(undefined);
+vi.mock('../src/commands/moderacion/economiaStaff.js', () => ({ runBalanceAdjust, runBalanceSet }));
 
 const getGuildConfig = vi.fn();
 const setGuildConfig = vi.fn().mockResolvedValue(undefined);
@@ -117,6 +126,7 @@ function makeInteraction({
     },
     reply: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
+    deferReply: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -138,15 +148,19 @@ async function nav(base, customId) {
 }
 // Selects (Fase 2) — `values` es lo elegido; `roles` simula el Collection que
 // discord.js resuelve para un RoleSelectMenu (con .first()), igual criterio que
-// anuncio.js ya usa para su select de mención.
-async function navSelect(base, customId, { values = [], role = null } = {}) {
+// anuncio.js ya usa para su select de mención. `user` (Fase 5, ajuste de balance)
+// simula lo mismo para un UserSelectMenu — discord.js real resuelve `i.users.first()`.
+async function navSelect(base, customId, { values = [], role = null, user = null } = {}) {
   const clicked = {
     ...base,
     customId,
     values,
     roles: { first: () => role },
+    users: { first: () => user },
     update: vi.fn().mockResolvedValue(undefined),
+    reply: vi.fn().mockResolvedValue(undefined),
     followUp: vi.fn().mockResolvedValue(undefined),
+    showModal: vi.fn().mockResolvedValue(undefined),
   };
   await routeSelect(clicked);
   return clicked;
@@ -202,6 +216,7 @@ const FULL_CONFIG = {
 beforeEach(() => {
   vi.clearAllMocks();
   isStaff.mockResolvedValue(true);
+  isAdmin.mockResolvedValue(true);
   getGuildConfig.mockResolvedValue({ ...FULL_CONFIG });
   pingSupabase.mockResolvedValue({ ok: true, ms: 55 });
   getMissingBotPermissions.mockReturnValue([]);
@@ -595,16 +610,41 @@ describe('/staff — Fase 3: Economía (solo lectura, sin toggles inventados)', 
     );
   });
 
-  it('"Límites" muestra los valores reales de /rob y /crime, aclarando que son fijos por código', async () => {
+  it('"Límites" muestra el tuning real (por defecto) de /daily /work /crime /rob, nunca la mentira de "fijo para todos"', async () => {
     const interaction = makeInteraction();
     await execute(interaction);
     await nav(interaction, 'staff_nav_economia');
     const clicked = await nav(interaction, 'staff_econ_limites');
 
     const payload = payloadOf(clicked);
-    expect(payload.embeds[0].data.description).toContain('fijos en el código');
-    expect(fieldValue(payload, '/rob')).toContain('40%');
-    expect(fieldValue(payload, '/crime')).toContain('60%');
+    // Auditoría NEXO V (2026-09-18): esta vista decía textualmente que el tuning era
+    // "fijo en el código... no es un ajuste por-servidor" — falso desde que existe
+    // /config economia. Ya no debe afirmar eso, y debe señalar el comando real.
+    expect(payload.embeds[0].data.description).not.toContain('fijos en el código');
+    expect(payload.embeds[0].data.footer.text).toContain('/config economia');
+    expect(fieldValue(payload, '/daily')).toContain('100–300 (por defecto)');
+    expect(fieldValue(payload, '/work')).toContain('50–150 (por defecto)');
+    expect(fieldValue(payload, '/rob')).toContain('40% (por defecto)');
+    expect(fieldValue(payload, '/crime')).toContain('60% (por defecto)');
+  });
+
+  it('"Límites" refleja el tuning PERSONALIZADO de este server, nunca solo el default global', async () => {
+    getGuildConfig.mockResolvedValue({
+      ...FULL_CONFIG,
+      economy_daily_min: 500,
+      economy_daily_max: 900,
+      economy_rob_success_percent: 25,
+    });
+    const interaction = makeInteraction();
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_economia');
+    const clicked = await nav(interaction, 'staff_econ_limites');
+
+    const payload = payloadOf(clicked);
+    expect(fieldValue(payload, '/daily')).toContain('500–900 (personalizado)');
+    expect(fieldValue(payload, '/rob')).toContain('25% (personalizado)');
+    // /work no se tocó en este server — sigue mostrando el default, sin confundirlo con personalizado.
+    expect(fieldValue(payload, '/work')).toContain('50–150 (por defecto)');
   });
 
   it('"Volver" desde cualquier sub-vista de Economía usa el mismo botón genérico que Moderación y regresa a Economía', async () => {
@@ -621,6 +661,260 @@ describe('/staff — Fase 3: Economía (solo lectura, sin toggles inventados)', 
 function makeRole(id, { position = 1, permissions = { has: () => false } } = {}) {
   return { id, position, permissions, toString: () => `<@&${id}>` };
 }
+
+function makeStaffUser(id = 'target-1', tag = 'target-1#0001') {
+  return { id, tag, toString: () => `<@${id}>` };
+}
+
+// Auditoría UX/UI (2026-09-18), hallazgo Importante #8 del Top 20: "ajuste de
+// balance/XP de staff no está en /staff" — acreditar balance seguía siendo 100%
+// /economia-staff de memoria. Este flujo (UserSelect → 3 botones de tipo → modal de
+// cantidad/motivo) es Tier 2 (isAdmin, no isOwnerOrAdmin) — lo más importante a probar
+// acá es que las 3 superficies (botón, select, botón de tipo, modal) revalidan el gate
+// cada una por su cuenta, nunca solo el botón inicial deshabilitado.
+describe('/staff — ajuste de balance (UserSelect + botones + modal, Tier 2)', () => {
+  it('el botón "Ajustar" viene deshabilitado para un Tier 1 (isAdmin false), habilitado para Tier 2', async () => {
+    isAdmin.mockResolvedValue(false);
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_economia');
+
+    const adjustButton = payloadOf(clicked)
+      .components[0].components.find((c) => c.data.custom_id === 'staff_econ_adjust');
+    expect(adjustButton.data.disabled).toBe(true);
+
+    isAdmin.mockResolvedValue(true);
+    const clickedAdmin = await nav(interaction, 'staff_nav_economia');
+    const adjustButtonAdmin = payloadOf(clickedAdmin)
+      .components[0].components.find((c) => c.data.custom_id === 'staff_econ_adjust');
+    expect(adjustButtonAdmin.data.disabled).toBe(false);
+  });
+
+  it('"Ajustar" con Tier 2 real muestra el UserSelect; con Tier 1 se rechaza aunque se fuerce el click', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_economia');
+
+    const clicked = await nav(interaction, 'staff_econ_adjust');
+    expect(customIdsOf(payloadOf(clicked))).toContain('staff_econ_adjust_user');
+
+    isAdmin.mockResolvedValue(false);
+    const rejected = await nav(interaction, 'staff_econ_adjust');
+    expect(rejected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('/config rol-admin') }));
+  });
+
+  it('elegir un usuario del select muestra los 3 botones de tipo, con el ID del usuario codificado', async () => {
+    const interaction = makeInteraction();
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_economia');
+    await nav(interaction, 'staff_econ_adjust');
+
+    const target = makeStaffUser('target-9', 'target-9#0001');
+    const clicked = await navSelect(interaction, 'staff_econ_adjust_user', { values: ['target-9'], user: target });
+
+    const customIds = customIdsOf(payloadOf(clicked));
+    expect(customIds).toContain('staff_econ_adjust_type_add_target-9');
+    expect(customIds).toContain('staff_econ_adjust_type_remove_target-9');
+    expect(customIds).toContain('staff_econ_adjust_type_set_target-9');
+  });
+
+  it('el select revalida isAdmin — un Tier 1 no puede saltearse el gate solo con la URL del componente', async () => {
+    const interaction = makeInteraction();
+    isAdmin.mockResolvedValue(false);
+    const rejected = await navSelect(interaction, 'staff_econ_adjust_user', { values: ['target-1'], user: makeStaffUser() });
+
+    expect(rejected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('/config rol-admin') }));
+  });
+
+  it('clickear "Agregar" abre el modal correcto; con Tier 1 se rechaza sin abrir nada', async () => {
+    const interaction = makeInteraction();
+    const clicked = await nav(interaction, 'staff_econ_adjust_type_add_target-1');
+
+    expect(clicked.showModal).toHaveBeenCalledTimes(1);
+    expect(clicked.showModal.mock.calls[0][0].data.custom_id).toBe('modal_staff_econ_adjust_add_target-1');
+
+    isAdmin.mockResolvedValue(false);
+    const rejected = await nav(interaction, 'staff_econ_adjust_type_remove_target-1');
+    expect(rejected.showModal).not.toHaveBeenCalled();
+    expect(rejected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('/config rol-admin') }));
+  });
+
+  it('confirmar el modal de "Agregar" delega en runBalanceAdjust con dirección +1, tras deferir público', async () => {
+    const interaction = makeInteraction();
+    interaction.client.users = { fetch: vi.fn(async (id) => makeStaffUser(id)) };
+
+    const clicked = await navModal(interaction, 'modal_staff_econ_adjust_add_target-1', { cantidad: '500', motivo: 'evento' });
+
+    expect(clicked.deferReply).toHaveBeenCalledWith(); // sin flags — público, mismo criterio que /economia-staff
+    expect(runBalanceAdjust).toHaveBeenCalledWith(clicked, expect.objectContaining({ id: 'target-1' }), 1, 500, 'evento');
+    expect(runBalanceSet).not.toHaveBeenCalled();
+  });
+
+  it('confirmar el modal de "Quitar" delega en runBalanceAdjust con dirección -1', async () => {
+    const interaction = makeInteraction();
+    interaction.client.users = { fetch: vi.fn(async (id) => makeStaffUser(id)) };
+
+    const clicked = await navModal(interaction, 'modal_staff_econ_adjust_remove_target-1', { cantidad: '200' });
+
+    expect(runBalanceAdjust).toHaveBeenCalledWith(clicked, expect.objectContaining({ id: 'target-1' }), -1, 200, 'Sin motivo especificado');
+  });
+
+  it('confirmar el modal de "Establecer" delega en runBalanceSet, no en runBalanceAdjust', async () => {
+    const interaction = makeInteraction();
+    interaction.client.users = { fetch: vi.fn(async (id) => makeStaffUser(id)) };
+
+    const clicked = await navModal(interaction, 'modal_staff_econ_adjust_set_target-1', { cantidad: '0', motivo: 'reset' });
+
+    expect(runBalanceSet).toHaveBeenCalledWith(clicked, expect.objectContaining({ id: 'target-1' }), 0, 'reset');
+    expect(runBalanceAdjust).not.toHaveBeenCalled();
+  });
+
+  it('cantidad inválida (no numérica, o negativa) rechaza sin llamar a runBalanceAdjust/runBalanceSet', async () => {
+    const interaction = makeInteraction();
+    interaction.client.users = { fetch: vi.fn(async (id) => makeStaffUser(id)) };
+
+    const rejected1 = await navModal(interaction, 'modal_staff_econ_adjust_add_target-1', { cantidad: 'mil' });
+    expect(rejected1.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('número entero') }));
+
+    const rejected2 = await navModal(interaction, 'modal_staff_econ_adjust_add_target-1', { cantidad: '0' });
+    expect(rejected2.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('número entero') }));
+
+    // "establecer" sí admite 0 (fijar el balance en cero) — solo agregar/quitar exigen 1+.
+    const okSet = await navModal(interaction, 'modal_staff_econ_adjust_set_target-1', { cantidad: '0' });
+    expect(okSet.reply).not.toHaveBeenCalled();
+
+    expect(runBalanceAdjust).not.toHaveBeenCalled();
+  });
+
+  it('usuario que ya no se puede resolver: mensaje claro, nunca revienta ni acredita nada', async () => {
+    const interaction = makeInteraction();
+    interaction.client.users = { fetch: vi.fn().mockResolvedValue(null) };
+
+    const rejected = await navModal(interaction, 'modal_staff_econ_adjust_add_target-1', { cantidad: '100' });
+
+    expect(rejected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No se pudo encontrar') }));
+    expect(runBalanceAdjust).not.toHaveBeenCalled();
+  });
+
+  it('el modal también revalida isAdmin — nunca confía en que el paso anterior ya lo validó', async () => {
+    const interaction = makeInteraction();
+    isAdmin.mockResolvedValue(false);
+
+    const rejected = await navModal(interaction, 'modal_staff_econ_adjust_add_target-1', { cantidad: '100' });
+
+    expect(rejected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('/config rol-admin') }));
+    expect(runBalanceAdjust).not.toHaveBeenCalled();
+  });
+});
+
+// Auditoría UX/UI (2026-09-18), hallazgo Mejora "/config economia sin ninguna
+// superficie visual" — Tier 3 (isOwnerOrAdmin, el mismo gate que /config), a
+// diferencia del ajuste de balance de arriba (Tier 2). Lo más importante a probar: el
+// select solo aparece para quien puede editar, el modal viene prellenado con el valor
+// EFECTIVO real (nunca el default a ciegas si ya está personalizado), la validación
+// replica exactamente la de /config economia (min<=max, 1-100 en porcentajes), y el
+// resultado nunca diverge de lo que /config economia hubiera guardado.
+describe('/staff — editar tuning de economía desde Límites (modal, Tier 3)', () => {
+  function ownerInteraction() {
+    return makeInteraction({ userId: 'owner-1', ownerId: 'owner-1', isAdministrator: false });
+  }
+
+  it('el select de edición solo aparece para dueño/Administrator, nunca para un Tier 1/2 sin ese permiso', async () => {
+    const staffInteraction = makeInteraction({ isAdministrator: false });
+    await execute(staffInteraction);
+    await nav(staffInteraction, 'staff_nav_economia');
+    const staffView = await nav(staffInteraction, 'staff_econ_limites');
+    expect(customIdsOf(payloadOf(staffView))).not.toContain('staff_econ_edit_select');
+
+    const ownerView = await nav(ownerInteraction(), 'staff_econ_limites');
+    expect(customIdsOf(payloadOf(ownerView))).toContain('staff_econ_edit_select');
+  });
+
+  it('elegir "diario" abre el modal prellenado con el rango EFECTIVO real (personalizado, no el default)', async () => {
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, economy_daily_min: 500, economy_daily_max: 900 });
+    const interaction = ownerInteraction();
+
+    const clicked = await navSelect(interaction, 'staff_econ_edit_select', { values: ['diario'] });
+
+    expect(clicked.showModal).toHaveBeenCalledTimes(1);
+    const modal = clicked.showModal.mock.calls[0][0];
+    expect(modal.data.custom_id).toBe('modal_staff_econ_edit_diario');
+    const fieldValues = modal.components.flatMap((row) => row.components.map((c) => c.data.value));
+    expect(fieldValues).toEqual(['500', '900']);
+  });
+
+  it('el select rechaza a quien no es dueño/Administrator, sin abrir ningún modal', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+
+    const rejected = await navSelect(interaction, 'staff_econ_edit_select', { values: ['diario'] });
+
+    expect(rejected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('dueño del servidor o un administrador') }));
+  });
+
+  it('confirmar el modal de "diario" válido guarda, loguea, y refresca la vista de Límites en el mismo panel', async () => {
+    const interaction = ownerInteraction();
+
+    const clicked = await navModal(interaction, 'modal_staff_econ_edit_diario', { minimo: '200', maximo: '600' });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { economy_daily_min: 200, economy_daily_max: 600 });
+    expect(logConfigChange).toHaveBeenCalledWith(clicked, expect.stringContaining('/daily'));
+    expect(clicked.update).toHaveBeenCalledTimes(1);
+    expect(payloadOf(clicked).embeds[0].data.title).toContain('límites');
+  });
+
+  it('mínimo mayor que máximo: rechaza sin guardar nada', async () => {
+    const interaction = ownerInteraction();
+
+    const rejected = await navModal(interaction, 'modal_staff_econ_edit_diario', { minimo: '900', maximo: '100' });
+
+    expect(rejected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('mínimo no puede ser mayor') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('"robo" con un porcentaje fuera de 1-100 (aunque min<=max): rechaza sin guardar nada', async () => {
+    const interaction = ownerInteraction();
+
+    const rejected = await navModal(interaction, 'modal_staff_econ_edit_robo', {
+      exito: '150',
+      'robo-minimo': '10',
+      'robo-maximo': '25',
+      'multa-minimo': '5',
+      'multa-maximo': '15',
+    });
+
+    expect(rejected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('entre 1 y 100') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('"robo" válido guarda las 5 columnas exactas', async () => {
+    const interaction = ownerInteraction();
+
+    await navModal(interaction, 'modal_staff_econ_edit_robo', {
+      exito: '45',
+      'robo-minimo': '12',
+      'robo-maximo': '28',
+      'multa-minimo': '6',
+      'multa-maximo': '18',
+    });
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', {
+      economy_rob_success_percent: 45,
+      economy_rob_steal_percent_min: 12,
+      economy_rob_steal_percent_max: 28,
+      economy_rob_fine_percent_min: 6,
+      economy_rob_fine_percent_max: 18,
+    });
+  });
+
+  it('el modal también revalida isOwnerOrAdmin — nunca confía en que el select ya lo validó', async () => {
+    const interaction = makeInteraction({ isAdministrator: false });
+
+    const rejected = await navModal(interaction, 'modal_staff_econ_edit_diario', { minimo: '100', maximo: '200' });
+
+    expect(rejected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('dueño del servidor o un administrador') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+});
 
 describe('/staff — Fase 4: XP (modo de roles) y Roles (autoasignables)', () => {
   it('bug de Fase 1 corregido: level_roles_mode="replace" ahora se muestra bien (antes comparaba contra un valor que no existía)', async () => {

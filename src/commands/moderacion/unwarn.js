@@ -1,10 +1,11 @@
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { removeWarnAt, clearWarns, getUserWarns } from '../../utils/warnsStore.js';
 import { createUnwarnLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { buildConfirmation } from '../../utils/confirmations.js';
 import { describeError } from '../../utils/errorMessages.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('unwarn')
@@ -127,14 +128,26 @@ async function confirmUnwarn(interaction, targetUser, numero, expectedWarnId) {
         await interaction.editReply({ content: '❌ Esa advertencia ya no existe (puede que se haya quitado desde otro lado).' });
         return;
       }
-      await interaction.editReply({ content: `✅ Se quitó la advertencia #${numero} de ${targetUser}.` });
+      const embed = new EmbedBuilder()
+        .setColor(INDIGO_COLOR)
+        .setTitle('✅ Advertencia removida')
+        .setDescription(`Se quitó la advertencia **#${numero}** de ${targetUser}.`)
+        .setFooter({ text: BRAND_NAME })
+        .setTimestamp();
+      await interaction.editReply({ embeds: [embed], allowedMentions: { parse: ['users'] } });
 
       if (logChannel) {
         await logChannel.send({ embeds: [createUnwarnLogEmbed({ user: targetUser, executor: interaction.user, detail: `Advertencia #${numero} (${removed.reason})` })] });
       }
     } else {
       const total = await clearWarns(interaction.guild.id, targetUser.id);
-      await interaction.editReply({ content: `✅ Se borraron las ${total} advertencia(s) de ${targetUser}.` });
+      const embed = new EmbedBuilder()
+        .setColor(INDIGO_COLOR)
+        .setTitle('✅ Advertencias removidas')
+        .setDescription(`Se borraron las ${total} advertencia(s) de ${targetUser}.`)
+        .setFooter({ text: BRAND_NAME })
+        .setTimestamp();
+      await interaction.editReply({ embeds: [embed], allowedMentions: { parse: ['users'] } });
 
       if (total > 0 && logChannel) {
         await logChannel.send({ embeds: [createUnwarnLogEmbed({ user: targetUser, executor: interaction.user, detail: `Se borraron todas (${total})` })] });

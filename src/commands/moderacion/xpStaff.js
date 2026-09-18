@@ -193,8 +193,14 @@ export const data = new SlashCommandBuilder()
   .setDMPermission(false);
 
 export async function execute(interaction) {
+  // Auditoría UX/UI (2026-09-18), hallazgo Importante del Top 20: el mensaje viejo
+  // ("No tenés permisos...") sugería un permiso nativo de Discord — el gate real es un
+  // ROL de NEXO (/config rol-admin), sin relación con "Gestionar servidor".
   if (!(await isAdmin(interaction))) {
-    await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: '❌ Este comando requiere el rol de Administrador configurado con `/config rol-admin` — no es un permiso nativo de Discord, un Moderador no puede usarlo.',
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 

@@ -1,9 +1,10 @@
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { createBulkDeleteLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, isStaffConfigured } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { buildConfirmation } from '../../utils/confirmations.js';
 import { describeError } from '../../utils/errorMessages.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export async function runClear(interaction, cantidad) {
   if (!(await isStaffConfigured(interaction.guildId))) {
@@ -61,12 +62,18 @@ async function confirmClear(interaction, channel, cantidad) {
     const deleted = await channel.bulkDelete(cantidad, true);
     const omitidos = cantidad - deleted.size;
 
-    let respuesta = `✅ Se eliminaron **${deleted.size}** mensaje(s).`;
+    let descripcion = `Se eliminaron **${deleted.size}** mensaje(s).`;
     if (omitidos > 0) {
-      respuesta += `\n⚠️ ${omitidos} mensaje(s) no se pudieron eliminar (probablemente tienen más de 14 días, límite de la API de Discord).`;
+      descripcion += `\n⚠️ ${omitidos} mensaje(s) no se pudieron eliminar (probablemente tienen más de 14 días, límite de la API de Discord).`;
     }
 
-    await interaction.editReply({ content: respuesta });
+    const embed = new EmbedBuilder()
+      .setColor(INDIGO_COLOR)
+      .setTitle('🧹 Mensajes eliminados')
+      .setDescription(descripcion)
+      .setFooter({ text: BRAND_NAME })
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
 
     try {
       const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');

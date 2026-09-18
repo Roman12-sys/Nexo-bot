@@ -37,11 +37,18 @@ export function getHelpStaffButtonsRow() {
   );
 }
 
+// Auditoría UX/UI (2026-09-18), hallazgo Importante "/helpstaff no distingue acciones
+// Tier 2/peligrosas": el puente hacia /staff (el panel visual equivalente) solo existía
+// dentro de /setup (una sola vez, al instalar) y en el footer de /config ver — nunca acá,
+// que es el punto de entrada real donde el staff busca ayuda del día a día.
 export function buildMainMenuEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🛠️ Comandos de staff')
-    .setDescription('Elegí una categoría tocando un botón de abajo para ver sus comandos. Los botones de acceso rápido abren directamente los más usados.')
+    .setDescription(
+      'Elegí una categoría tocando un botón de abajo para ver sus comandos. Los botones de acceso rápido abren directamente los más usados.\n\n' +
+        'El panel visual equivalente para configurar todo esto es `/staff`.',
+    )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
@@ -113,19 +120,32 @@ export function buildAdministracionEmbed() {
     .setTimestamp();
 }
 
+// Auditoría UX/UI (2026-09-18), hallazgo Importante "/helpstaff no distingue Tier 2":
+// esta era la única categoría con un comando Tier 2 (/say) mezclado campo-a-campo con
+// Tier 1, con el límite de permiso escondido en el texto de un solo campo en vez de ser
+// una estructura visual. Separado en dos campos, mismo criterio que el resto de esta
+// auditoría: nunca un marcador solo textual para algo que se puede estructurar.
 export function buildModeracionEmbed() {
   return new EmbedBuilder()
     .setColor(INDIGO_COLOR)
     .setTitle('🧹 Moderación')
     .addFields(
-      { name: '/clear <cantidad>', value: 'Elimina mensajes del canal (1-100).' },
-      { name: '/lock', value: 'Bloquea el canal actual para que @everyone no pueda escribir.' },
-      { name: '/unlock', value: 'Desbloquea el canal actual.' },
-      { name: '/kick <usuario>', value: 'Expulsa a un usuario del servidor.' },
-      { name: '/ban <usuario>', value: 'Banea a un usuario del servidor.' },
-      { name: '/timeout <usuario> <duración>', value: 'Silencia temporalmente a un usuario.' },
-      { name: '/say <mensaje>', value: 'El bot manda un mensaje por vos en el canal actual (puede mencionar @everyone/roles/usuarios). **Requiere el rol de Administrador** — un Moderador no puede usarlo.' },
-      { name: '/voice setup/config/disable/admin', value: 'Configura el sistema de salas de voz temporales (Join to Create) y administra las salas activas.' },
+      {
+        name: '🟢 Cualquier staff',
+        value: [
+          '`/clear <cantidad>` — Elimina mensajes del canal (1-100).',
+          '`/lock` — Bloquea el canal actual para que @everyone no pueda escribir.',
+          '`/unlock` — Desbloquea el canal actual.',
+          '`/kick <usuario>` — Expulsa a un usuario del servidor.',
+          '`/ban <usuario>` — Banea a un usuario del servidor.',
+          '`/timeout <usuario> <duración>` — Silencia temporalmente a un usuario.',
+          '`/voice setup/config/disable/admin` — Configura las salas de voz temporales (Join to Create) y administra las salas activas.',
+        ].join('\n'),
+      },
+      {
+        name: '🔒 Solo Administrador',
+        value: '`/say <mensaje>` — El bot manda un mensaje por vos en el canal actual (puede mencionar @everyone/roles/usuarios). Un Moderador no puede usarlo.',
+      },
       {
         name: '🔐 Detección de secretos (automática, sin comando)',
         value: 'El bot borra solo cualquier mensaje que parezca un token de Discord, API key, JWT o línea de `.env` pegada por error, y avisa por DM a quien lo mandó para que lo rote.',
@@ -165,10 +185,13 @@ export function buildSorteosAnunciosEmbed() {
     .setTimestamp();
 }
 
+// Categoría entera Tier 2 (nunca hay comandos Tier 1 acá que separar campo-a-campo) —
+// el marcador va en la descripción para que se vea ANTES de leer cada campo.
 export function buildEconomiaEmbed() {
   return new EmbedBuilder()
     .setColor(EMERALD_COLOR)
     .setTitle('💰 Economía (staff)')
+    .setDescription('🔒 Todo este panel requiere el rol de Administrador (`/config rol-admin`) — un Moderador no puede usar estos comandos.')
     .addFields(
       { name: '/economia-staff balance <usuario>', value: 'Ver el balance de cualquiera.' },
       { name: '/economia-staff agregar <usuario> <cantidad> [motivo]', value: 'Agrega monedas.' },
@@ -192,10 +215,12 @@ export function buildRolesEmbed() {
     .setTimestamp();
 }
 
+// Misma razón que buildEconomiaEmbed: categoría entera Tier 2, marcador en la descripción.
 export function buildXpEmbed() {
   return new EmbedBuilder()
     .setColor(GOLD_COLOR)
     .setTitle('⭐ XP y niveles (staff)')
+    .setDescription('🔒 Todo este panel requiere el rol de Administrador (`/config rol-admin`) — un Moderador no puede usar estos comandos.')
     .addFields(
       { name: '/xp agregar <usuario> <cantidad> [motivo]', value: 'Agrega XP. Si el usuario sube de nivel, se procesan roles automáticos, anuncio y log igual que si lo hubiera ganado jugando.' },
       { name: '/xp quitar <usuario> <cantidad> [motivo]', value: 'Quita XP.' },

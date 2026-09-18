@@ -15,7 +15,7 @@ import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
 import { getDangerousRolePermission } from '../../utils/permissions.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
 import { describeError } from '../../utils/errorMessages.js';
-import { BRAND_COLOR, LOG_COLOR } from '../../utils/embeds.js';
+import { BRAND_COLOR, LOG_COLOR, SUCCESS_COLOR } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
 import { config } from '../../config.js';
@@ -401,7 +401,9 @@ async function runSetup(interaction, state) {
     const { role, created, skippedDangerousPermission } = await resolveRole(interaction, cfg, {
       column: 'auto_role_id',
       name: 'Miembro',
-      color: '#43B581',
+      // Auditoría NEXO V (2026-09-18): era el verde obsoleto de Discord pre-2020
+      // (#43B581), hardcodeado a mano — ahora el SUCCESS_COLOR oficial del sistema.
+      color: SUCCESS_COLOR,
       rejectDangerous: true,
     });
     summary.push(

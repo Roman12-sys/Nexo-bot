@@ -96,7 +96,7 @@ describe('/shop-admin — gate de permisos (Tier 2, no Tier 1)', () => {
     await execute(interaction);
 
     expect(addShopItem).not.toHaveBeenCalled();
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('administrador') }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('/config rol-admin') }));
   });
 });
 

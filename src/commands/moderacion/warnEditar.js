@@ -1,12 +1,13 @@
 // Antes, la única forma de corregir el motivo de una advertencia era borrarla con
 // /unwarn y volver a aplicarla con /warn — lo que le cambia la fecha original. Esto
 // corrige el motivo en el lugar, conservando cuándo se aplicó de verdad.
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { getUserWarns, updateWarnReasonAt } from '../../utils/warnsStore.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { createWarnEditedLogEmbed } from '../../utils/logEmbeds.js';
 import { describeError } from '../../utils/errorMessages.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('warn-editar')
@@ -64,7 +65,13 @@ export async function execute(interaction) {
       return;
     }
 
-    await interaction.editReply({ content: `✅ Se corrigió el motivo de la advertencia #${numero} de ${targetUser}.` });
+    const embed = new EmbedBuilder()
+      .setColor(INDIGO_COLOR)
+      .setTitle('✏️ Advertencia editada')
+      .setDescription(`Se corrigió el motivo de la advertencia **#${numero}** de ${targetUser}.`)
+      .setFooter({ text: BRAND_NAME })
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
 
     try {
       const logChannel = await getGuildLogChannel(interaction.client, interaction.guildId, 'moderation');

@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } from 'discord.js';
-import { BRAND_COLOR, BRAND_NAME, EMERALD_COLOR } from '../../utils/embeds.js';
+import { BRAND_COLOR, BRAND_NAME, EMERALD_COLOR, GOLD_COLOR } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { buildInfoEmbed as buildUserInfoEmbed } from './info.js';
 import { buildServerEmbed, buildServerRow } from './servidor.js';
@@ -112,25 +112,39 @@ export function buildInfoEmbed() {
     .setTimestamp();
 }
 
+// Auditoría UX/UI (2026-09-18), hallazgo Importante "Economía es una pared de 14
+// campos": correcto comando por comando, pero sin separar "para empezar" de
+// "avanzado". Los 3 básicos son los mismos que ya recomienda buildPrimerosPasosLines()
+// del home de /help — mismo criterio en los dos lugares, no una selección nueva.
 export function buildEconomiaEmbed() {
   return new EmbedBuilder()
     .setColor(EMERALD_COLOR)
     .setTitle('💰 Economía')
     .addFields(
-      { name: '/balance [usuario]', value: 'Muestra cuántas monedas tenés.' },
-      { name: '/daily', value: 'Reclamá tu recompensa diaria (con racha: más días seguidos, más bonus).' },
-      { name: '/weekly', value: 'Recompensa semanal, mucho más grande que /daily.' },
-      { name: '/work', value: 'Trabajá para ganar monedas (cooldown 1 hora).' },
-      { name: '/crime', value: 'Alternativa arriesgada a /work: mejor paga, cooldown más corto, pero podés perder monedas si te agarran.' },
-      { name: '/give <usuario> <cantidad>', value: 'Transferí monedas a otro usuario.' },
-      { name: '🎰 Casino', value: 'Ver botón de abajo — coinflip, dado, slots y ruleta tienen su propia categoría.' },
-      { name: '/shop', value: 'Muestra la tienda.' },
-      { name: '/buy <item>', value: 'Comprá un ítem.' },
-      { name: '/vender <item>', value: 'Vendé un ítem de tu inventario por la mitad de su precio.' },
-      { name: '/inventory [usuario]', value: 'Muestra tu inventario.' },
-      { name: '/leaderboard', value: 'Top de monedas del servidor, paginado.' },
-      { name: '/bank ver/depositar/retirar', value: 'Guardá monedas en el banco — a salvo de /rob, y rinde interés.' },
-      { name: '/rob <usuario>', value: 'Intentá robarle monedas del wallet a otro usuario. 40% de éxito, con riesgo de multa.' },
+      {
+        name: '🌱 Para empezar',
+        value: [
+          '`/daily` — Reclamá tu recompensa diaria (con racha: más días seguidos, más bonus).',
+          '`/work` — Trabajá para ganar monedas (cooldown 1 hora).',
+          '`/shop` — Muestra la tienda.',
+        ].join('\n'),
+      },
+      {
+        name: '📈 El resto',
+        value: [
+          '`/balance [usuario]` — Muestra cuántas monedas tenés.',
+          '`/weekly` — Recompensa semanal, mucho más grande que /daily.',
+          '`/crime` — Alternativa arriesgada a /work: mejor paga, cooldown más corto, pero podés perder monedas si te agarran.',
+          '`/give <usuario> <cantidad>` — Transferí monedas a otro usuario.',
+          '🎰 Casino — Ver botón de abajo: coinflip, dado, slots y ruleta tienen su propia categoría.',
+          '`/buy <item>` — Comprá un ítem.',
+          '`/vender <item>` — Vendé un ítem de tu inventario por la mitad de su precio.',
+          '`/inventory [usuario]` — Muestra tu inventario.',
+          '`/leaderboard` — Top de monedas del servidor, paginado.',
+          '`/bank ver/depositar/retirar` — Guardá monedas en el banco, a salvo de /rob, y rinde interés.',
+          '`/rob <usuario>` — Intentá robarle monedas del wallet a otro usuario. 40% de éxito, con riesgo de multa.',
+        ].join('\n'),
+      },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
@@ -138,7 +152,11 @@ export function buildEconomiaEmbed() {
 
 export function buildCasinoEmbed() {
   return new EmbedBuilder()
-    .setColor(EMERALD_COLOR)
+    // GOLD_COLOR, no EMERALD_COLOR — auditoría NEXO V (2026-09-18): Casino es
+    // apuesta+resultado inmediato (progresión), no wallet/banco, y /staff ya coloreaba
+    // el equivalente "Minijuegos" en oro; los dos paneles de navegación más usados del
+    // bot ahora coinciden en el mismo criterio para el mismo grupo de comandos.
+    .setColor(GOLD_COLOR)
     .setTitle('🎰 Casino')
     .setDescription('Todos apuestan monedas de tu wallet — usá `/bank depositar` para guardar lo que no querés arriesgar.')
     .addFields(
@@ -151,21 +169,80 @@ export function buildCasinoEmbed() {
     .setTimestamp();
 }
 
+// Auditoría UX/UI (2026-09-18), hallazgo Crítico #1: antes era una sola descripción con
+// 14 nombres de comando pegados entre backticks, sin una palabra de qué hacen cada uno —
+// exactamente "la lista interminable de comandos" que se pidió evitar. Mismo formato que
+// Información/Economía/Casino: un campo por comando con descripción de una línea.
 export function buildDiversionEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🎲 Diversión')
-    .setDescription('`/8ball` `/roll` `/choose` `/trivia jugar` `/trivia ranking` `/banana` `/guess` `/lucky` `/kitty` `/pupper` `/confession` `/encuesta` `/afk` `/recordatorio`')
+    .addFields(
+      { name: '/8ball <pregunta>', value: 'Le preguntás algo a la bola mágica.' },
+      { name: '/roll [caras] [cantidad]', value: 'Tirá uno o varios dados.' },
+      { name: '/choose <opciones>', value: 'El bot elige una opción al azar por vos.' },
+      { name: '/trivia jugar [dificultad]', value: 'Respondé una pregunta de trivia y ganá puntos.' },
+      { name: '/trivia ranking', value: 'Muestra el ranking de puntos de trivia.' },
+      { name: '/banana', value: 'Comando sin ningún sentido, pero divertido.' },
+      { name: '/guess <numero>', value: 'Adiviná un número secreto entre 1 y 100.' },
+      { name: '/lucky', value: 'Consultá tu número y frase de la suerte del día.' },
+      { name: '/kitty', value: 'Muestra una foto random de un gato.' },
+      { name: '/pupper', value: 'Muestra una foto random de un perro.' },
+      { name: '/confession <mensaje>', value: 'Enviá una confesión anónima al canal de confesiones.' },
+      { name: '/encuesta <pregunta> [opciones]', value: 'Creá una encuesta pública con reacciones.' },
+      { name: '/afk [motivo]', value: 'Te marca como ausente — se te quita solo al escribir de nuevo.' },
+      { name: '/recordatorio crear/listar/cancelar', value: 'Recordatorios personales, te avisa por DM.' },
+    )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();
 }
 
+// Mismo hallazgo Crítico #1 que Diversión (20 comandos entre backticks, sin descripción)
+// — acá la solución de la auditoría es distinta a propósito: "un campo por comando"
+// volvería esto una pared de 20 campos idénticos, así que se agrupa por sub-bloque
+// temático DENTRO de 3 campos (cariñosas / molestas / reacciones) en vez de lista plana.
 export function buildAccionEmbed() {
   return new EmbedBuilder()
     .setColor(BRAND_COLOR)
     .setTitle('🎭 Acción')
-    .setDescription(
-      'Todos podés usarlos solos o mencionando a alguien.\n\n`/hug` `/kiss` `/slap` `/pat` `/poke` `/punch` `/shoot` `/stare` `/tickle` `/laugh` `/bite` `/baka` `/angry` `/cuddle` `/feed` `/highfive` `/claps` `/handholding` `/hi` `/kickbutt` `/scared`',
+    .setDescription('Todos podés usarlos solos (le pasa a vos mismo/a) o mencionando a alguien.')
+    .addFields(
+      {
+        name: '🤗 Cariñosas',
+        value: [
+          '`/hug [usuario]` — Le das un abrazo a alguien.',
+          '`/kiss [usuario]` — Le das un beso a alguien.',
+          '`/pat [usuario]` — Le hacés cariño a alguien.',
+          '`/cuddle [usuario]` — Te acurrucás con alguien.',
+          '`/feed [usuario]` — Le das de comer a alguien.',
+          '`/highfive [usuario]` — Chocás los cinco con alguien.',
+          '`/claps [usuario]` — Le aplaudís a alguien.',
+          '`/handholding [usuario]` — Le agarrás la mano a alguien.',
+          '`/hi [usuario]` — Saludás a alguien.',
+        ].join('\n'),
+      },
+      {
+        name: '😤 Molestas',
+        value: [
+          '`/slap [usuario]` — Le das una cachetada a alguien.',
+          '`/punch [usuario]` — Le pegás un puñetazo a alguien.',
+          '`/shoot [usuario]` — Le disparás a alguien.',
+          '`/bite [usuario]` — Le mordés a alguien.',
+          '`/baka [usuario]` — Le decís baka a alguien.',
+          '`/kickbutt [usuario]` — Le pegás una patada a alguien.',
+          '`/poke [usuario]` — Le picás a alguien.',
+          '`/tickle [usuario]` — Le hacés cosquillas a alguien.',
+        ].join('\n'),
+      },
+      {
+        name: '😳 Reacciones',
+        value: [
+          '`/laugh [usuario]` — Te reís de alguien.',
+          '`/angry [usuario]` — Mostrás que estás enojado/a (con alguien, si querés).',
+          '`/scared [usuario]` — Mostrás que estás asustado/a (por alguien, si querés).',
+          '`/stare [usuario]` — Mirás fijo a alguien.',
+        ].join('\n'),
+      },
     )
     .setFooter({ text: BRAND_NAME })
     .setTimestamp();

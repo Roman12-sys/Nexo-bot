@@ -1,9 +1,10 @@
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { createTimeoutLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { describeError } from '../../utils/errorMessages.js';
 import { recordModerationAction, getGuildFrequentReasons } from '../../utils/moderationActionsStore.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('timeout')
@@ -67,7 +68,13 @@ export async function execute(interaction) {
     await member.timeout(duracionMs, motivo);
     const until = Date.now() + duracionMs;
 
-    await interaction.editReply({ content: `✅ Se silenció a ${targetUser.tag} hasta <t:${Math.floor(until / 1000)}:f>.` });
+    const embed = new EmbedBuilder()
+      .setColor(INDIGO_COLOR)
+      .setTitle('🔇 Usuario silenciado')
+      .setDescription(`Se silenció a **${targetUser.tag}** hasta <t:${Math.floor(until / 1000)}:f>.`)
+      .setFooter({ text: BRAND_NAME })
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
 
     // Try/catch propio: el timeout ya se aplicó y ya se confirmó — un log fallido no
     // debe mostrarle un error al staff (lo llevaría a reintentar uno ya aplicado).

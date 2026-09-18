@@ -1,10 +1,11 @@
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { createBanLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { buildConfirmation } from '../../utils/confirmations.js';
 import { describeError } from '../../utils/errorMessages.js';
 import { recordModerationAction, getGuildFrequentReasons } from '../../utils/moderationActionsStore.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('ban')
@@ -86,7 +87,13 @@ async function confirmBan(interaction, targetUser, motivo) {
     }
 
     await interaction.guild.members.ban(targetUser.id, { reason: motivo });
-    await interaction.editReply({ content: `✅ Se baneó a ${targetUser.tag}.` });
+    const embed = new EmbedBuilder()
+      .setColor(INDIGO_COLOR)
+      .setTitle('🔨 Usuario baneado')
+      .setDescription(`Se baneó a **${targetUser.tag}**.`)
+      .setFooter({ text: BRAND_NAME })
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
 
     // Try/catch propio: el ban ya se aplicó y ya se confirmó — un log fallido no debe
     // mostrarle un error al staff (lo llevaría a reintentar un ban ya aplicado).

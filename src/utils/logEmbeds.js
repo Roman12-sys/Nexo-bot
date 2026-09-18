@@ -1,9 +1,14 @@
 import { EmbedBuilder } from 'discord.js';
-import { BRAND_NAME, LOG_COLOR } from './embeds.js';
+import { BRAND_NAME, LOG_COLOR, SUCCESS_COLOR, NEUTRAL_COLOR, WARN_COLOR } from './embeds.js';
 
-const OK_COLOR = '#2A9D8F';
-const NEUTRAL_COLOR = '#8D99AE';
-const WARN_COLOR = '#E9C46A';
+// Auditoría NEXO V (2026-09-18): este archivo tenía su propia paleta paralela
+// (OK_COLOR/NEUTRAL_COLOR/WARN_COLOR locales) — el NEUTRAL local (#8D99AE) era un gris
+// ligeramente distinto del oficial (#8A8F9C). Ahora importa los 3 de embeds.js, una sola
+// fuente de verdad para el sistema de logs más usado del bot.
+// Acento secundario (kick + compra pendiente de entrega) — reusado 2 veces sin nombre
+// antes de esta auditoría; no forma parte de la paleta de 10 colores oficiales, es
+// deliberadamente distinto del LOG_COLOR de ban para marcar una severidad menor.
+const PENDING_ACCENT_COLOR = '#F4A261';
 
 const userTag = (user) => (user ? `${user.tag} (\`${user.id}\`)` : 'Desconocido');
 const executorText = (executor) => (executor ? userTag(executor) : 'No se pudo determinar con certeza');
@@ -117,7 +122,7 @@ export function createMessageEditLogEmbed({ oldMessage, newMessage, channel }) {
 
 export function createLockLogEmbed({ channel, executor, locked }) {
   return baseLogEmbed({
-    color: locked ? LOG_COLOR : OK_COLOR,
+    color: locked ? LOG_COLOR : SUCCESS_COLOR,
     title: locked ? '🔒 Canal bloqueado' : '🔓 Canal desbloqueado',
     fields: [
       { name: 'Canal', value: `<#${channel.id}>`, inline: true },
@@ -128,7 +133,7 @@ export function createLockLogEmbed({ channel, executor, locked }) {
 
 export function createPunishLogEmbed({ user, executor, reason, applied }) {
   return baseLogEmbed({
-    color: applied ? LOG_COLOR : OK_COLOR,
+    color: applied ? LOG_COLOR : SUCCESS_COLOR,
     title: applied ? '🚫 Restricción de imágenes/enlaces aplicada' : '✅ Restricción de imágenes/enlaces removida',
     fields: [
       { name: 'Usuario', value: userTag(user), inline: true },
@@ -252,7 +257,7 @@ export function createBanLogEmbed({ user, executor, reason }) {
 
 export function createKickLogEmbed({ user, executor, reason }) {
   return baseLogEmbed({
-    color: '#F4A261',
+    color: PENDING_ACCENT_COLOR,
     title: '👢 Usuario expulsado (kick)',
     fields: [
       { name: 'Usuario', value: userTag(user), inline: true },
@@ -271,7 +276,7 @@ export function createTimeoutLogEmbed({ user, executor, reason, until, removed }
   fields.push({ name: 'Motivo', value: reason || 'Sin motivo especificado' });
 
   return baseLogEmbed({
-    color: removed ? OK_COLOR : WARN_COLOR,
+    color: removed ? SUCCESS_COLOR : WARN_COLOR,
     title: removed ? '🔊 Timeout removido' : '🔇 Usuario silenciado (timeout)',
     fields,
   });
@@ -306,7 +311,7 @@ export function createBulkDeleteLogEmbed({ cantidad, channel, executor, viaComan
 
 export function createShopPurchaseLogEmbed({ user, item }) {
   return baseLogEmbed({
-    color: '#F4A261',
+    color: PENDING_ACCENT_COLOR,
     title: '🛍️ Compra pendiente de entrega',
     footer: 'Tienda',
     fields: [
@@ -335,7 +340,7 @@ export function createWarnLogEmbed({ user, executor, reason, total }) {
 
 export function createUnwarnLogEmbed({ user, executor, detail }) {
   return baseLogEmbed({
-    color: OK_COLOR,
+    color: SUCCESS_COLOR,
     title: '✅ Advertencia removida',
     fields: [
       { name: 'Usuario', value: userTag(user), inline: true },
@@ -465,7 +470,7 @@ export function createVoiceLogEmbed({ member, action, oldChannel, newChannel }) 
 
 export function createUnbanAutoLogEmbed({ user, executor, reason }) {
   return baseLogEmbed({
-    color: OK_COLOR,
+    color: SUCCESS_COLOR,
     title: '✅ Usuario desbaneado',
     fields: [
       { name: 'Usuario', value: userTag(user), inline: true },
@@ -479,7 +484,7 @@ export function createUnbanAutoLogEmbed({ user, executor, reason }) {
 
 export function createChannelLogEmbed({ action, channel, executor, changes }) {
   const titles = { create: '➕ Canal creado', update: '✏️ Canal actualizado', delete: '➖ Canal eliminado' };
-  const colors = { create: OK_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
+  const colors = { create: SUCCESS_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
 
   const fields = [
     { name: 'Canal', value: action === 'delete' ? `#${channel.name}` : `${channel}`, inline: true },
@@ -494,7 +499,7 @@ export function createChannelLogEmbed({ action, channel, executor, changes }) {
 
 export function createRoleLogEmbed({ action, role, executor, changes }) {
   const titles = { create: '➕ Rol creado', update: '✏️ Rol actualizado', delete: '➖ Rol eliminado' };
-  const colors = { create: OK_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
+  const colors = { create: SUCCESS_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
 
   const fields = [
     { name: 'Rol', value: action === 'delete' ? `@${role.name}` : `${role}`, inline: true },
@@ -510,7 +515,7 @@ export function createRoleLogEmbed({ action, role, executor, changes }) {
 export function createInviteLogEmbed({ action, invite, executor }) {
   if (action === 'create') {
     return baseLogEmbed({
-      color: OK_COLOR,
+      color: SUCCESS_COLOR,
       title: '🔗 Invite creada',
       fields: [
         { name: 'Código', value: `\`${invite.code}\``, inline: true },
@@ -538,7 +543,7 @@ export function createInviteLogEmbed({ action, invite, executor }) {
 function createExpressionLogEmbed({ kind, action, item, executor }) {
   const label = kind === 'emoji' ? 'Emoji' : 'Sticker';
   const titles = { create: `➕ ${label} agregado`, update: `✏️ ${label} renombrado`, delete: `➖ ${label} eliminado` };
-  const colors = { create: OK_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
+  const colors = { create: SUCCESS_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
 
   const embed = baseLogEmbed({
     color: colors[action],
@@ -560,7 +565,7 @@ export const createStickerLogEmbed = (args) => createExpressionLogEmbed({ kind: 
 
 export function createWebhookLogEmbed({ action, channel, executor, webhookName }) {
   const titles = { create: '🪝 Webhook creado', update: '🪝 Webhook actualizado', delete: '🪝 Webhook eliminado' };
-  const colors = { create: OK_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
+  const colors = { create: SUCCESS_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
 
   return baseLogEmbed({
     color: colors[action] || NEUTRAL_COLOR,
@@ -577,7 +582,7 @@ export function createWebhookLogEmbed({ action, channel, executor, webhookName }
 
 export function createThreadLogEmbed({ action, thread, executor, extra }) {
   const titles = { create: '🧵 Hilo creado', update: '🧵 Hilo actualizado', delete: '🧵 Hilo eliminado' };
-  const colors = { create: OK_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
+  const colors = { create: SUCCESS_COLOR, update: WARN_COLOR, delete: LOG_COLOR };
 
   const fields = [
     { name: 'Hilo', value: action === 'delete' ? thread.name : `${thread}`, inline: true },
@@ -593,7 +598,7 @@ export function createThreadLogEmbed({ action, thread, executor, extra }) {
 
 export function createLevelUpLogEmbed({ member, previousLevel, newLevel, totalXp }) {
   return baseLogEmbed({
-    color: OK_COLOR,
+    color: SUCCESS_COLOR,
     title: '⭐ Usuario subió de nivel',
     fields: [
       { name: 'Usuario', value: userTag(member.user), inline: true },
@@ -606,7 +611,7 @@ export function createLevelUpLogEmbed({ member, previousLevel, newLevel, totalXp
 
 export function createLevelRoleAssignedLogEmbed({ member, role, level }) {
   return baseLogEmbed({
-    color: OK_COLOR,
+    color: SUCCESS_COLOR,
     title: '🏆 Rol de nivel asignado',
     fields: [
       { name: 'Usuario', value: userTag(member.user), inline: true },

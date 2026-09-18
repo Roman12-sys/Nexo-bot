@@ -6,8 +6,11 @@ export const BRAND_NAME = 'Nexo Bot';
 // constante es la ÚNICA fuente de verdad para su categoría; un embed nuevo de
 // esa categoría importa la constante, nunca un hex suelto. Ver la propuesta de
 // dirección visual (aprobada 2026-09-11) para el razonamiento de cada rol.
-export const BRAND_COLOR = '#7F5AF0'; // Nexo Violeta — marca, navegación, home, ayuda, config
-export const GOLD_COLOR = '#F2B84B'; // Nexo Oro — progresión: niveles, logros, misiones, minijuegos
+// BRAND_COLOR también hace de facto de color "social / sin categoría propia" (rol-play,
+// trivia, roll, choose, confession, encuesta, etc.) — auditoría NEXO V, 2026-09-18: no es
+// drift, es un rol documentado a propósito, para no confundirlo con un uso indebido.
+export const BRAND_COLOR = '#7F5AF0'; // Nexo Violeta — marca, navegación, home, ayuda, config, social/sin categoría propia
+export const GOLD_COLOR = '#F2B84B'; // Nexo Oro — progresión: niveles, logros, misiones, minijuegos y Casino
 export const EMERALD_COLOR = '#2CB67D'; // Nexo Esmeralda — economía
 export const INDIGO_COLOR = '#5C6BC0'; // Nexo Índigo — moderación (estado, no alarma)
 export const MAGENTA_COLOR = '#C77DFF'; // Nexo Magenta — comunidad: sorteos, roles, bienvenida
@@ -15,6 +18,10 @@ export const SKY_COLOR = '#4EA8DE'; // Nexo Cielo — comunicación: anuncios, d
 export const LOG_COLOR = '#E63946'; // Alerta — errores, confirmaciones destructivas
 export const SUCCESS_COLOR = '#3DDC84';
 export const NEUTRAL_COLOR = '#8A8F9C'; // Estados vacíos
+// Nexo Ámbar — "cambió algo, no es grave pero mirá". Formalizada acá (auditoría NEXO V,
+// 2026-09-18): ya vivía sin nombre oficial como constante local en logEmbeds.js y como hex
+// suelto en el picker de /anuncio — mismo valor, una sola fuente de verdad ahora.
+export const WARN_COLOR = '#E9C46A';
 
 // Barra de progreso tipo [████████████░░░░░░░░] — 20 segmentos, mismo criterio
 // en todo NEXO (antes eran 12 con ■/□; ver la dirección visual aprobada).

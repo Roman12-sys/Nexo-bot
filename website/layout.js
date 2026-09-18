@@ -6,9 +6,28 @@
 import { websiteConfig } from './config.js';
 import { essentialPermissionsBitfield } from '../src/utils/botPermissions.js';
 import { BRAND_NAME } from '../src/utils/embeds.js';
+import {
+  WEB_BG,
+  WEB_BG_RAISED,
+  WEB_SURFACE,
+  WEB_BORDER,
+  WEB_TEXT,
+  WEB_TEXT_MUTED,
+  WEB_TEXT_DIM,
+  WEB_BRAND,
+  WEB_BRAND_SOFT,
+  WEB_STATUS_OK,
+  WEB_STATUS_WARN,
+  WEB_STATUS_DANGER,
+} from '../src/utils/webTheme.js';
 
-const BRAND_COLOR = '#7F5AF0'; // mismo valor que src/utils/embeds.js y dashboard/html.js — no hay un segundo color de marca en el proyecto.
-const BRAND_COLOR_SOFT = '#a284f7';
+// Auditoría UX/UI (2026-09-18): estos tokens salían de acá antes — website/layout.js
+// fue la referencia real cuando se creó src/utils/webTheme.js (ya había pasado su
+// propia revisión de contraste WCAG, ver WEB_TEXT_DIM ahí). dashboard/html.js ahora
+// importa los MISMOS valores, en vez de tener su propia paleta "prima pero no
+// idéntica" copiada a mano.
+const BRAND_COLOR = WEB_BRAND; // mismo valor que src/utils/embeds.js y dashboard/html.js — no hay un segundo color de marca en el proyecto.
+const BRAND_COLOR_SOFT = WEB_BRAND_SOFT;
 
 export function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -39,23 +58,22 @@ const GLOBAL_STYLES = `
 
   :root {
     color-scheme: dark;
-    --bg: #0a0912;
-    --bg-raised: #12101c;
-    --surface: #15121f;
-    --border: #2a2440;
-    --text: #ede9f7;
-    --text-muted: #978fb4;
-    /* #756e91 (valor original) daba 4.14:1 contra --bg y hasta 3.86:1 contra --surface —
-       por debajo del mínimo WCAG AA (4.5:1) para texto de tamaño normal, y este color se
-       usa en textos chicos (badges, labels, fechas) que NO califican como "texto grande"
-       (18px+ o 14px+ negrita) para bajar el umbral a 3:1. Encontrado y corregido en la
-       revisión de accesibilidad de Fase 5 (medido con la fórmula de luminancia relativa
-       de WCAG, no a ojo). #837b9f dobla el margen: 5.00:1 / 4.66:1 / 4.75:1 contra
-       --bg/--surface/--bg-raised respectivamente — sigue leyéndose más apagado que
-       --text-muted, pero ya no falla el mínimo en ningún fondo real del sitio. */
-    --text-dim: #837b9f;
+    --bg: ${WEB_BG};
+    --bg-raised: ${WEB_BG_RAISED};
+    --surface: ${WEB_SURFACE};
+    --border: ${WEB_BORDER};
+    --text: ${WEB_TEXT};
+    --text-muted: ${WEB_TEXT_MUTED};
+    /* Ver el comentario completo de WEB_TEXT_DIM en src/utils/webTheme.js — resumen:
+       el valor original (#756e91) fallaba el mínimo WCAG AA (4.5:1) en textos chicos
+       que no califican como "texto grande"; este valor lo pasa con margen real en los
+       3 fondos del sitio. */
+    --text-dim: ${WEB_TEXT_DIM};
     --brand: ${BRAND_COLOR};
     --brand-soft: ${BRAND_COLOR_SOFT};
+    --status-ok: ${WEB_STATUS_OK};
+    --status-warn: ${WEB_STATUS_WARN};
+    --status-danger: ${WEB_STATUS_DANGER};
     --radius: 14px;
     --radius-sm: 9px;
     --max-width: 1180px;
@@ -146,7 +164,7 @@ const GLOBAL_STYLES = `
   .mock-tile .mock-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
   .mock-tile .mock-value { font-size: 1.25rem; font-weight: 700; margin-top: 0.25rem; font-variant-numeric: tabular-nums; }
   .mock-row { grid-column: 1 / -1; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; padding: 0.85rem 1rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: var(--text-muted); }
-  .mock-row .badge-ok { color: #4ade80; font-weight: 600; }
+  .mock-row .badge-ok { color: var(--status-ok); font-weight: 600; }
 
   /* Diagrama "Qué es NEXO" */
   .diagram { max-width: 760px; margin: 0 auto; }
@@ -295,9 +313,9 @@ const GLOBAL_STYLES = `
   .status-row .status-note { color: var(--text-dim); font-size: 0.8rem; display: block; margin-top: 0.15rem; }
   .status-pill { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; font-weight: 600; white-space: nowrap; }
   .status-pill .dot { width: 8px; height: 8px; border-radius: 50%; }
-  .status-ok .dot { background: #4ade80; } .status-ok { color: #4ade80; }
-  .status-warn .dot { background: #facc15; } .status-warn { color: #facc15; }
-  .status-bad .dot { background: #f87171; } .status-bad { color: #f87171; }
+  .status-ok .dot { background: var(--status-ok); } .status-ok { color: var(--status-ok); }
+  .status-warn .dot { background: var(--status-warn); } .status-warn { color: var(--status-warn); }
+  .status-bad .dot { background: var(--status-danger); } .status-bad { color: var(--status-danger); }
   .status-unknown .dot { background: var(--text-dim); } .status-unknown { color: var(--text-dim); }
 
   /* /changelog */

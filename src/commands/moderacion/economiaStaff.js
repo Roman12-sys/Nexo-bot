@@ -79,12 +79,12 @@ async function handleBalance(interaction) {
   await interaction.editReply({ embeds: [embed] });
 }
 
-async function handleAdjust(interaction, direction) {
-  await interaction.deferReply();
-  const targetUser = interaction.options.getUser('usuario');
-  const cantidad = interaction.options.getInteger('cantidad');
-  const motivo = interaction.options.getString('motivo') || 'Sin motivo especificado';
-
+// Auditoría UX/UI (2026-09-18), hallazgo Importante del Top 20: "Ajuste de balance/XP
+// de staff no está en /staff" — el panel visual solo tenía lectura, acreditar seguía
+// siendo 100% /economia-staff de memoria. Extraído a función reusable (mismo patrón que
+// runClear()/runBuy()) para que el UserSelect+botones+modal de /staff dispare la MISMA
+// lógica de cobro/log que ya usa /economia-staff, nunca una segunda copia.
+export async function runBalanceAdjust(interaction, targetUser, direction, cantidad, motivo) {
   const before = (await getUserEconomy(interaction.guild.id, targetUser.id)).balance;
   const type = direction === 1 ? 'admin_add' : 'admin_remove';
   const signedAmount = direction * cantidad;
@@ -107,12 +107,15 @@ async function handleAdjust(interaction, direction) {
   await logStaffAction(interaction, { type, targetUser, amount: signedAmount, balanceBefore: before, balanceAfter: after, reason: motivo });
 }
 
-async function handleSet(interaction) {
+async function handleAdjust(interaction, direction) {
   await interaction.deferReply();
   const targetUser = interaction.options.getUser('usuario');
   const cantidad = interaction.options.getInteger('cantidad');
   const motivo = interaction.options.getString('motivo') || 'Sin motivo especificado';
+  await runBalanceAdjust(interaction, targetUser, direction, cantidad, motivo);
+}
 
+export async function runBalanceSet(interaction, targetUser, cantidad, motivo) {
   const before = (await getUserEconomy(interaction.guild.id, targetUser.id)).balance;
   const after = await setBalance(interaction.guild.id, targetUser.id, cantidad, {
     type: 'admin_set',
@@ -129,6 +132,14 @@ async function handleSet(interaction) {
 
   await interaction.editReply({ embeds: [embed] });
   await logStaffAction(interaction, { type: 'admin_set', targetUser, amount: after - before, balanceBefore: before, balanceAfter: after, reason: motivo });
+}
+
+async function handleSet(interaction) {
+  await interaction.deferReply();
+  const targetUser = interaction.options.getUser('usuario');
+  const cantidad = interaction.options.getInteger('cantidad');
+  const motivo = interaction.options.getString('motivo') || 'Sin motivo especificado';
+  await runBalanceSet(interaction, targetUser, cantidad, motivo);
 }
 
 const HISTORIAL_PAGE_SIZE = 5;
@@ -225,7 +236,7 @@ async function handleHistorial(interaction) {
 }
 
 registerButtonPrefix('ecostaff_hist_page_', async (i) => {
-  if (!(await isAdmin(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+  if (!(await isAdmin(i))) return i.reply({ content: '❌ Este comando requiere el rol de Administrador configurado con `/config rol-admin` — no es un permiso nativo de Discord, un Moderador no puede usarlo.', flags: MessageFlags.Ephemeral });
 
   // deferUpdate() apenas se confirma el permiso — antes el único ack (i.update) llegaba
   // recién después de 2 awaits (users.fetch + getUserTransactions), lo que arriesgaba
@@ -328,7 +339,7 @@ async function handlePendientes(interaction) {
 }
 
 registerSelectPrefix('ecostaff_pendiente_entregada', async (i) => {
-  if (!(await isAdmin(i))) return i.reply({ content: '❌ No tenés permisos.', flags: MessageFlags.Ephemeral });
+  if (!(await isAdmin(i))) return i.reply({ content: '❌ Este comando requiere el rol de Administrador configurado con `/config rol-admin` — no es un permiso nativo de Discord, un Moderador no puede usarlo.', flags: MessageFlags.Ephemeral });
 
   // deferUpdate() apenas se confirma el permiso — antes el único ack (i.update) llegaba
   // recién después de markPurchaseDelivered + buildPendientesPayload (2 llamadas a
@@ -392,8 +403,14 @@ export const data = new SlashCommandBuilder()
   .setDMPermission(false);
 
 export async function execute(interaction) {
+  // Auditoría UX/UI (2026-09-18), hallazgo Importante del Top 20: el mensaje viejo
+  // ("No tenés permisos...") sugería un permiso nativo de Discord — el gate real es un
+  // ROL de NEXO (/config rol-admin), sin relación con "Gestionar servidor".
   if (!(await isAdmin(interaction))) {
-    await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
+    await interaction.reply({
+      content: '❌ Este comando requiere el rol de Administrador configurado con `/config rol-admin` — no es un permiso nativo de Discord, un Moderador no puede usarlo.',
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 

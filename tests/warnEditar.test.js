@@ -74,7 +74,7 @@ describe('/warn-editar', () => {
     await warnEditarExecute(interaction);
 
     expect(updateWarnReasonAt).toHaveBeenCalledWith('guild-1', 'target-1', 2, 'motivo corregido');
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('#2') }));
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('#2');
   });
 
   it('usuario que ya no está en el server: no bloquea por jerarquía (member null), pero puede seguir corrigiendo su warn vieja', async () => {

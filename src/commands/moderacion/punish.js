@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { createPunishLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason, getDangerousRolePermission } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
@@ -7,6 +7,7 @@ import { describeError } from '../../utils/errorMessages.js';
 import { recordModerationAction, getGuildFrequentReasons } from '../../utils/moderationActionsStore.js';
 import { createActivePunishment } from '../../utils/punishStore.js';
 import { schedulePunishExpiry } from '../../utils/punishEngine.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 // QUÉ CAMBIÓ: opción `duracion` nueva (opcional) + DURATION_MS + lógica de scheduling
 // más abajo en execute().
@@ -127,7 +128,13 @@ export async function execute(interaction) {
     }
 
     const expiryText = expiresAt ? ` Se le quita sola <t:${Math.floor(expiresAt / 1000)}:R>.` : '';
-    await interaction.editReply({ content: `🚫 ${targetUser.tag} ya no puede enviar imágenes ni enlaces.${expiryText}` });
+    const embed = new EmbedBuilder()
+      .setColor(INDIGO_COLOR)
+      .setTitle('🚫 Restricción aplicada')
+      .setDescription(`**${targetUser.tag}** ya no puede enviar imágenes ni enlaces.${expiryText}`)
+      .setFooter({ text: BRAND_NAME })
+      .setTimestamp();
+    await interaction.editReply({ embeds: [embed] });
 
     // Try/catch propio: la restricción ya se aplicó y ya se confirmó — un log fallido
     // no debe mostrarle un error al staff (lo llevaría a reintentar una ya aplicada).

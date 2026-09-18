@@ -276,38 +276,38 @@ export function renderGuildDashboard(guild, data, usersById) {
       <h2>⚙️ Configuración actual</h2>
       <p class="muted" style="margin-top:-0.5rem;">Datos reales de este servidor — para cambiar algo de acá, usá <code>/setup</code> o <code>/config</code>.</p>
       <div class="stat-row" style="margin-top:0.75rem;">
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Rol de administrador</div>${role(cfg.admin_role_id)}</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Rol de moderador</div>${role(cfg.moderator_role_id)}</div>
+        <div><div class="label">Rol de administrador</div>${role(cfg.admin_role_id)}</div>
+        <div><div class="label">Rol de moderador</div>${role(cfg.moderator_role_id)}</div>
       </div>
       <div class="stat-row" style="margin-top:0.75rem;">
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Log de moderación</div>${channel(cfg.log_channel_moderation_id)}</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Log de actividad</div>${channel(cfg.log_channel_activity_id)}</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Log de economía</div>${channel(cfg.log_channel_economy_id)}</div>
+        <div><div class="label">Log de moderación</div>${channel(cfg.log_channel_moderation_id)}</div>
+        <div><div class="label">Log de actividad</div>${channel(cfg.log_channel_activity_id)}</div>
+        <div><div class="label">Log de economía</div>${channel(cfg.log_channel_economy_id)}</div>
       </div>
       <div class="stat-row" style="margin-top:0.75rem;">
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Moderación</div>${toggle(features.moderacion)}</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">XP</div>${toggle(features.xp)}</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Economía</div>💰 Siempre activa</div>
+        <div><div class="label">Moderación</div>${toggle(features.moderacion)}</div>
+        <div><div class="label">XP</div>${toggle(features.xp)}</div>
+        <div><div class="label">Economía</div>💰 Siempre activa</div>
       </div>
       <div class="stat-row" style="margin-top:0.75rem;">
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Canal de bienvenida</div>${channel(cfg.welcome_channel_id)}</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Canal de confesiones</div>${channel(cfg.confession_channel_id)}</div>
+        <div><div class="label">Canal de bienvenida</div>${channel(cfg.welcome_channel_id)}</div>
+        <div><div class="label">Canal de confesiones</div>${channel(cfg.confession_channel_id)}</div>
       </div>
       <div class="stat-row" style="margin-top:0.75rem;">
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Rol automático</div>${role(cfg.auto_role_id)}</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Rol de castigo</div>${role(cfg.punish_role_id)}</div>
+        <div><div class="label">Rol automático</div>${role(cfg.auto_role_id)}</div>
+        <div><div class="label">Rol de castigo</div>${role(cfg.punish_role_id)}</div>
       </div>
       <div class="stat-row" style="margin-top:0.75rem;">
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Roles autoasignables</div>${(cfg.selfassignable_roles || []).length > 0 ? `${cfg.selfassignable_roles.length} configurado(s)` : '<span class="muted">— sin configurar</span>'}</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Paneles de reaction-roles</div>${data.reactionRolePanelCount > 0 ? `${data.reactionRolePanelCount} activo(s)` : '<span class="muted">— sin paneles</span>'}</div>
+        <div><div class="label">Roles autoasignables</div>${(cfg.selfassignable_roles || []).length > 0 ? `${cfg.selfassignable_roles.length} configurado(s)` : '<span class="muted">— sin configurar</span>'}</div>
+        <div><div class="label">Paneles de reaction-roles</div>${data.reactionRolePanelCount > 0 ? `${data.reactionRolePanelCount} activo(s)` : '<span class="muted">— sin paneles</span>'}</div>
       </div>
       <div class="stat-row" style="margin-top:0.75rem;">
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">/daily</div>${escapeHtml(describeRange(dailyRange.min, dailyRange.max, cfg.economy_daily_min != null))}</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">/work</div>${escapeHtml(describeRange(workRange.min, workRange.max, cfg.economy_work_min != null))}</div>
+        <div><div class="label">/daily</div>${escapeHtml(describeRange(dailyRange.min, dailyRange.max, cfg.economy_daily_min != null))}</div>
+        <div><div class="label">/work</div>${escapeHtml(describeRange(workRange.min, workRange.max, cfg.economy_work_min != null))}</div>
       </div>
       <div class="stat-row" style="margin-top:0.75rem;">
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">/crime</div>${escapeHtml(describeRange(crimeConfig.min, crimeConfig.max, cfg.economy_crime_min != null))}, ${escapeHtml(describePercent(crimeConfig.successChance, cfg.economy_crime_success_percent != null))} de éxito</div>
-        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">/rob</div>${escapeHtml(describePercent(robConfig.successChance, cfg.economy_rob_success_percent != null))} de éxito</div>
+        <div><div class="label">/crime</div>${escapeHtml(describeRange(crimeConfig.min, crimeConfig.max, cfg.economy_crime_min != null))}, ${escapeHtml(describePercent(crimeConfig.successChance, cfg.economy_crime_success_percent != null))} de éxito</div>
+        <div><div class="label">/rob</div>${escapeHtml(describePercent(robConfig.successChance, cfg.economy_rob_success_percent != null))} de éxito</div>
       </div>
     </div>`;
 

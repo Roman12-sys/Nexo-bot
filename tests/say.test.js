@@ -35,7 +35,7 @@ describe('/say — permisos (H4: Tier 2, no Tier 1)', () => {
     await execute(interaction);
 
     expect(interaction.channel.send).not.toHaveBeenCalled();
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No tenés permisos') }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('/config rol-admin') }));
   });
 
   it('Tier 2 (isAdmin true): manda el mensaje con las 3 menciones permitidas', async () => {

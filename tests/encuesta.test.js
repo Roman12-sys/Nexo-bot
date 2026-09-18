@@ -132,8 +132,8 @@ describe('/encuesta — cerrar (conteo de votos)', () => {
     expect(interaction._staleMessage.fetch).toHaveBeenCalledTimes(1);
     const closedEmbed = interaction.update.mock.calls[0][0].embeds[0];
     const resultField = closedEmbed.data.fields.find((f) => f.name.includes('Resultado final'));
-    expect(resultField.value).toContain('👍 — **3** voto(s)');
-    expect(resultField.value).toContain('👎 — **0** voto(s)');
+    expect(resultField.value).toContain('👍 ████████████████████ — **3** voto(s)');
+    expect(resultField.value).toContain('👎 ░░░░░░░░░░░░░░░░░░░░ — **0** voto(s)');
     expect(interaction._freshMessage.reactions.removeAll).toHaveBeenCalledTimes(1);
   });
 
@@ -147,6 +147,37 @@ describe('/encuesta — cerrar (conteo de votos)', () => {
     await expect(routeButton(interaction)).resolves.toBe(true);
     const closedEmbed = interaction.update.mock.calls[0][0].embeds[0];
     const resultField = closedEmbed.data.fields.find((f) => f.name.includes('Resultado final'));
-    expect(resultField.value).toContain('👍 — **2** voto(s)');
+    expect(resultField.value).toContain('👍 ████████████████████ — **2** voto(s)');
+  });
+
+  // Auditoría UX/UI (2026-09-18), hallazgo Mejora: antes era una pared de números
+  // ("👍 — 12 voto(s)") sin ninguna referencia visual de qué opción ganaba de un
+  // vistazo — mismo patrón que ya usa /metricas (barra relativa al MÁXIMO real, no al
+  // total de votos, para que la opción líder siempre se vea con la barra llena).
+  it('el ganador muestra la barra llena y el resto proporcional a él, no al total de votos', async () => {
+    const reactions = [makeReaction('1️⃣', 11), makeReaction('2️⃣', 6), makeReaction('3️⃣', 1)]; // 10/5/0 votos reales
+    const interaction = makeCloseInteraction({ staleReactions: reactions, freshReactions: reactions });
+
+    await routeButton(interaction);
+
+    const closedEmbed = interaction.update.mock.calls[0][0].embeds[0];
+    const resultField = closedEmbed.data.fields.find((f) => f.name.includes('Resultado final'));
+    // Máximo real = 10 votos (opción 1) — su barra tiene que estar llena; la opción con
+    // la mitad de los votos (5 de 10) tiene la mitad de la barra; la de 0 votos, vacía.
+    expect(resultField.value).toContain('1️⃣ ████████████████████ — **10** voto(s)');
+    expect(resultField.value).toContain('2️⃣ ██████████░░░░░░░░░░ — **5** voto(s)');
+    expect(resultField.value).toContain('3️⃣ ░░░░░░░░░░░░░░░░░░░░ — **0** voto(s)');
+  });
+
+  it('nadie votó en ninguna opción: no revienta con una división por cero', async () => {
+    const reactions = [makeReaction('👍', 1), makeReaction('👎', 1)]; // solo la siembra del bot, cero votos reales
+    const interaction = makeCloseInteraction({ staleReactions: reactions, freshReactions: reactions });
+
+    await expect(routeButton(interaction)).resolves.toBe(true);
+
+    const closedEmbed = interaction.update.mock.calls[0][0].embeds[0];
+    const resultField = closedEmbed.data.fields.find((f) => f.name.includes('Resultado final'));
+    expect(resultField.value).toContain('👍 ░░░░░░░░░░░░░░░░░░░░ — **0** voto(s)');
+    expect(resultField.value).toContain('👎 ░░░░░░░░░░░░░░░░░░░░ — **0** voto(s)');
   });
 });

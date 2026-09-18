@@ -112,7 +112,7 @@ describe('/warn', () => {
     await warnExecute(interaction);
 
     expect(addWarn).toHaveBeenCalledWith('guild-1', 'target-1', { reason: 'spam', moderatorId: 'mod-1' });
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('advertencia #1') }));
+    expect(interaction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('advertencia #1');
     expect(logChannel.send).toHaveBeenCalledTimes(1);
   });
 
@@ -130,12 +130,9 @@ describe('/warn', () => {
 
     await warnExecute(interaction);
 
-    expect(interaction.editReply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: expect.stringContaining('@everyone volvé ya'), // el texto no se censura ni se recorta
-        allowedMentions: { parse: ['users'] }, // pero la API nunca la resuelve como mención real
-      }),
-    );
+    const call = interaction.editReply.mock.calls[0][0];
+    expect(call.embeds[0].data.description).toContain('@everyone volvé ya'); // el texto no se censura ni se recorta
+    expect(call.allowedMentions).toEqual({ parse: ['users'] }); // pero la API nunca la resuelve como mención real
   });
 
   it('SEC-1: motivo con @here tampoco puede activar la mención', async () => {
@@ -144,9 +141,9 @@ describe('/warn', () => {
 
     await warnExecute(interaction);
 
-    expect(interaction.editReply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining('@here atentos'), allowedMentions: { parse: ['users'] } }),
-    );
+    const call = interaction.editReply.mock.calls[0][0];
+    expect(call.embeds[0].data.description).toContain('@here atentos');
+    expect(call.allowedMentions).toEqual({ parse: ['users'] });
   });
 
   it('SEC-1: motivo con mención de rol tampoco queda habilitada', async () => {
@@ -156,7 +153,7 @@ describe('/warn', () => {
     await warnExecute(interaction);
 
     const call = interaction.editReply.mock.calls[0][0];
-    expect(call.content).toContain('<@&555>');
+    expect(call.embeds[0].data.description).toContain('<@&555>');
     expect(call.allowedMentions.parse).not.toContain('roles');
   });
 
@@ -185,11 +182,10 @@ describe('/kick', () => {
 
     await kickExecute(interaction);
 
-    // QUÉ CAMBIÓ (Fase 2B, sección 3): /kick ahora deferea apenas se confirma el
-    // permiso, antes de fetchear al member — el resto de la respuesta (éxito o
-    // rechazo) viaja por editReply, no por un segundo reply().
-    expect(interaction.deferReply).toHaveBeenCalledTimes(1);
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No se encontró') }));
+    // Auditoría UX/UI (2026-09-18): /kick suma confirmación (mismo patrón que /ban),
+    // así que la validación de "sigue en el server" pasa a ser un reply ephemeral
+    // directo, ANTES de mostrar cualquier panel — igual que /ban nunca deferea.
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No se encontró') }));
   });
 
   it('el bot no puede expulsar a alguien con rango igual/superior al suyo (not kickable)', async () => {
@@ -200,19 +196,49 @@ describe('/kick', () => {
 
     await kickExecute(interaction);
 
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No puedo expulsar') }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No puedo expulsar') }));
   });
 
-  it('caso exitoso: llama a member.kick con el motivo y loguea', async () => {
+  it('caso exitoso: reply muestra confirmación, y solo al confirmar expulsa y loguea', async () => {
     const targetMember = makeTargetMember();
     targetMember.kick = vi.fn().mockResolvedValue(undefined);
     const interaction = makeInteraction({ staffRoleIds: ['role-admin'], targetMember, options: { motivo: 'toxicidad' } });
 
     await kickExecute(interaction);
 
+    // Todavía no pasó nada — es solo el panel.
+    expect(targetMember.kick).not.toHaveBeenCalled();
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Confirmar acción') }));
+
+    const buttonInteraction = await confirmVia(interaction, 'Confirmar');
+
     expect(targetMember.kick).toHaveBeenCalledWith('toxicidad');
-    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se expulsó') }));
+    expect(buttonInteraction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('Se expulsó');
     expect(logChannel.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('revalida permisos al confirmar: si dejó de ser staff en el medio, ya no expulsa', async () => {
+    const targetMember = makeTargetMember();
+    targetMember.kick = vi.fn().mockResolvedValue(undefined);
+    const interaction = makeInteraction({ staffRoleIds: ['role-admin'], targetMember, options: { motivo: 'toxicidad' } });
+    await kickExecute(interaction);
+
+    getGuildConfig.mockResolvedValue(NO_STAFF_CFG); // el rol de staff se le sacó mientras el panel esperaba
+    const buttonInteraction = await confirmVia(interaction, 'Confirmar');
+
+    expect(targetMember.kick).not.toHaveBeenCalled();
+    expect(buttonInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Ya no tenés permisos') }));
+  });
+
+  it('cancelar no expulsa a nadie', async () => {
+    const targetMember = makeTargetMember();
+    targetMember.kick = vi.fn().mockResolvedValue(undefined);
+    const interaction = makeInteraction({ staffRoleIds: ['role-admin'], targetMember, options: { motivo: 'toxicidad' } });
+    await kickExecute(interaction);
+
+    await confirmVia(interaction, 'Cancelar');
+
+    expect(targetMember.kick).not.toHaveBeenCalled();
   });
 });
 
@@ -239,7 +265,7 @@ describe('/ban (con confirmación)', () => {
     const buttonInteraction = await confirmVia(interaction, 'Confirmar');
 
     expect(interaction.guild.members.ban).toHaveBeenCalledWith('target-1', { reason: 'raid' });
-    expect(buttonInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se baneó') }));
+    expect(buttonInteraction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('Se baneó');
     expect(logChannel.send).toHaveBeenCalledTimes(1);
   });
 
@@ -281,7 +307,7 @@ describe('/ban (con confirmación)', () => {
     // El motivo real que ve Discord (audit log de Discord, no un mensaje del bot) no se
     // modifica — la protección es solo de renderizado, nunca de contenido.
     expect(interaction.guild.members.ban).toHaveBeenCalledWith('target-1', { reason: '@everyone raid en curso' });
-    expect(buttonInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se baneó') }));
+    expect(buttonInteraction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('Se baneó');
   });
 });
 
@@ -306,7 +332,7 @@ describe('/unwarn (con confirmación)', () => {
     const buttonInteraction = await confirmVia(interaction, 'Confirmar');
 
     expect(removeWarnAt).toHaveBeenCalledWith('guild-1', 'target-1', 2);
-    expect(buttonInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('#2') }));
+    expect(buttonInteraction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('#2');
     expect(logChannel.send).toHaveBeenCalledTimes(1);
   });
 

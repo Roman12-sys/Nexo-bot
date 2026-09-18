@@ -53,7 +53,7 @@ describe('Matriz de permisos PERM-1', () => {
 
     const modInteraction = makeModerationInteraction({ staffRoleIds: ['role-staff-unico'], options: { motivo: 'spam' } });
     await warnExecute(modInteraction);
-    expect(modInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se advirtió') }));
+    expect(modInteraction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('Se advirtió');
 
     const ecoInteraction = makeStaffCommandInteraction({ staffRoleIds: ['role-staff-unico'] });
     await economiaStaffExecute(ecoInteraction);
@@ -69,15 +69,15 @@ describe('Matriz de permisos PERM-1', () => {
 
     const modInteraction = makeModerationInteraction({ staffRoleIds: ['role-mod'], options: { motivo: 'spam' } });
     await warnExecute(modInteraction);
-    expect(modInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se advirtió') }));
+    expect(modInteraction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('Se advirtió');
 
     const ecoInteraction = makeStaffCommandInteraction({ staffRoleIds: ['role-mod'] });
     await economiaStaffExecute(ecoInteraction);
-    expect(ecoInteraction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No tenés permisos') }));
+    expect(ecoInteraction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('/config rol-admin') }));
 
     const xpInteraction = makeStaffCommandInteraction({ staffRoleIds: ['role-mod'] });
     await xpStaffExecute(xpInteraction);
-    expect(xpInteraction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No tenés permisos') }));
+    expect(xpInteraction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('/config rol-admin') }));
   });
 
   it('Admin separado + usuario Admin: las 3 superficies permiten acceso (Tier 2 incluye Tier 1)', async () => {
@@ -88,7 +88,7 @@ describe('Matriz de permisos PERM-1', () => {
     // falta asignarle también moderator_role_id a mano.
     const modInteraction = makeModerationInteraction({ staffRoleIds: ['role-admin'], options: { motivo: 'spam' } });
     await warnExecute(modInteraction);
-    expect(modInteraction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Se advirtió') }));
+    expect(modInteraction.editReply.mock.calls[0][0].embeds[0].data.description).toContain('Se advirtió');
 
     const ecoInteraction = makeStaffCommandInteraction({ staffRoleIds: ['role-admin'] });
     await economiaStaffExecute(ecoInteraction);

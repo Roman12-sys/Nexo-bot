@@ -1,9 +1,10 @@
-import { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { addWarn, getGuildFrequentWarnReasons } from '../../utils/warnsStore.js';
 import { createWarnLogEmbed } from '../../utils/logEmbeds.js';
 import { isStaff, getModerationBlockReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { describeError } from '../../utils/errorMessages.js';
+import { INDIGO_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('warn')
@@ -44,9 +45,16 @@ export async function execute(interaction) {
 
     // allowedMentions: parse:['users'] permite la mención real de ${targetUser} pero
     // bloquea @everyone/@here/roles que puedan venir inyectados en `motivo` (texto
-    // libre de staff, sin sanitizar). Ver SEC-1, Fase 4A.
+    // libre de staff, sin sanitizar). Ver SEC-1, Fase 4A — se aplica igual con embed,
+    // allowedMentions es una opción del mensaje entero, no de `content` puntualmente.
+    const embed = new EmbedBuilder()
+      .setColor(INDIGO_COLOR)
+      .setTitle('⚠️ Advertencia aplicada')
+      .setDescription(`Se advirtió a ${targetUser} (advertencia #${list.length}).\nMotivo: ${motivo}`)
+      .setFooter({ text: BRAND_NAME })
+      .setTimestamp();
     await interaction.editReply({
-      content: `✅ Se advirtió a ${targetUser} (advertencia #${list.length}). Motivo: ${motivo}`,
+      embeds: [embed],
       allowedMentions: { parse: ['users'] },
     });
 

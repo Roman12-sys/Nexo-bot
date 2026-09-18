@@ -37,11 +37,21 @@ describe('/helpstaff — Administración: roles autoasignables (Bloque 7)', () =
 // El bloque solo debía tocar Administración — el resto de las categorías de /helpstaff
 // tiene que seguir exactamente como estaba.
 describe('/helpstaff — otras categorías intactas', () => {
-  it('Moderación sigue con sus comandos de siempre', () => {
-    const names = buildModeracionEmbed().data.fields.map((f) => f.name);
-    expect(names).toEqual(
-      expect.arrayContaining(['/clear <cantidad>', '/lock', '/unlock', '/kick <usuario>', '/ban <usuario>', '/timeout <usuario> <duración>']),
-    );
+  // Auditoría UX/UI (2026-09-18): reestructurado en 2 campos (Tier 1 / Tier 2) para que
+  // /say (el único comando Tier 2 de esta categoría) no quede escondido en el texto de
+  // un campo — los comandos siguen siendo los mismos, solo cambió el agrupamiento.
+  it('Moderación separa Tier 1 ("Cualquier staff") de Tier 2 ("Solo Administrador", /say)', () => {
+    const embed = buildModeracionEmbed();
+    const names = embed.data.fields.map((f) => f.name);
+    expect(names).toEqual(expect.arrayContaining(['🟢 Cualquier staff', '🔒 Solo Administrador']));
+
+    const staffField = embed.data.fields.find((f) => f.name === '🟢 Cualquier staff');
+    for (const cmd of ['/clear', '/lock', '/unlock', '/kick', '/ban', '/timeout', '/voice']) {
+      expect(staffField.value).toContain(cmd);
+    }
+
+    const adminField = embed.data.fields.find((f) => f.name === '🔒 Solo Administrador');
+    expect(adminField.value).toContain('/say');
   });
 
   it('Advertencias y sanciones sigue con sus comandos de siempre', () => {
