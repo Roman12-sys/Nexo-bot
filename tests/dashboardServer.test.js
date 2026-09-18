@@ -127,6 +127,32 @@ describe('GET /guild/:guildId — CASO C: sesión válida, CON acceso', () => {
     expect(checkGuildAccess).toHaveBeenCalledWith(REAL_GUILD_ID, 'user-con-acceso');
     expect(loadGuildDashboardData).toHaveBeenCalledWith(REAL_GUILD_ID);
   });
+
+  // Auditoría NEXO V (2026-09-18): la tarjeta "Configuración actual" traía guildConfig
+  // entero desde Fase 4B pero nunca mostraba el tuning de economía por servidor
+  // (2026-09-15) ni cuántos paneles de reaction-roles tiene el guild — quedó
+  // desactualizada frente a dos features nuevas que SÍ son escribibles vía /config.
+  it('la tarjeta de configuración muestra el tuning de economía custom y el conteo de paneles de reaction-roles', async () => {
+    checkGuildAccess.mockResolvedValue({ guild: { id: REAL_GUILD_ID, name: 'Servidor de Prueba', approximate_member_count: 42 } });
+    loadGuildDashboardData.mockResolvedValue({
+      topCommands: [], totalCommands: 0, unlockedAchievementIds: new Set(), topBalances: [], totalCoins: 0,
+      recentWarns: [], totalWarns: 0, activeGiveaways: [], topTrivia: [], punishedMembers: [], punishedTotal: 0,
+      punishedPossiblyIncomplete: false, topXp: [], xpUserCount: 0,
+      voiceStats: { totalSessions: 0, totalDurationSeconds: 0, peakConcurrent: 0, topOwners: [] },
+      topAchievers: [], lolChannelId: null, lolLastUrl: null, lolLastAnnouncedAt: null, dailyStats: [],
+      messagesDelta: null, missionSummary: { dailyCompletedUsers: 0, weeklyCompletedUsers: 0 },
+      guildConfig: { economy_daily_min: 1000, economy_daily_max: 2000, economy_rob_success_percent: 90 },
+      reactionRolePanelCount: 3,
+    });
+
+    const res = await get(`/guild/${REAL_GUILD_ID}`, { cookie: sessionCookieFor('user-con-acceso') });
+    const body = await res.text();
+
+    expect(body).toContain((1000).toLocaleString('es-ES'));
+    expect(body).toContain('personalizado');
+    expect(body).toContain('90%');
+    expect(body).toContain('3 activo(s)');
+  });
 });
 
 // Regresión (2026-09-05): fetchGuildConfigSummary (dashboard/queries.js) empezó a pedir

@@ -176,6 +176,7 @@ export async function loadGuildDashboardData(guildId) {
     guildConfig,
     voiceConfig,
     resourceIds,
+    reactionRolePanelCount,
   ] = await allWithConcurrency(
     [
       () => getTopCommands(guildId, 5),
@@ -210,6 +211,11 @@ export async function loadGuildDashboardData(guildId) {
       // Idem — IDs reales de canales/roles del server, para poder decir con certeza si
       // algo que guild_config guarda ya fue borrado (ver computeConfigIssues).
       () => fetchGuildResourceIds(guildId),
+      // Auditoría NEXO V (2026-09-18) — la tarjeta de configuración no mostraba nada del
+      // tuning de economía por servidor ni de reaction-roles (dos features de
+      // 2026-09-15). El tuning en sí ya viaja dentro de guildConfig (fetchGuildConfigSummary
+      // de abajo suma las columnas); esto solo agrega el conteo de paneles activos.
+      () => fetchReactionRolePanelCount(guildId),
     ],
     6,
   );
@@ -238,6 +244,7 @@ export async function loadGuildDashboardData(guildId) {
     lolChannelId: lolConfig,
     lolLastUrl,
     lolLastAnnouncedAt: lolMonitorState.patchEngineUpdatedAt,
+    reactionRolePanelCount,
     // La tarjeta sigue mostrando 7 días (mismo tamaño visual de siempre) — los 14 que se
     // pidieron arriba son solo para poder calcular messagesDelta.
     dailyStats: dailyStats.slice(-7),
@@ -259,12 +266,25 @@ async function fetchGuildConfigSummary(guildId) {
   const { data, error } = await supabase
     .from('guild_config')
     .select(
-      'admin_role_id, moderator_role_id, log_channel_moderation_id, log_channel_activity_id, log_channel_economy_id, features, punish_role_id, auto_role_id, welcome_channel_id, confession_channel_id, selfassignable_roles',
+      'admin_role_id, moderator_role_id, log_channel_moderation_id, log_channel_activity_id, log_channel_economy_id, features, punish_role_id, auto_role_id, welcome_channel_id, confession_channel_id, selfassignable_roles, ' +
+        // Tuning de economía por servidor (2026-09-15) — sumado en la auditoría NEXO V
+        // (2026-09-18): la tarjeta de configuración traía guildConfig entero desde antes
+        // pero el select explícito de columnas (a propósito, nunca select('*')) no
+        // incluía estas 12, así que quedaban invisibles pese a ser escribibles por /config.
+        'economy_daily_min, economy_daily_max, economy_work_min, economy_work_max, economy_crime_min, economy_crime_max, economy_crime_success_percent, economy_rob_success_percent, economy_rob_steal_percent_min, economy_rob_steal_percent_max, economy_rob_fine_percent_min, economy_rob_fine_percent_max',
     )
     .eq('guild_id', guildId)
     .maybeSingle();
   if (error) throw error;
   return data ?? {};
+}
+
+// Auditoría NEXO V (2026-09-18) — mismo patrón que fetchWarnCount/fetchXpUserCount
+// (count exacto vía head:true, nunca trayendo las filas para contarlas en JS).
+async function fetchReactionRolePanelCount(guildId) {
+  const { count, error } = await supabase.from('reaction_role_panels').select('id', { count: 'exact', head: true }).eq('guild_id', guildId);
+  if (error) throw error;
+  return count ?? 0;
 }
 
 // ---------------------------------------------------------------------------

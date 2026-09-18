@@ -1,6 +1,7 @@
 import { escapeHtml } from './html.js';
 import { GUILD_ACHIEVEMENTS } from '../src/utils/guildAchievements.js';
 import { config } from '../src/config.js';
+import { getEffectiveDailyRange, getEffectiveWorkRange, getEffectiveCrimeConfig, getEffectiveRobConfig, describeRange, describePercent } from '../src/utils/economyTuning.js';
 
 export function renderLoginPage() {
   return `
@@ -258,6 +259,14 @@ export function renderGuildDashboard(guild, data, usersById) {
   const toggle = (on) => (on ? '✅ Activo' : '❌ Apagado');
   const cfg = data.guildConfig || {};
   const features = cfg.features || {};
+  // Tuning de economía por servidor (auditoría NEXO V, 2026-09-18) — mismas funciones
+  // "efectivo = override o default" que ya usan /daily /work /crime /rob del lado del
+  // bot (economyTuning.js), para que el dashboard nunca pueda mostrar un valor distinto
+  // al que el comando real aplica.
+  const dailyRange = getEffectiveDailyRange(cfg);
+  const workRange = getEffectiveWorkRange(cfg);
+  const crimeConfig = getEffectiveCrimeConfig(cfg);
+  const robConfig = getEffectiveRobConfig(cfg);
 
   // "Economía" no tiene un toggle real (features.economia se eliminó — nunca gateó
   // ningún comando, ver setup.js) — se muestra como "Siempre activa" en vez de
@@ -290,6 +299,15 @@ export function renderGuildDashboard(guild, data, usersById) {
       </div>
       <div class="stat-row" style="margin-top:0.75rem;">
         <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Roles autoasignables</div>${(cfg.selfassignable_roles || []).length > 0 ? `${cfg.selfassignable_roles.length} configurado(s)` : '<span class="muted">— sin configurar</span>'}</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">Paneles de reaction-roles</div>${data.reactionRolePanelCount > 0 ? `${data.reactionRolePanelCount} activo(s)` : '<span class="muted">— sin paneles</span>'}</div>
+      </div>
+      <div class="stat-row" style="margin-top:0.75rem;">
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">/daily</div>${escapeHtml(describeRange(dailyRange.min, dailyRange.max, cfg.economy_daily_min != null))}</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">/work</div>${escapeHtml(describeRange(workRange.min, workRange.max, cfg.economy_work_min != null))}</div>
+      </div>
+      <div class="stat-row" style="margin-top:0.75rem;">
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">/crime</div>${escapeHtml(describeRange(crimeConfig.min, crimeConfig.max, cfg.economy_crime_min != null))}, ${escapeHtml(describePercent(crimeConfig.successChance, cfg.economy_crime_success_percent != null))} de éxito</div>
+        <div><div class="label" style="text-transform:uppercase;font-size:0.74rem;color:#978fb4;">/rob</div>${escapeHtml(describePercent(robConfig.successChance, cfg.economy_rob_success_percent != null))} de éxito</div>
       </div>
     </div>`;
 

@@ -1,27 +1,36 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
-// /rolreacciones (plan de ejecución 2026-09-15) — reaction-roles como panel de botones.
-// `crear` es un builder interactivo (mismo patrón que /anuncio, plan 2026-09-15
-// "builder interactivo"): sesión en memoria por guild+usuario, selects nativos de
+// /rolreacciones (plan de ejecución 2026-09-15, ampliado en la auditoría NEXO V del
+// 2026-09-18) — reaction-roles como panel de botones. `crear` es un builder interactivo
+// (mismo patrón que /anuncio): sesión en memoria por guild+usuario, selects nativos de
 // Discord (RoleSelectMenuBuilder/ChannelSelectMenuBuilder), texto vía modal, un render
-// que se re-edita con interaction.update() en cada cambio. Se ejercita a través de los
-// routers REALES (routeButton/routeSelect/routeModal), mismo criterio que
-// tests/selfRoles.test.js/tests/reactionRolePanels.test.js — nunca llamando a los
-// handlers registrados a mano.
+// que se re-edita con interaction.update() en cada cambio. Desde el 2026-09-18 suma: un
+// selector de emoji (Components V2 — StringSelectMenu DENTRO de un modal, con los
+// emojis custom del servidor) con un modal manual encadenado de respaldo, e importar el
+// panel completo pegando un JSON. Se ejercita a través de los routers REALES
+// (routeButton/routeSelect/routeModal), nunca llamando a los handlers registrados a
+// mano. asyncLock.js NO se mockea — el test de doble-click sobre "Publicar" depende del
+// withLock real (mismo criterio que giveawayEngine.test.js).
 const getRoleValidationError = vi.fn(() => null);
 const createReactionRolePanel = vi.fn().mockResolvedValue(undefined);
 const getReactionRolePanel = vi.fn();
 const deleteReactionRolePanel = vi.fn().mockResolvedValue(undefined);
 const listReactionRolePanels = vi.fn().mockResolvedValue([]);
 const buildReactionRolePanelMessage = vi.fn(() => ({ embeds: ['embed'], components: ['row'] }));
-vi.mock('../src/utils/reactionRolePanels.js', () => ({
-  getRoleValidationError: (...a) => getRoleValidationError(...a),
-  createReactionRolePanel: (...a) => createReactionRolePanel(...a),
-  getReactionRolePanel: (...a) => getReactionRolePanel(...a),
-  deleteReactionRolePanel: (...a) => deleteReactionRolePanel(...a),
-  listReactionRolePanels: (...a) => listReactionRolePanels(...a),
-  buildReactionRolePanelMessage: (...a) => buildReactionRolePanelMessage(...a),
-}));
+vi.mock('../src/utils/reactionRolePanels.js', async () => {
+  const actual = await vi.importActual('../src/utils/reactionRolePanels.js');
+  return {
+    MAX_ROLES_PER_PANEL: actual.MAX_ROLES_PER_PANEL,
+    isValidEmojiInput: actual.isValidEmojiInput,
+    extractCustomEmojiId: actual.extractCustomEmojiId,
+    getRoleValidationError: (...a) => getRoleValidationError(...a),
+    createReactionRolePanel: (...a) => createReactionRolePanel(...a),
+    getReactionRolePanel: (...a) => getReactionRolePanel(...a),
+    deleteReactionRolePanel: (...a) => deleteReactionRolePanel(...a),
+    listReactionRolePanels: (...a) => listReactionRolePanels(...a),
+    buildReactionRolePanelMessage: (...a) => buildReactionRolePanelMessage(...a),
+  };
+});
 
 const logConfigChange = vi.fn().mockResolvedValue(undefined);
 vi.mock('../src/commands/admin/config.js', () => ({ logConfigChange: (...a) => logConfigChange(...a) }));
@@ -32,7 +41,11 @@ const { routeSelect } = await import('../src/components/selects.js');
 const { routeModal } = await import('../src/components/modals.js');
 
 function makeRole(id, name = id) {
-  return { id, name, toString: () => `<@&${id}>` };
+  return { id, name, toString: () => `<@&${id}>`, position: 1 };
+}
+
+function makeGuildEmoji(id, name, animated = false) {
+  return { id, name, animated, toString: () => `<${animated ? 'a' : ''}:${name}:${id}>` };
 }
 
 const invokingChannel = { id: 'chan-invoking', toString: () => '<#chan-invoking>' };
@@ -46,38 +59,60 @@ function makeCommandInteraction({ sub = 'crear', isOwner = true, isAdminPerm = t
     member: { permissions: { has: () => isAdminPerm } },
     options: { getSubcommand: () => sub, getString: (name) => (name === 'mensaje_id' ? mensajeId : null) },
     reply: vi.fn().mockResolvedValue(undefined),
+    deferReply: vi.fn().mockResolvedValue(undefined),
+    editReply: vi.fn().mockResolvedValue(undefined),
   };
 }
 
-function makeComponentInteraction({ customId, guildId = 'guild-1', userId = 'user-1', roles = [], channels = null, sendMessage } = {}) {
-  const publishedChannel = { id: 'chan-invoking', send: sendMessage || vi.fn().mockResolvedValue({ id: 'msg-nuevo', url: 'https://discord.com/channels/g/c/m', delete: vi.fn().mockResolvedValue(undefined) }) };
+// resolveRole: por defecto "cualquier ID existe" (auto-fabrica un rol con ese id) —
+// los tests que necesitan simular "el rol ya no existe" pasan resolveRole: () => null.
+function makeGuildStub({ guildId = 'guild-1', channelsFetchResult, resolveRole = (id) => makeRole(id), emojis = new Map() } = {}) {
+  return {
+    id: guildId,
+    channels: { fetch: vi.fn().mockResolvedValue(channelsFetchResult ?? null) },
+    roles: { cache: { get: resolveRole }, fetch: vi.fn().mockResolvedValue(null) },
+    emojis: { cache: emojis, fetch: vi.fn().mockResolvedValue(emojis) },
+  };
+}
+
+function makeComponentInteraction({ customId, guildId = 'guild-1', userId = 'user-1', roles = [], channels = null, sendMessage, resolveRole, emojis } = {}) {
+  const publishedChannel = {
+    id: 'chan-invoking',
+    send: sendMessage || vi.fn().mockResolvedValue({ id: 'msg-nuevo', url: 'https://discord.com/channels/g/c/m', delete: vi.fn().mockResolvedValue(undefined) }),
+  };
   return {
     customId,
     guildId,
-    guild: { id: guildId, channels: { fetch: vi.fn().mockResolvedValue(publishedChannel) } },
+    guild: { ...makeGuildStub({ guildId, channelsFetchResult: publishedChannel, resolveRole, emojis }) },
     channel: publishedChannel,
     user: { id: userId },
     roles, // Array.prototype.values() ya cubre el .values() que usa el handler
     channels: { first: () => channels },
-    fields: { getTextInputValue: () => '' },
+    fields: { getTextInputValue: () => '', getStringSelectValues: () => [] },
     reply: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
+    deferUpdate: vi.fn().mockResolvedValue(undefined),
     editReply: vi.fn().mockResolvedValue(undefined),
     showModal: vi.fn().mockResolvedValue(undefined),
   };
 }
 
-function makeModalInteraction({ customId, guildId = 'guild-1', userId = 'user-1', values = {} } = {}) {
+function makeModalInteraction({ customId, guildId = 'guild-1', userId = 'user-1', values = {}, selectValues = {}, resolveRole, emojis } = {}) {
   const publishedChannel = { id: 'chan-invoking', send: vi.fn().mockResolvedValue({ id: 'msg-nuevo', url: 'https://discord.com/channels/g/c/m', delete: vi.fn().mockResolvedValue(undefined) }) };
   return {
     customId,
     guildId,
-    guild: { id: guildId, channels: { fetch: vi.fn().mockResolvedValue(publishedChannel) } },
+    guild: { ...makeGuildStub({ guildId, channelsFetchResult: publishedChannel, resolveRole, emojis }) },
     channel: publishedChannel,
     user: { id: userId },
-    fields: { getTextInputValue: (name) => values[name] ?? '' },
+    fields: {
+      getTextInputValue: (name) => values[name] ?? '',
+      getStringSelectValues: (name) => selectValues[name] ?? [],
+    },
     reply: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
+    deferUpdate: vi.fn().mockResolvedValue(undefined),
+    showModal: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -106,6 +141,17 @@ describe('/rolreacciones crear — abre la sesión', () => {
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.flags).toBeDefined();
     expect(payload.embeds[0].data.fields.find((f) => f.name.includes('Roles')).value).toContain('todavía no elegiste');
+  });
+
+  it('abrir un segundo builder sin terminar el primero invalida el mensaje viejo', async () => {
+    const first = makeCommandInteraction({ sub: 'crear' });
+    await execute(first);
+
+    const second = makeCommandInteraction({ sub: 'crear' });
+    await execute(second);
+
+    expect(first.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('invalidado') }));
+    expect(second.reply).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -155,7 +201,8 @@ describe('/rolreacciones crear — selección de roles', () => {
     const roleB = makeRole('role-b', 'Artista');
 
     await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [roleA] }));
-    await routeModal(makeModalInteraction({ customId: 'modal_rrbuilder_emojis', values: { emoji_0: '🎮' } }));
+    await routeModal(makeModalInteraction({ customId: 'modal_rrbuilder_emoji_pick', selectValues: { emoji_pick_0: ['__manual__'] } }));
+    await routeModal(makeModalInteraction({ customId: 'modal_rrbuilder_emoji_manual_0', values: { emoji_manual_0: '🎮' } }));
     await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [roleA, roleB] }));
 
     // Publica para inspeccionar el draft final vía el shape que le llega a createReactionRolePanel.
@@ -200,7 +247,7 @@ describe('/rolreacciones crear — título y descripción (modal)', () => {
   });
 });
 
-describe('/rolreacciones crear — emojis (modal)', () => {
+describe('/rolreacciones crear — emojis (selector + modal manual encadenado)', () => {
   it('el botón de emojis rechaza si todavía no hay roles elegidos', async () => {
     await execute(makeCommandInteraction({ sub: 'crear' }));
 
@@ -211,14 +258,147 @@ describe('/rolreacciones crear — emojis (modal)', () => {
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Elegí roles primero') }));
   });
 
-  it('con roles elegidos: abre el modal', async () => {
+  it('con roles elegidos: abre el selector de emoji (trae los emojis del server en fresco)', async () => {
     await execute(makeCommandInteraction({ sub: 'crear' }));
     await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [makeRole('role-a', 'Gamer')] }));
 
-    const interaction = makeComponentInteraction({ customId: 'rrbuilder_emojis' });
+    const emojis = new Map([['emoji-1', makeGuildEmoji('emoji-1', 'gamer')]]);
+    const interaction = makeComponentInteraction({ customId: 'rrbuilder_emojis', emojis });
     await routeButton(interaction);
 
+    expect(interaction.guild.emojis.fetch).toHaveBeenCalledTimes(1);
     expect(interaction.showModal).toHaveBeenCalledTimes(1);
+    expect(interaction.showModal.mock.calls[0][0].data.custom_id).toBe('modal_rrbuilder_emoji_pick');
+  });
+
+  it('elegir un emoji custom del server en el selector: lo guarda directo, sin segundo modal', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+    await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [makeRole('role-a', 'Gamer')] }));
+
+    const emojis = new Map([['emoji-1', makeGuildEmoji('emoji-1', 'gamer')]]);
+    const interaction = makeModalInteraction({ customId: 'modal_rrbuilder_emoji_pick', selectValues: { emoji_pick_0: ['emoji-1'] }, emojis });
+    await routeModal(interaction);
+
+    expect(interaction.showModal).not.toHaveBeenCalled();
+    expect(interaction.update).toHaveBeenCalledTimes(1);
+    const payload = interaction.update.mock.calls[0][0];
+    expect(payload.embeds[0].data.fields.find((f) => f.name.includes('Roles')).value).toContain('<:gamer:emoji-1>');
+  });
+
+  it('elegir "sin emoji" en el selector: limpia el emoji del rol', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+    await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [makeRole('role-a', 'Gamer')] }));
+    await routeModal(makeModalInteraction({ customId: 'modal_rrbuilder_emoji_pick', selectValues: { emoji_pick_0: ['__manual__'] } }));
+    await routeModal(makeModalInteraction({ customId: 'modal_rrbuilder_emoji_manual_0', values: { emoji_manual_0: '🎮' } }));
+
+    await routeModal(makeModalInteraction({ customId: 'modal_rrbuilder_emoji_pick', selectValues: { emoji_pick_0: ['__none__'] } }));
+    await routeButton(makeComponentInteraction({ customId: 'rrbuilder_publish' }));
+
+    expect(createReactionRolePanel).toHaveBeenCalledWith('guild-1', 'chan-invoking', 'msg-nuevo', [{ roleId: 'role-a', label: 'Gamer', emoji: undefined }], 'user-1');
+  });
+
+  it('elegir "escribir manualmente": encadena un segundo modal solo para ese rol', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+    await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [makeRole('role-a', 'Gamer')] }));
+
+    const interaction = makeModalInteraction({ customId: 'modal_rrbuilder_emoji_pick', selectValues: { emoji_pick_0: ['__manual__'] } });
+    await routeModal(interaction);
+
+    expect(interaction.update).not.toHaveBeenCalled();
+    expect(interaction.showModal).toHaveBeenCalledTimes(1);
+    expect(interaction.showModal.mock.calls[0][0].data.custom_id).toBe('modal_rrbuilder_emoji_manual_0');
+  });
+
+  it('modal manual: aplica el emoji tipeado y refresca el builder original (no i.update, porque viene de un modal encadenado)', async () => {
+    const owner = makeCommandInteraction({ sub: 'crear' });
+    await execute(owner);
+    await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [makeRole('role-a', 'Gamer')] }));
+
+    const interaction = makeModalInteraction({ customId: 'modal_rrbuilder_emoji_manual_0', values: { emoji_manual_0: '🎮' } });
+    await routeModal(interaction);
+
+    expect(interaction.deferUpdate).toHaveBeenCalledTimes(1);
+    expect(owner.editReply).toHaveBeenCalledTimes(1);
+    const payload = owner.editReply.mock.calls[0][0];
+    expect(payload.embeds[0].data.fields.find((f) => f.name.includes('Roles')).value).toContain('🎮');
+  });
+
+  it('modal manual: emoji mal formado se rechaza identificando el rol, sin tocar el draft', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+    await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [makeRole('role-a', 'Gamer')] }));
+
+    const interaction = makeModalInteraction({ customId: 'modal_rrbuilder_emoji_manual_0', values: { emoji_manual_0: 'no-es-emoji' } });
+    await routeModal(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Gamer') }));
+    expect(interaction.deferUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('/rolreacciones crear — importar JSON', () => {
+  it('JSON válido: carga título, descripción y roles en el draft (preview, no publica)', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+
+    const json = JSON.stringify({ titulo: 'Elegí tu juego', descripcion: 'Click para sumarte', roles: [{ rol: 'role-a', emoji: '🎮', etiqueta: 'Gamer' }] });
+    const interaction = makeModalInteraction({ customId: 'modal_rrbuilder_json', values: { json } });
+    await routeModal(interaction);
+
+    expect(createReactionRolePanel).not.toHaveBeenCalled();
+    const payload = interaction.update.mock.calls[0][0];
+    expect(payload.embeds[0].data.title).toBe('Elegí tu juego');
+    expect(payload.embeds[0].data.fields.find((f) => f.name.includes('Roles')).value).toContain('🎮');
+  });
+
+  it('JSON con sintaxis inválida: rechaza sin tocar el draft', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+
+    const interaction = makeModalInteraction({ customId: 'modal_rrbuilder_json', values: { json: '{roles: [' } });
+    await routeModal(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('JSON válido') }));
+    expect(interaction.update).not.toHaveBeenCalled();
+  });
+
+  it('JSON con más roles que el máximo permitido: rechaza', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+    const roles = Array.from({ length: 6 }, (_, i) => ({ rol: `role-${i}` }));
+
+    const interaction = makeModalInteraction({ customId: 'modal_rrbuilder_json', values: { json: JSON.stringify({ roles }) } });
+    await routeModal(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Máximo') }));
+  });
+
+  it('JSON con un ID de rol que no existe en el servidor: rechaza identificando el elemento', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+
+    const interaction = makeModalInteraction({
+      customId: 'modal_rrbuilder_json',
+      values: { json: JSON.stringify({ roles: [{ rol: 'role-fantasma' }] }) },
+      resolveRole: () => null,
+    });
+    await routeModal(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No encontré') }));
+  });
+
+  it('JSON con un rol peligroso: rechaza igual que el selector nativo', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+    getRoleValidationError.mockReturnValue('tiene el permiso **Administrador**');
+
+    const interaction = makeModalInteraction({ customId: 'modal_rrbuilder_json', values: { json: JSON.stringify({ roles: [{ rol: 'role-a' }] }) } });
+    await routeModal(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Administrador') }));
+  });
+
+  it('JSON con un emoji mal formado: rechaza identificando el rol', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+
+    const interaction = makeModalInteraction({ customId: 'modal_rrbuilder_json', values: { json: JSON.stringify({ roles: [{ rol: 'role-a', emoji: 'no-es-emoji' }] }) } });
+    await routeModal(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('emoji') }));
   });
 });
 
@@ -245,6 +425,44 @@ describe('/rolreacciones crear — publicar', () => {
     expect(interaction.update).toHaveBeenCalledWith(expect.objectContaining({ content: '🎭 Publicando el panel...' }));
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('✅ Panel creado') }));
     expect(logConfigChange).toHaveBeenCalled();
+  });
+
+  // Auditoría NEXO V (2026-09-18): revalidación en fresco justo antes de publicar — un
+  // rol puede haberse borrado entre elegirlo y publicar.
+  it('si un rol ya no existe al momento de publicar: rechaza sin crear el panel', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+    await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [makeRole('role-a', 'Gamer')] }));
+
+    const interaction = makeComponentInteraction({ customId: 'rrbuilder_publish', resolveRole: () => null });
+    await routeButton(interaction);
+
+    expect(createReactionRolePanel).not.toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('ya no existe') }));
+  });
+
+  it('si un rol se volvió peligroso al momento de publicar: rechaza sin crear el panel', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+    await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [makeRole('role-a', 'Gamer')] }));
+    getRoleValidationError.mockReturnValue('tiene el permiso **Administrador**');
+
+    const interaction = makeComponentInteraction({ customId: 'rrbuilder_publish' });
+    await routeButton(interaction);
+
+    expect(createReactionRolePanel).not.toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Administrador') }));
+  });
+
+  // Auditoría NEXO V (2026-09-18): dos clicks casi simultáneos sobre "Publicar" no deben
+  // crear dos paneles — withLock real (sin mockear) serializa las dos ejecuciones.
+  it('dos clicks casi simultáneos en Publicar: crea un solo panel, nunca dos', async () => {
+    await execute(makeCommandInteraction({ sub: 'crear' }));
+    await routeSelect(makeComponentInteraction({ customId: 'rrbuilder_roles_select', roles: [makeRole('role-a', 'Gamer')] }));
+
+    const first = makeComponentInteraction({ customId: 'rrbuilder_publish' });
+    const second = makeComponentInteraction({ customId: 'rrbuilder_publish' });
+    await Promise.all([routeButton(first), routeButton(second)]);
+
+    expect(createReactionRolePanel).toHaveBeenCalledTimes(1);
   });
 
   // GIVE-1 (auditoría completa 2026-09-11, mismo bug class que /sorteo crear): si el
@@ -300,17 +518,22 @@ describe('/rolreacciones eliminar', () => {
     await execute(interaction);
 
     expect(deleteReactionRolePanel).not.toHaveBeenCalled();
+    expect(interaction.deferReply).not.toHaveBeenCalled();
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('No encontré') }));
   });
 
-  it('panel existente: borra la fila y confirma (mensaje real ya no accesible: best-effort, no revienta)', async () => {
+  // Auditoría NEXO V (2026-09-18): defer ANTES de fetch/edit/borrado — sin esto, la
+  // ventana de 3s del token podía vencer con el panel YA borrado.
+  it('panel existente: hace defer antes de tocar Discord/Supabase, borra la fila y confirma con editReply', async () => {
     getReactionRolePanel.mockResolvedValue({ guildId: 'guild-1', channelId: 'chan-1', messageId: 'msg-1', roles: [] });
     const interaction = makeCommandInteraction({ sub: 'eliminar' });
 
     await execute(interaction);
 
+    expect(interaction.deferReply).toHaveBeenCalledTimes(1);
+    expect(interaction.reply).not.toHaveBeenCalled();
     expect(deleteReactionRolePanel).toHaveBeenCalledWith('guild-1', 'msg-1');
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('✅ Panel eliminado') }));
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('✅ Panel eliminado') }));
     expect(logConfigChange).toHaveBeenCalled();
   });
 });

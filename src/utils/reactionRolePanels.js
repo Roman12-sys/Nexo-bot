@@ -75,6 +75,29 @@ export function getRoleValidationError(guild, role) {
   return null;
 }
 
+// Validación best-effort de "esto es un emoji real" — no una gramática Unicode
+// completa, alcanza para rechazar texto tipeado por error en el campo manual del
+// builder de /rolreacciones (único lugar del repo donde un usuario escribe libremente
+// el valor que después se pasa a ButtonBuilder.setEmoji(); discord.js SÍ sabe parsear
+// tanto un emoji unicode suelto como <a?:nombre:id>, pero no valida el FORMATO antes de
+// eso — un string cualquiera se guarda tal cual y recién falla, sin identificar cuál
+// rol, al publicar de verdad).
+const CUSTOM_EMOJI_RE = /^<a?:\w{2,32}:\d{17,20}>$/;
+const UNICODE_EMOJI_RE = /^(?:\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*|[#*0-9]️?⃣)$/u;
+
+export function isValidEmojiInput(value) {
+  if (!value) return true; // vacío = "sin emoji", siempre válido
+  return CUSTOM_EMOJI_RE.test(value) || UNICODE_EMOJI_RE.test(value);
+}
+
+// Extrae el ID de un emoji custom en formato <a?:nombre:id> — usado por el selector de
+// emoji del builder para marcar como "default" la opción que coincide con el valor ya
+// guardado en el draft. Devuelve null para unicode/vacío/formato no reconocido.
+export function extractCustomEmojiId(value) {
+  const match = typeof value === 'string' ? value.match(CUSTOM_EMOJI_RE) : null;
+  return match ? match[0].split(':').at(-1).replace('>', '') : null;
+}
+
 // { embeds, components } listos para .send()/.editReply() — reusado por
 // /rolreacciones crear. roles: [{ roleId, label, emoji? }], ya validados por el caller.
 // emoji es opcional (builder interactivo, plan 2026-09-15) — un panel sin emoji se ve

@@ -139,6 +139,21 @@ create table if not exists guild_config (
   economy_rob_steal_percent_max smallint,
   economy_rob_fine_percent_min smallint,
   economy_rob_fine_percent_max smallint,
+  -- Auditoría NEXO V (2026-09-18) — defensa en profundidad, no el cierre de un bypass
+  -- real (el único escritor, /config economia, ya valida min<=max en la app y Discord
+  -- acota los porcentajes 1-100 en la opción). Null en cualquiera de los dos lados de un
+  -- par deja pasar el check (economy_tuning_checks migration, misma condición).
+  check (economy_daily_min is null or economy_daily_max is null or economy_daily_min <= economy_daily_max),
+  check (economy_work_min is null or economy_work_max is null or economy_work_min <= economy_work_max),
+  check (economy_crime_min is null or economy_crime_max is null or economy_crime_min <= economy_crime_max),
+  check (economy_crime_success_percent is null or economy_crime_success_percent between 1 and 100),
+  check (economy_rob_success_percent is null or economy_rob_success_percent between 1 and 100),
+  check (economy_rob_steal_percent_min is null or economy_rob_steal_percent_max is null or economy_rob_steal_percent_min <= economy_rob_steal_percent_max),
+  check (economy_rob_steal_percent_min is null or economy_rob_steal_percent_min between 1 and 100),
+  check (economy_rob_steal_percent_max is null or economy_rob_steal_percent_max between 1 and 100),
+  check (economy_rob_fine_percent_min is null or economy_rob_fine_percent_max is null or economy_rob_fine_percent_min <= economy_rob_fine_percent_max),
+  check (economy_rob_fine_percent_min is null or economy_rob_fine_percent_min between 1 and 100),
+  check (economy_rob_fine_percent_max is null or economy_rob_fine_percent_max between 1 and 100),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -1574,7 +1574,11 @@ desplegado** (corregido 2026-09-12 — decía "sin pushear").
 **Fase 4B — 9 de los 15 P1, elegidos a mano, no todos.** El resto (reaction-roles,
 `/report`, tuning de economía por servidor, PERF-1, revisión legal) se evaluaron y se
 dejaron para más adelante a propósito — ver el criterio de priorización en el informe de
-la sesión si hace falta retomarlos. Lo que sí se implementó: el modelo de permisos de 3
+la sesión si hace falta retomarlos. **Reaction-roles y tuning de economía por servidor
+se implementaron el 2026-09-15** (ver "Plan de ejecución post-auditoría (parte 2)" más
+abajo); `/report` se implementó y después se eliminó por completo (ver esa sección);
+PERF-1 se cerró en la Fase 3 del primer plan de ejecución post-auditoría; revisión legal
+sigue pendiente. Lo que sí se implementó acá en su momento: el modelo de permisos de 3
 tiers (`isAdmin()`, ver sección "Permisos" arriba) y la alerta operativa
 (`reportCriticalError`, ver sección "Observabilidad" arriba) — las dos piezas grandes,
 ya documentadas en detalle en sus propias secciones — más: cooldown en `/confession` y
@@ -1977,14 +1981,14 @@ implementado en 5 fases el mismo tramo:
   injection (vector staff→staff: el motivo de un warn es texto libre de staff, nunca
   de un usuario común).
 
-**Dejado explícitamente como decisión pendiente, no implementado:** el riesgo
-arquitectónico de que un rol "seguro" (`getDangerousRolePermission`) solo se valida al
-guardarlo en `/config`/`/setup`, nunca de nuevo en el momento real de aplicarlo
-(`punish.js`, `guildMemberAdd.js`) — si alguien le agrega un permiso peligroso a un rol
-de castigo/automático YA configurado desde Discord nativo, el próximo `/punish` lo
-escala en vez de restringirlo. Arreglarlo (revalidar antes de `roles.add()`) es sencillo
-pero es una decisión de producto: podría "romper" a propósito una restricción que un
-admin cambió por otro motivo — no se tocó sin que el usuario lo pida.
+**Dejado explícitamente como decisión pendiente, no implementado en esta ronda —
+cerrado el 2026-09-15, ver "Plan de ejecución post-auditoría (parte 2)" más abajo:** el
+riesgo arquitectónico de que un rol "seguro" (`getDangerousRolePermission`) solo se
+valida al guardarlo en `/config`/`/setup`, nunca de nuevo en el momento real de
+aplicarlo (`punish.js`, `guildMemberAdd.js`) — si alguien le agrega un permiso
+peligroso a un rol de castigo/automático YA configurado desde Discord nativo, el
+próximo `/punish` lo escala en vez de restringirlo. El usuario pidió explícitamente
+cerrarlo unos días después, ya no queda como decisión pendiente.
 
 **Resultado:** 109→113 archivos de test, 1001→1030 tests, todo verde. Nada commiteado
 (el working tree completo queda para el tooling del usuario, como siempre). Puntaje
@@ -1992,6 +1996,257 @@ propio del día, para que quede de referencia: **~85/100 técnico** (seguridad,
 atomicidad, cobertura de tests, feature-completeness — todo alto; el único P1 real de
 esta ronda ya cerrado) vs. **~35-40/100 comercial** (cero monetización, cero premium,
 sitio sin dominio desplegado — el cuello de botella real de NEXO no es el código).
+
+## Plan de ejecución post-auditoría (parte 2): rol peligroso, reaction-roles, tuning de economía (2026-09-15)
+
+De la lista de pendientes que quedaron señalados a propósito en rondas anteriores (el
+riesgo arquitectónico de "Auditoría intensa... segunda ronda" de arriba, y los P1 de
+Fase 4B diferidos) se implementaron 3 en la misma sesión — elegidos explícitamente por
+el usuario vía `AskUserQuestion` entre varias opciones ofrecidas, no los 6 completos.
+**Commit `069ae14`, pusheado** (lo corrió el propio usuario con su tooling externo, ver
+`[[nexo_bot_no_auto_push]]`).
+
+### A. Revalidación de rol peligroso al aplicar — cierra el riesgo arquitectónico
+
+`getDangerousRolePermission()` (`permissions.js`) solo se chequeaba al GUARDAR
+`punish_role_id`/`auto_role_id` (`/config`, `/setup`) — si un admin le sumaba un
+permiso peligroso al rol YA configurado desde Discord nativo, el bot lo seguía
+aplicando sin volver a revisar. `src/utils/selfRoles.js` ya resolvía exactamente este
+problema para roles autoasignables (revalida en vivo en cada uso vía
+`resolveLiveSelfRoles`) — ese es el patrón que se copió acá, sin inventar nada nuevo.
+
+Dos sitios de aplicación revalidados: `punish.js` (entre el fetch del rol y
+`member.roles.add()`, rechazo ephemeral con el mismo texto que ya usa `/config
+rol-castigo`) y `guildMemberAdd.js` — `assignAutoRole()`/`reapplyActivePunishment()`. A
+diferencia de `punish.js` (el staff ve la respuesta del comando en el momento), los dos
+casos de `guildMemberAdd.js` son eventos silenciosos — además del `console.warn` de
+siempre, ahora mandan un aviso al canal de logs de **moderación**
+(`warnDangerousRoleApply()`, un `EmbedBuilder` inline, sin builder nuevo en
+`logEmbeds.js` para un caso tan puntual): es información accionable (la config de roles
+derivó a algo peligroso) a diferencia de "el rol ya no existe", que sigue siendo solo
+`console.warn` porque es deriva operativa mundana, no un riesgo de seguridad.
+
+### B. Reaction-roles — panel de botones, builder interactivo (no reacciones literales)
+
+P1 de Fase 4B, evaluado y diferido a propósito — implementado este día. **Decisión
+explícita del usuario, vía `AskUserQuestion`: panel de botones, no reacciones de emoji
+reales.** El bot no tiene el intent `GuildMessageReactions` ni `Partials.Reaction`, y
+agregarlos hubiera sido un cambio de infra (redeploy, nuevo listener
+`messageReactionAdd`/`Remove`) solo para esta feature. El panel de botones reusa el
+router ya existente (`src/components/buttons.js`), mismo patrón que `giveaway_enter_`
+de `sorteo.js` y `selfroles_select` de `selfRoles.js`.
+
+**Modelo de datos — tabla nueva, no una columna de `guild_config`.** A diferencia de
+`selfassignable_roles` (una sola lista plana por guild), acá un guild puede tener
+VARIOS paneles independientes en canales distintos, con roles distintos.
+`reaction_role_panels` (`migration_2026_09_15_reaction_roles.sql`, corrida y
+verificada por API contra producción — `GET .../reaction_role_panels?limit=1` → 200,
+`[]`): `guild_id`, `channel_id`, `message_id` (unique), `roles jsonb`
+(`[{roleId, label, emoji?}]`, hasta 5 — el máximo real de una sola `ActionRow` de
+botones, sin paginación a propósito, mismo criterio que el techo de 25 de
+`selfassignable_roles`), `created_by`. Sumada a `GUILD_SCOPED_TABLES` (sí es
+guild-scoped, a diferencia de `bot_guild_events`).
+
+`src/utils/reactionRolePanels.js` — store + `getRoleValidationError(guild, role)`
+(única fuente de verdad de "¿NEXO puede asignar este rol ahora mismo?": permiso
+peligroso + jerarquía del bot, mismo patrón que `resolveLiveSelfRoles`), llamada TANTO
+al crear el panel como en cada click del botón (`rr_toggle_<roleId>`) — revalidación en
+vivo, un admin puede volver peligroso un rol después de publicar el panel.
+`buildReactionRolePanelMessage()` arma el embed (`MAGENTA_COLOR`) + la fila de botones,
+con soporte de emoji por botón opcional (`.setEmoji()` si el rol tiene uno cargado).
+
+**`/rolreacciones crear` es un builder interactivo, no opciones planas — segunda
+iteración dentro de la misma sesión.** La primera versión pedía todo como opciones del
+slash command (rol1-5, canal, título, descripción); el usuario pidió explícitamente
+reemplazarla por un constructor con vista previa en vivo, "como `/anuncio` pero más
+actualizado" — mismo patrón EXACTO que `src/commands/anuncios/anuncio.js` (922 líneas,
+el builder más viejo del proyecto), sin inventar uno nuevo: sesión en memoria (`Map`,
+key `` `${guildId}:${userId}` ``, TTL 10 min con `refreshSession()` en cada mutación —
+mismo motivo que `anuncio.js`: el customId no necesita userId porque un mensaje
+efímero ya está scopeado por Discord, pero el Map sí necesita guildId para no pisar la
+sesión de un admin con el builder abierto en dos servidores a la vez),
+`RoleSelectMenuBuilder`/`ChannelSelectMenuBuilder` nativos (no opciones de comando)
+para elegir roles/canal, un modal para título/descripción
+(`modal_rrbuilder_content`), y un segundo modal armado DINÁMICAMENTE (un
+`TextInputBuilder` por rol ya elegido, hasta 5, `customId` posicional `emoji_<i>`) para
+poner el emoji de cada botón — decisión explícita del usuario de sumar esto en la
+misma pasada, no como fase aparte. Al reelegir roles en el selector, el emoji ya
+cargado se preserva por `roleId` (no se pierde solo por reabrir el selector). Publicar
+reusa tal cual `buildReactionRolePanelMessage`/`createReactionRolePanel` ya escritos —
+el builder solo cambia CÓMO se arma el draft, nunca la lógica de
+persistencia/publicación. `/rolreacciones eliminar`/`listar` NO son builders (no tiene
+sentido para "borrar por ID"/"listar") — comandos directos, sin cambios.
+
+**Bug real encontrado y arreglado el mismo día, en código propio recién escrito, antes
+de que el usuario lo pidiera.** Mismo bug class que GIVE-1 (`/sorteo crear`, auditoría
+completa 2026-09-11): la primera versión de `handleCrear` posteaba el mensaje
+(`canal.send`) y RECIÉN DESPUÉS guardaba la fila (`createReactionRolePanel`) — dos
+llamadas de red secuenciales sin ack intermedio. Un timeout de red entre las dos dejaba
+el panel "fantasma" (visible en el canal, con botones que iban a responder "este panel
+ya no es válido" para siempre porque nunca quedó una fila que los respalde). Fix: ack
+inmediato (`interaction.reply`/`i.update` con "Creando/Publicando...") antes de las
+llamadas lentas, y si el guardado falla DESPUÉS de postear, se borra el mensaje
+(`message.delete().catch(() => {})`). Encontrado en una auto-revisión rápida del propio
+código, no por un pedido de auditoría del usuario ni por un bug en producción — ver
+`[[nexo_bot_same_day_self_review]]`.
+
+### C. Tuning de economía por servidor — núcleo
+
+P1 de Fase 4B, evaluado y diferido a propósito — implementado este día, alcance
+acotado por el usuario (vía `AskUserQuestion`) al "núcleo": rangos de pago de `/daily`
+`/work` `/crime`, probabilidad de éxito de `/crime` y `/rob`, y % de robo/multa de
+`/rob`. Casino, interés de banco y XP quedan con su valor global de siempre — evaluado
+y descartado a propósito para esta fase (mucha más superficie, ~8 archivos más).
+
+12 columnas nuevas en `guild_config` (`migration_2026_09_15_economy_tuning.sql`,
+corrida y verificada por API — las 12 devuelven `null`), TODAS nullable sin default:
+`null` = "usar la constante global de siempre", nunca se toca el valor de la constante
+en sí. Los porcentajes se guardan como enteros 1-100 (más cómodo para un admin que un
+float) — la capa de resolución los devuelve ya divididos por 100.
+
+`src/utils/economyTuning.js` — ÚNICA fuente de verdad de "valor efectivo", usada tanto
+por los comandos (aplicar) como por `/config economia` (mostrar/validar), para que
+nunca diverjan: `getEffectiveDailyRange`/`getEffectiveWorkRange`/
+`getEffectiveCrimeConfig`/`getEffectiveRobConfig`, cada una `cfg.economy_x ?? DEFAULT`.
+Los defaults (`DAILY_DEFAULT`, etc.) viven ACÁ, no en los archivos de comando — antes
+`MIN_REWARD`/`MAX_REWARD` etc. eran `const` locales a cada archivo de comando; se
+movieron a `economyTuning.js` para evitar un import circular (`daily.js` necesita leer
+`economyTuning.js`, que a su vez hubiera necesitado importar las constantes DE
+`daily.js`).
+
+`/daily` `/work` `/crime` `/rob` — ninguno importaba `guildConfigStore.js` antes de
+esto (son comandos de baja frecuencia, cooldown de 45min-24h: un `getGuildConfig` de
+más no es un problema de rendimiento, cache de 30s ya existente). Cada uno hace UN
+`getGuildConfig` antes de entrar al `withLock`, no dentro — el rango/probabilidad de
+pago no necesita revalidarse "en fresco" dentro del lock como sí necesita el
+balance/cooldown (ver el resto de esos archivos, sin cambios en esa parte).
+
+`/config economia` — subcommand GROUP nuevo (no subcomandos sueltos: `/config` ya
+tenía ~18, un grupo mantiene el nivel superior dentro del límite real de 25 de
+Discord). 5 subcomandos: `diario`/`trabajo` (min+max, ambos obligatorios juntos —
+nunca "solo minimo", para que nunca quede un min>max implícito contra el default),
+`crimen` (+ éxito 1-100), `robo` (éxito + robo-min/max + multa-min/max, todos 1-100),
+`restablecer` (`sistema: diario|trabajo|crimen|robo|todo`, vuelve esos campos a
+`null`). `buildConfigSummaryEmbed` suma un campo "💰 Economía" marcando "personalizado"
+vs "por defecto (X–Y)" por sistema, usando las mismas funciones de `economyTuning.js`.
+
+### Verificación
+
+Las 2 migraciones (`reaction_role_panels`, columnas `economy_*`) son puramente
+aditivas — corridas y verificadas por API contra producción (`gmcqbvrqqpmcqjrbtauk`)
+el mismo día, antes del deploy del código (seguro porque no hay ningún DROP/ALTER
+destructivo, mismo criterio que `migration_2026_09_12_owner_metricas.sql`). 1090→1098
+tests (incluye el fix de GIVE-1 de arriba). `website/data/commands.generated.json`
+regenerado DOS VECES el mismo día — una al sumar `/rolreacciones`, otra al cambiarle el
+shape de opciones al reemplazar `crear` por el builder — recordatorio de que `npm run
+website:generate-commands` hay que correrlo cada vez que el SHAPE de un comando
+cambia, no solo cuando se agrega o saca uno.
+
+## Auditoría NEXO V + fixes en vivo sobre /rolreacciones (2026-09-18)
+
+Pedido explícito del usuario: auditoría completa con **2 agentes** en paralelo (no los
+7 de rondas anteriores), foco en lo que quedó sin auditar desde la ronda del 2026-09-12
+— exactamente las dos features de la sección "Plan de ejecución post-auditoría (parte
+2)" de arriba (tuning de economía, reaction-roles). Reporte completo entregado como
+Artifact ("Auditoría NEXO V") + copia en el Escritorio. A diferencia de rondas
+anteriores, esta vez el usuario aprobó el esquema de fixes propuesto (incluida la Fase
+4 de opcionales) por `AskUserQuestion` y todo se implementó en el mismo tramo, sin
+volver a auditar entre bloques.
+
+**Resultado del agente de economía/permisos/schema: 0 hallazgos confirmados.** El
+tuning de economía (`069ae14`) preserva todos los invariantes de concurrencia
+(locks, orden cooldown-antes-de-recompensa, caps duros de `/rob`) — quedó limpio en la
+primera pasada. Sí encontró que la revalidación de rol peligroso (sección A de "Parte
+2" arriba) ya estaba implementada y testeada en código pese a que, en ese momento, la
+propia CLAUDE.md todavía no reflejaba el cierre — drift ya corregido en esa sección.
+
+**Resultado del agente de rolreacciones/dashboard/tests: 1 Alto + 3 Medio + varios
+Bajo, todos en `/rolreacciones` (feature nueva del 2026-09-15) o en la tarjeta del
+dashboard que todavía no la reflejaba.** Los 4 reales, arreglados el mismo día:
+
+- **Alto — `/rolreacciones eliminar` sin `deferReply()`.** Mutaba Discord/Supabase
+  (fetch de canal+mensaje, edit, borrado de fila) ANTES del primer ack — con un
+  canal/mensaje no cacheado, la ventana de 3s del token podía vencer con el panel YA
+  borrado: el admin veía "la interacción falló" sobre algo que sí se aplicó, y el
+  borrado quedaba sin loguear porque el throw cortaba antes de `logConfigChange`.
+  Mismo fix que el resto de comandos de moderación desde Fase 2B: defer apenas se
+  confirma que el panel existe, `editReply` en vez de `reply` de ahí en más.
+- **Medio — Publicar sin lock.** Doble click sobre "✅ Publicar" antes de que el
+  primer `i.update()` alcanzara a sacar el botón corría el handler completo dos veces
+  sobre el mismo draft → dos paneles idénticos. Fix: `withLock('rolreacciones-publish:
+  {guild}:{user}', ...)`, mismo patrón que `/give`/`/daily`/`/rob`/`/crime`.
+- **Medio — Dashboard desactualizado.** `fetchGuildConfigSummary` no traía las 12
+  columnas `economy_*` ni existía ningún conteo de `reaction_role_panels` — la tarjeta
+  "Configuración actual" seguía mostrando los defaults globales aunque el admin hubiera
+  personalizado todo. Fix: `dashboard/queries.js` suma las columnas al `select` +
+  `fetchReactionRolePanelCount` (mismo patrón `count: 'exact', head: true` que
+  `fetchWarnCount`), `dashboard/views.js` reusa `economyTuning.js` tal cual (las mismas
+  funciones `getEffective*`/`describeRange`/`describePercent` que ya usa `/config ver`
+  del lado del bot) para que el dashboard nunca pueda mostrar un valor distinto al que
+  el comando real aplica.
+- **Medio (calidad, no reportado como hallazgo pero cerrado igual) — revalidación de
+  roles justo antes de publicar.** El selector de roles ya validaba al elegir, pero
+  `publishPanel` no volvía a chequear `getRoleValidationError`/existencia del rol justo
+  antes de `canal.send()` — con hasta 10 min de TTL de sesión de por medio, un panel
+  podía nacer roto sin que el admin se enterara al publicar (el toggle real sí revalida
+  en cada click, así que nunca fue explotable — era una ventana de UX). Cerrado.
+- **Bajo, cerrado igual (Fase 4 de opcionales, aprobada completa):** sesión de builder
+  compartida entre dos `/rolreacciones crear` sin terminar del mismo admin ("último que
+  la toca gana") — ahora el builder viejo se invalida (`editReply` con "se abrió un
+  constructor nuevo") apenas se abre uno nuevo, vía un `ownerInteraction` guardado en la
+  sesión. `MAX_ROLES_PER_PANEL` (antes duplicado como el literal `5` a mano en
+  `rolreacciones.js`) ahora se importa de `reactionRolePanels.js`. CHECK constraints
+  para las 12 columnas de tuning (`migration_2026_09_18_economy_tuning_checks.sql`,
+  preparada — **no corrida todavía**, defensa en profundidad barata pero sin ningún
+  bypass real hoy: el único escritor, `/config economia`, ya valida `min<=max` y
+  Discord acota 1-100 en la opción).
+
+**Trabajo adicional, pedido en vivo por el usuario probando el builder en Discord real
+mientras se hacía la auditoría — no eran hallazgos de la auditoría, es UX nueva:**
+
+- **Selector de emoji con búsqueda nativa, reemplaza el modal de texto libre por
+  rol.** El modal viejo (`buildEmojisModal`, un `TextInputBuilder` por rol) obligaba a
+  cerrar el modal, ir a buscar el emoji en OTRO lado de Discord, copiarlo, volver y
+  pegarlo — el usuario lo probó por primera vez en vivo y pidió poder buscar/tocar sin
+  salir del flujo. Se reemplazó por **Components V2 de modales** (`LabelBuilder` +
+  `StringSelectMenuBuilder`, soporte muy nuevo de Discord — confirmado que discord.js
+  14.27.0 ya lo expone, `ModalBuilder.addLabelComponents`/
+  `ModalSubmitFields.getStringSelectValues`, nunca usado antes en este proyecto): un
+  select por rol con los emojis custom del servidor (`guild.emojis.fetch()`, nunca
+  `.cache` a secas — mismo motivo que el gotcha de `interaction.message.reactions.cache`
+  de `/encuesta`, el bot no tiene el intent `GuildEmojisAndStickers` así que el cache de
+  gateway podría estar desactualizado), con Discord mostrando su propio buscador nativo
+  al abrir el desplegable. Opciones fijas "🚫 Sin emoji" y "✏️ Escribir manualmente..."
+  — elegir la segunda encadena un SEGUNDO modal (`showModal` llamado DESDE el submit del
+  primero, también soportado por discord.js 14.27 vía
+  `InteractionResponses.applyToClass(ModalSubmitInteraction, 'showModal')`) con un
+  `TextInputBuilder` clásico solo para los roles que lo pidieron — mismo validador de
+  formato (`isValidEmojiInput`, nuevo en `reactionRolePanels.js`) que ya se necesitaba
+  para el hallazgo Medio de arriba.
+  **Riesgo real, no probado contra Discord en vivo (nunca se levanta el bot local
+  contra el token de producción — ver el gotcha de siempre):** no hay forma de
+  confirmar desde acá si `interaction.update()` sigue apuntando al mensaje correcto
+  después de un modal encadenado dentro de OTRO modal — por eso el submit del modal
+  manual usa `session.ownerInteraction.editReply(...)` (el token de la interacción de
+  comando original, garantizado válido 15 min) en vez de confiar en el `.update()` del
+  segundo modal. **Probar en Discord real después del deploy** es el único paso
+  pendiente para dar esto por cerrado de verdad.
+- **Importar un panel completo pegando JSON.** Botón nuevo "📄 JSON" en el builder
+  (`rrbuilder_json` → modal con un `TextInputBuilder` Paragraph de hasta 4000
+  caracteres) — pensado para armar un panel de memoria o clonarlo entre servidores sin
+  clickear rol por rol. Formato: `{"titulo"?, "descripcion"?, "roles": [{"rol": "<ID>",
+  "emoji"?, "etiqueta"?}]}`. Pasa por las MISMAS validaciones que el flujo manual
+  (`getRoleValidationError`, `isValidEmojiInput`, tope `MAX_ROLES_PER_PANEL`) y carga el
+  resultado en el draft para revisar/editar antes de publicar — nunca publica directo
+  desde el JSON, mismo criterio de "todo pasa por el preview" que el resto del builder.
+  No incluye el canal a propósito (fuera de pedido, y el `ChannelSelectMenu` nativo ya
+  cubre eso sin ambigüedad de qué ID es un canal válido).
+
+**Verificación:** `node --check` en los 4 archivos tocados, `npx vitest run` completo
+en verde (117→118 archivos — sumó 1 assert nuevo a `tests/dashboardServer.test.js`,
+tests de `rolreacciones.test.js` reescritos para el nuevo flujo de emoji/JSON, ver el
+propio diff). Nada commiteado — el working tree queda para el tooling externo del
+usuario, como siempre.
 
 ## Stack
 
