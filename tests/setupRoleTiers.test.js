@@ -52,10 +52,25 @@ describe('setupRoleTiers — invariantes de seguridad', () => {
 });
 
 describe('setupRoleTiers — describeTierPermissions', () => {
-  it('devuelve una lista legible, no vacía, para un tier real', () => {
+  it('agrupa por tema con encabezado en negrita, no un párrafo plano', () => {
     const text = describeTierPermissions('moderador');
+    expect(text).toContain('**Moderación:**');
     expect(text).toContain('Expulsar miembros');
     expect(text).toContain('Aplicar timeout');
+  });
+
+  it('un grupo sin ningún permiso de este tier no aparece (ayudante no tiene nada de Voz)', () => {
+    const text = describeTierPermissions('ayudante');
+    expect(text).not.toContain('**Voz:**'); // sin Mover/Silenciar/Ensordecer/Prioridad
+    expect(text).toContain('**Moderación:**'); // sí tiene Gestionar mensajes (parte del grupo)
+  });
+
+  it('administrador tiene los 4 grupos (tiene al menos 1 permiso de cada tema)', () => {
+    const text = describeTierPermissions('administrador');
+    expect(text).toContain('**Moderación:**');
+    expect(text).toContain('**Gestión:**');
+    expect(text).toContain('**Voz:**');
+    expect(text).toContain('**Otros:**');
   });
 
   it('tier inexistente: devuelve string vacío, no tira', () => {

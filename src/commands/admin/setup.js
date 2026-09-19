@@ -729,7 +729,7 @@ function buildRoleWizardPanel(rolesDraft) {
     const color = override.color || tier.defaultColor;
     embed.addFields({
       name: `${tier.emoji} ${name}`,
-      value: `Color \`${color}\` — ${tier.summary}\n*Permisos nativos: ${describeTierPermissions(tierKey)}*`,
+      value: `Color \`${color}\` — ${tier.summary}\n\n**Permisos nativos de Discord:**\n${describeTierPermissions(tierKey)}`,
     });
   }
 
@@ -1031,7 +1031,21 @@ registerButtonPrefix('setupwizard_roles_wiring_save', async (i) => {
 
 // ---------- Bloques 6-9: diagnóstico de canales ----------
 
-function buildDiagnosticsPanel(findings) {
+// Nombres legibles de los canales que NEXO conoce con certeza (los que él mismo creó o
+// se le apuntó por /setup o /config) — para poder decir "revisé ESTOS" en vez de una
+// frase genérica. Solo lista los que están configurados; feedback en vivo probando el
+// wizard: "no se detectó ningún problema" solo no decía CONTRA QUÉ se comparó.
+function describeManagedChannels(cfg) {
+  const managed = [];
+  if (cfg.log_channel_moderation_id) managed.push('el canal de logs de moderación');
+  if (cfg.log_channel_activity_id) managed.push('el canal de logs de actividad');
+  if (cfg.log_channel_economy_id) managed.push('el canal de logs de economía');
+  if (cfg.welcome_channel_id) managed.push('el canal de bienvenida');
+  if (cfg.confession_channel_id) managed.push('el canal de confesiones');
+  return managed;
+}
+
+function buildDiagnosticsPanel(findings, cfg) {
   const problems = findings.filter((f) => f.status === STATUS.ERROR);
   const warnings = findings.filter((f) => f.status === STATUS.WARN);
 
@@ -1041,7 +1055,14 @@ function buildDiagnosticsPanel(findings) {
     .setFooter({ text: BRAND_NAME });
 
   if (findings.length === 0) {
-    embed.setDescription('🟢 No se detectó ningún problema — revisado contra los canales que NEXO gestiona, más un heurístico por nombre para el resto del servidor.');
+    const managed = describeManagedChannels(cfg);
+    const managedText =
+      managed.length > 0
+        ? `Revisé ${managed.join(', ')} — que @everyone no pueda verlos y que el rol de staff sí.`
+        : 'Todavía no tenés ningún canal que NEXO gestione (logs, bienvenida, confesiones) para revisar con certeza.';
+    embed.setDescription(
+      `🟢 No se detectó ningún problema.\n\n${managedText}\n\nTambién repasé el resto de los canales del servidor buscando, por nombre (ej. "staff", "mod", "admin", "log"), alguno que debería ser privado y no lo es — tampoco encontré nada ahí.`,
+    );
   } else {
     const groups = groupFindingsByCategory(findings);
     const lines = [];
@@ -1075,7 +1096,7 @@ registerButtonPrefix('setuphome_diagnostics', async (i) => {
   const session = ensureWizardSession(i);
   session.draft.diagnosticsFindings = findings;
   refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
-  await i.update(buildDiagnosticsPanel(findings));
+  await i.update(buildDiagnosticsPanel(findings, cfg));
 });
 
 registerButtonPrefix('setupwizard_diagnostics_fix', async (i) => {

@@ -177,8 +177,32 @@ const PERMISSION_LABELS = new Map([
   [PrioritySpeaker, 'Prioridad de voz'],
 ]);
 
+// Agrupados por tema (feedback en vivo probando el wizard: un solo párrafo de ~19
+// permisos separados por coma era ilegible, sobre todo en Administrador/Co-Founder).
+// Mismo criterio que ya usa /help para agrupar los 20 comandos de "Acción" en 3
+// sub-bloques por tema en vez de una lista plana.
+const PERMISSION_GROUPS = [
+  { label: 'Moderación', flags: [KickMembers, BanMembers, ModerateMembers, ManageMessages] },
+  {
+    label: 'Gestión',
+    flags: [ManageGuild, ManageRoles, ManageChannels, ManageWebhooks, ManageNicknames, ManageThreads, ManageEmojisAndStickers, ManageEvents],
+  },
+  { label: 'Voz', flags: [MoveMembers, MuteMembers, DeafenMembers, PrioritySpeaker] },
+  { label: 'Otros', flags: [MentionEveryone, ViewAuditLog, CreateInstantInvite] },
+];
+
+// Devuelve varias líneas, una por grupo (con al menos 1 permiso del tier), con el
+// nombre del grupo en negrita — nunca un párrafo único. Grupos sin ningún permiso de
+// este tier ni aparecen (ej. Ayudante no tiene nada de "Voz").
 export function describeTierPermissions(tierKey) {
   const tier = ROLE_TIERS[tierKey];
   if (!tier) return '';
-  return tier.permissions.map((flag) => PERMISSION_LABELS.get(flag) || 'Permiso').join(', ');
+  const tierFlags = new Set(tier.permissions);
+  const lines = [];
+  for (const group of PERMISSION_GROUPS) {
+    const matching = group.flags.filter((flag) => tierFlags.has(flag));
+    if (matching.length === 0) continue;
+    lines.push(`**${group.label}:** ${matching.map((flag) => PERMISSION_LABELS.get(flag) || 'Permiso').join(', ')}`);
+  }
+  return lines.join('\n');
 }
