@@ -1357,7 +1357,13 @@ registerButtonPrefix('setupwizard_welcome_emoji', async (i) => {
         new StringSelectMenuOptionBuilder().setLabel(emoji.name.slice(0, 100)).setValue(emoji.id).setEmoji({ id: emoji.id, name: emoji.name, animated: emoji.animated }),
       ),
     );
-  const label = new LabelBuilder().setLabel('Elegí un emoji del servidor (se agrega al final de la descripción)').setStringSelectMenuComponent(select);
+  // LabelBuilder.setLabel tiene el MISMO límite real de 45 caracteres que
+  // TextInputBuilder.setLabel — reventó en producción con el texto largo original
+  // (66 chars), porque node --check/los tests con showModal mockeado nunca llaman
+  // .toJSON() de verdad, que es donde discord.js valida esto. rolreacciones.js ya
+  // truncaba sus labels de rol a 45 por el mismo motivo (`r.label.slice(0, 45)`) — acá
+  // el texto es estático, así que se acortó a mano en vez de truncar.
+  const label = new LabelBuilder().setLabel('Elegí un emoji (va a la descripción)').setStringSelectMenuComponent(select);
 
   const modal = new ModalBuilder().setCustomId('modal_setupwizard_welcome_emoji').setTitle('Insertar emoji en la bienvenida');
   modal.addLabelComponents(label);

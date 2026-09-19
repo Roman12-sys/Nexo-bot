@@ -98,6 +98,20 @@ function makeGuildEmoji(id, name, animated = false) {
   return { id, name, animated, toString: () => `<${animated ? 'a' : ''}:${name}:${id}>` };
 }
 
+// Producción tiró un CombinedPropertyError real (LabelBuilder.setLabel > 45 chars) que
+// esta suite entera no había agarrado, porque un showModal mockeado con
+// `.mockResolvedValue()` nunca ejercita `.toJSON()` — que es DONDE discord.js valida
+// límites de longitud (mismo motivo por el que node --check tampoco los agarra, ver el
+// gotcha ya documentado en CLAUDE.md para SlashCommandBuilder). Esta versión SÍ llama al
+// `.toJSON()` real de cualquier modal que un handler intente mostrar — si algo excede un
+// límite real de Discord, el test revienta acá en vez de en el log de Railway.
+function validatingShowModal() {
+  return vi.fn((modal) => {
+    modal.toJSON();
+    return Promise.resolve();
+  });
+}
+
 function makeInteraction({ guild, userId = 'admin-1' } = {}) {
   const g = guild || makeGuild();
   return {
@@ -110,7 +124,7 @@ function makeInteraction({ guild, userId = 'admin-1' } = {}) {
     editReply: vi.fn().mockResolvedValue(undefined),
     update: vi.fn().mockResolvedValue(undefined),
     deferUpdate: vi.fn().mockResolvedValue(undefined),
-    showModal: vi.fn().mockResolvedValue(undefined),
+    showModal: validatingShowModal(),
   };
 }
 
@@ -126,7 +140,7 @@ function click(base, customId, { values, fields } = {}) {
     editReply: vi.fn().mockResolvedValue(undefined),
     reply: vi.fn().mockResolvedValue(undefined),
     deferUpdate: vi.fn().mockResolvedValue(undefined),
-    showModal: vi.fn().mockResolvedValue(undefined),
+    showModal: validatingShowModal(),
   };
 }
 
