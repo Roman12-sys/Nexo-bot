@@ -8,6 +8,7 @@ import { startLogPurgeLoop } from '../utils/logPurgeEngine.js';
 import { startLolPatchLoop } from '../utils/lolPatchEngine.js';
 import { startLolDdragonMonitorLoop } from '../utils/lolPatchMonitor.js';
 import { startWeeklyDigestLoop } from '../utils/weeklyDigestEngine.js';
+import { startMemberCounterLoop } from '../utils/memberCounterEngine.js';
 // Import de efecto (no se usa ningún export de acá): registra los handlers del Event
 // Engine que llenan guild_daily_stats en vivo — Fase 5. Sin este import nada garantiza
 // que el archivo se cargue, a diferencia de achievements.js/missionsStore.js, que ya
@@ -74,4 +75,10 @@ export async function execute(client) {
   // weeklyDigestEngine.js). Restart-resistente sin reprogramar nada: cada tick vuelve a
   // leer ese estado de Supabase, nunca depende de lo que había en memoria antes del reinicio.
   startWeeklyDigestLoop(client);
+
+  // Contador de miembros (NEXO Setup Inteligente), opt-in por servidor (/setup → botón
+  // "Contador") — barrido cada 15 min, mismo criterio restart-resistente que el digest
+  // semanal: el estado ("¿hay canal configurado?", "¿cuál fue el último conteo?") vive
+  // en guild_config, nunca en memoria.
+  startMemberCounterLoop(client);
 }

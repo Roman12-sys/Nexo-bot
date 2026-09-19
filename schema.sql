@@ -154,6 +154,23 @@ create table if not exists guild_config (
   check (economy_rob_fine_percent_min is null or economy_rob_fine_percent_max is null or economy_rob_fine_percent_min <= economy_rob_fine_percent_max),
   check (economy_rob_fine_percent_min is null or economy_rob_fine_percent_min between 1 and 100),
   check (economy_rob_fine_percent_max is null or economy_rob_fine_percent_max between 1 and 100),
+
+  -- NEXO Setup Inteligente (2026-09-19) — bienvenida personalizable (embed en vez de
+  -- imagen, ver src/utils/welcomeEmbed.js) y contador de miembros (ver
+  -- src/utils/memberCounterEngine.js). Las 4 de bienvenida son nullable sin default:
+  -- null = usar el texto de ejemplo de siempre (isCustomWelcomeConfigured las trata como
+  -- "no personalizado" en conjunto). member_counter_channel_id null = feature apagada
+  -- (mismo criterio que welcome_channel_id); member_counter_last_count solo existe para
+  -- que el barrido periódico no gaste un rename de Discord si el número no cambió.
+  -- PREPARADAS EN ESTA MIGRACIÓN, NO CORRIDAS TODAVÍA — ver
+  -- migration_2026_09_19_setup_inteligente.sql.
+  welcome_title text,
+  welcome_description text,
+  welcome_color text,
+  welcome_footer text,
+  member_counter_channel_id text,
+  member_counter_last_count integer,
+
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

@@ -14,6 +14,12 @@ vi.mock('../src/utils/guildLogChannels.js', () => ({ getGuildLogChannel }));
 const mockConfig = { dashboardUrl: null };
 vi.mock('../src/config.js', () => ({ config: mockConfig }));
 
+// NEXO Setup Inteligente sumó el panel principal (home), que consulta hasCustomShopItems
+// para el diagnóstico de economía — mockeado para que este archivo (centrado en el
+// resumen final de la CONFIGURACIÓN RÁPIDA, no en el panel nuevo) no dependa del cliente
+// real de Supabase.
+vi.mock('../src/utils/shopStore.js', () => ({ hasCustomShopItems: vi.fn().mockResolvedValue(false) }));
+
 await import('../src/commands/admin/setup.js'); // side effect: registra los handlers de botón
 const { routeButton } = await import('../src/components/buttons.js');
 

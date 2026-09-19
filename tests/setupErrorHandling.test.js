@@ -13,6 +13,7 @@ const getGuildLogChannel = vi.fn().mockResolvedValue(null);
 vi.mock('../src/utils/guildLogChannels.js', () => ({ getGuildLogChannel }));
 
 vi.mock('../src/config.js', () => ({ config: { dashboardUrl: null } }));
+vi.mock('../src/utils/shopStore.js', () => ({ hasCustomShopItems: vi.fn().mockResolvedValue(false) }));
 
 await import('../src/commands/admin/setup.js');
 const { routeButton } = await import('../src/components/buttons.js');

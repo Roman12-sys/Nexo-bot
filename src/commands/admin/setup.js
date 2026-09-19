@@ -7,6 +7,11 @@ import {
   ButtonBuilder,
   ButtonStyle,
   RoleSelectMenuBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   MessageFlags,
 } from 'discord.js';
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
@@ -15,10 +20,26 @@ import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
 import { getDangerousRolePermission } from '../../utils/permissions.js';
 import { getMissingBotPermissions } from '../../utils/botPermissions.js';
 import { describeError } from '../../utils/errorMessages.js';
-import { BRAND_COLOR, LOG_COLOR, SUCCESS_COLOR } from '../../utils/embeds.js';
+import { BRAND_COLOR, LOG_COLOR, SUCCESS_COLOR, GOLD_COLOR, NEUTRAL_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
+import { registerModalPrefix } from '../../components/modals.js';
 import { config } from '../../config.js';
+import { withLock } from '../../utils/asyncLock.js';
+import { buildConfirmation } from '../../utils/confirmations.js';
+import { getSetupStatus, STATUS, STATUS_EMOJI, countPendingSections } from '../../utils/setupState.js';
+import {
+  ROLE_TIERS,
+  ROLE_TIER_ORDER,
+  DEFAULT_SELECTED_TIERS,
+  describeTierPermissions,
+  isValidHexColor,
+  normalizeHexColor,
+} from '../../utils/setupRoleTiers.js';
+import { scanGuildChannels, groupFindingsByCategory, applyChannelCorrection } from '../../utils/setupDiagnostics.js';
+import { syncMemberCounterForGuild, buildCounterChannelName } from '../../utils/memberCounterEngine.js';
+import { buildWelcomePreviewEmbed, contextFromInteraction, DEFAULT_WELCOME_TITLE, DEFAULT_WELCOME_DESCRIPTION } from '../../utils/welcomeEmbed.js';
+import { hasCustomShopItems } from '../../utils/shopStore.js';
 
 const CATEGORY_NAME = 'Nexo Bot';
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutos
@@ -287,7 +308,7 @@ async function resolveCategory(interaction, cfg) {
 // "Nexo Bot" — mismo criterio de reuso que resolveRole (ID guardado → nombre → crear).
 // Los permisos los decide cada caller vía `overwrites` (los de log son staff-only, los
 // de bienvenida/confesiones son visibles para todo el mundo).
-async function resolveChannel(interaction, cfg, category, { column, name, overwrites }) {
+async function resolveChannel(interaction, cfg, category, { column, name, overwrites, type = ChannelType.GuildText }) {
   const existingId = cfg[column];
   if (existingId) {
     const existing = await interaction.guild.channels.fetch(existingId).catch(() => null);
@@ -295,14 +316,14 @@ async function resolveChannel(interaction, cfg, category, { column, name, overwr
   }
 
   const byName = interaction.guild.channels.cache.find(
-    (c) => c.type === ChannelType.GuildText && c.name === name && c.parentId === category.id,
+    (c) => c.type === type && c.name === name && (category ? c.parentId === category.id : true),
   );
   if (byName) return { channel: byName, created: false };
 
   const channel = await interaction.guild.channels.create({
     name,
-    type: ChannelType.GuildText,
-    parent: category.id,
+    type,
+    parent: category?.id,
     permissionOverwrites: overwrites,
     reason: 'Creado por /setup de Nexo Bot',
   });
@@ -490,6 +511,58 @@ async function runSetup(interaction, state) {
   return summaryEmbed;
 }
 
+// ---------- Panel principal (NEXO Setup Inteligente, Bloque 15/16) ----------
+//
+// A diferencia del panel de arriba (plantilla → toggles → confirmar, un solo pasada),
+// este es el punto de entrada REAL de /setup desde ahora: siempre muestra el estado
+// verdadero del servidor (derivado en vivo por getSetupStatus, sin ninguna tabla de
+// "progreso del wizard" — Bloque 16, "no depender de memoria en RAM si se puede derivar
+// del estado real"). El flujo viejo de plantillas sigue existiendo tal cual, sin tocarse
+// una línea — ahora es una acción más ("🚀 Configuración rápida") alcanzable desde acá.
+function buildHomePanel(cfg, status) {
+  const pending = countPendingSections(status);
+  const line = (label, s) => `${STATUS_EMOJI[s.status]} ${label}`;
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle(cfg.setup_completed_at ? '⚙️ NEXO Setup' : '⚙️ Vamos a preparar tu servidor')
+    .setDescription(
+      cfg.setup_completed_at
+        ? pending === 0
+          ? '🎉 Todo listo — no hay nada pendiente ahora mismo.'
+          : `${pending} sección(es) requieren atención — mirá abajo y usá los botones para revisarlas.`
+        : 'NEXO revisó la estructura actual de tu servidor y te muestra qué está bien, qué falta y qué podés configurar. Nada se toca sin que lo confirmes.',
+    )
+    .addFields(
+      { name: line('Roles de staff', status.roles), value: status.roles.detail, inline: true },
+      { name: line('Moderación', status.moderacion), value: status.moderacion.detail, inline: true },
+      { name: line('Bienvenida', status.bienvenida), value: status.bienvenida.detail, inline: true },
+      { name: line('Economía', status.economia), value: status.economia.detail, inline: true },
+      { name: line('Casino', status.casino), value: status.casino.detail, inline: true },
+      { name: line('Permisos del bot', status.permisosBot), value: status.permisosBot.detail, inline: true },
+    )
+    .setFooter({ text: 'Podés salir cuando quieras y volver a correr /setup — siempre vas a ver el estado real, nunca se pierde nada.' });
+
+  const rowSections = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('setuphome_roles').setLabel('Roles').setEmoji('🛡️').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('setuphome_welcome').setLabel('Bienvenida').setEmoji('🎉').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('setuphome_diagnostics').setLabel('Canales').setEmoji('🔎').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('setuphome_counter').setLabel('Contador').setEmoji('👥').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('setuphome_economy').setLabel('Economía/Casino').setEmoji('💰').setStyle(ButtonStyle.Secondary),
+  );
+  const rowQuickstart = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('setuphome_quickstart').setLabel('🚀 Configuración rápida (roles + canales de log)').setStyle(ButtonStyle.Primary),
+  );
+
+  return { embeds: [embed], components: [rowSections, rowQuickstart] };
+}
+
+async function renderHome(interaction, guild, guildId) {
+  const cfg = await getGuildConfig(guildId);
+  const status = await getSetupStatus(guild, cfg);
+  return buildHomePanel(cfg, status);
+}
+
 // ---------- Entrada del comando ----------
 
 export async function execute(interaction) {
@@ -498,7 +571,8 @@ export async function execute(interaction) {
     return;
   }
 
-  await interaction.reply({ ...buildTemplatePicker(), flags: MessageFlags.Ephemeral });
+  const payload = await renderHome(interaction, interaction.guild, interaction.guildId);
+  await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
 }
 
 function requireSession(interaction) {
@@ -574,4 +648,732 @@ registerButtonPrefix('setup_confirm', async (i) => {
 registerButtonPrefix('setup_cancel', async (i) => {
   sessions.delete(sessionKey(i.guildId, i.user.id));
   await i.update({ content: '❌ /setup cancelado.', embeds: [], components: [] });
+});
+
+// ============================================================================
+// NEXO Setup Inteligente — panel principal, wizard de roles, diagnóstico de canales,
+// contador de miembros, editor de bienvenida, economía/casino.
+//
+// Sesión APARTE de `sessions` (arriba, la del flujo de plantilla/toggles) a propósito
+// — cero riesgo de tocar el Map que ya usan setupOnboarding/setupRoleSafety/
+// setupSessionIsolation/setupErrorHandling.test.js. Mismo patrón (TTL 10 min, key
+// `guildId:userId`).
+// ============================================================================
+
+const wizardSessions = new Map();
+
+function wizardKey(guildId, userId) {
+  return `${guildId}:${userId}`;
+}
+
+function refreshWizardSession(key, draft) {
+  const existing = wizardSessions.get(key);
+  if (existing?.timeoutHandle) clearTimeout(existing.timeoutHandle);
+  const timeoutHandle = setTimeout(() => wizardSessions.delete(key), SESSION_TTL_MS);
+  wizardSessions.set(key, { draft, timeoutHandle });
+}
+
+function requireWizardSession(interaction) {
+  return wizardSessions.get(wizardKey(interaction.guildId, interaction.user.id)) || null;
+}
+
+// A diferencia de requireWizardSession (falla si no hay sesión), esto crea una sesión
+// nueva la primera vez que se entra a cualquier sub-pantalla desde el panel principal —
+// no hace falta un paso explícito de "iniciar sesión", entrar a la sección ya alcanza.
+function ensureWizardSession(interaction) {
+  const key = wizardKey(interaction.guildId, interaction.user.id);
+  let session = wizardSessions.get(key);
+  if (!session) {
+    refreshWizardSession(key, {
+      rolesDraft: { selectedTiers: [...DEFAULT_SELECTED_TIERS], overrides: {}, lastCreated: [], wiringAdminRoleId: null, wiringModeratorRoleId: null },
+      welcomeDraft: {},
+      diagnosticsFindings: [],
+    });
+    session = wizardSessions.get(key);
+  }
+  return session;
+}
+
+const WIZARD_SESSION_EXPIRED = '❌ Esta sesión expiró. Volvé a abrir la sección desde `/setup`.';
+
+// ---------- Navegación genérica ----------
+
+registerButtonPrefix('setuphome_quickstart', async (i) => {
+  await i.update(buildTemplatePicker());
+});
+
+registerButtonPrefix('setuphome_back', async (i) => {
+  const payload = await renderHome(i, i.guild, i.guildId);
+  await i.update(payload);
+});
+
+// ---------- Bloque 1-5: wizard de roles de staff ----------
+
+function buildRoleWizardPanel(rolesDraft) {
+  const selected = rolesDraft.selectedTiers;
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('🛡️ Roles de staff')
+    .setDescription(
+      selected.length === 0
+        ? 'Elegí qué roles de staff querés crear — nada se crea todavía, esto es solo el borrador.'
+        : 'Así van a quedar los roles elegidos (nombre, color y permisos NATIVOS de Discord — distinto del tier interno de NEXO, que se asigna después de crear). Tocá el segundo selector para editar nombre/color, o **Crear** cuando estén listos.',
+    );
+
+  for (const tierKey of ROLE_TIER_ORDER) {
+    if (!selected.includes(tierKey)) continue;
+    const tier = ROLE_TIERS[tierKey];
+    const override = rolesDraft.overrides[tierKey] || {};
+    const name = override.name || tier.defaultName;
+    const color = override.color || tier.defaultColor;
+    embed.addFields({
+      name: `${tier.emoji} ${name}`,
+      value: `Color \`${color}\` — ${tier.summary}\n*Permisos nativos: ${describeTierPermissions(tierKey)}*`,
+    });
+  }
+
+  const tierSelect = new StringSelectMenuBuilder()
+    .setCustomId('setupwizard_roles_select')
+    .setPlaceholder('Elegí qué roles de staff crear')
+    .setMinValues(0)
+    .setMaxValues(ROLE_TIER_ORDER.length)
+    .addOptions(
+      ROLE_TIER_ORDER.map((key) =>
+        new StringSelectMenuOptionBuilder().setLabel(ROLE_TIERS[key].label).setValue(key).setEmoji(ROLE_TIERS[key].emoji).setDefault(selected.includes(key)),
+      ),
+    );
+
+  const rows = [new ActionRowBuilder().addComponents(tierSelect)];
+
+  if (selected.length > 0) {
+    const editSelect = new StringSelectMenuBuilder()
+      .setCustomId('setupwizard_roles_edittarget_select')
+      .setPlaceholder('✏️ Editar nombre/color de un rol elegido')
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(selected.map((key) => new StringSelectMenuOptionBuilder().setLabel(`Editar: ${ROLE_TIERS[key].label}`).setValue(key).setEmoji('✏️')));
+    rows.push(new ActionRowBuilder().addComponents(editSelect));
+  }
+
+  rows.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('setuphome_back').setLabel('⬅️ Volver').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('setupwizard_roles_create')
+        .setLabel(selected.length === 0 ? 'Continuar (asignar tiers a roles existentes)' : `✅ Crear ${selected.length} rol(es)`)
+        .setStyle(ButtonStyle.Success),
+    ),
+  );
+
+  return { embeds: [embed], components: rows };
+}
+
+// Acepta tanto [{tierKey, role}] (recién creados, objeto Role completo) como
+// [{tierKey, roleId}] (releído de rolesDraft.lastCreated tras un re-render) — la carrera
+// de doble click (ver setupwizard_roles_create) necesita reconstruir la MISMA sugerencia
+// a partir de lo que ya quedó guardado, sin volver a tocar Discord.
+function suggestWiring(createdRoles) {
+  const adminEntry = createdRoles.find(({ tierKey }) => ROLE_TIERS[tierKey].tierHint === 'admin');
+  const moderatorEntry = createdRoles.find(({ tierKey }) => ROLE_TIERS[tierKey].tierHint === 'moderator');
+  return {
+    adminRoleId: adminEntry ? adminEntry.role?.id ?? adminEntry.roleId ?? null : null,
+    moderatorRoleId: moderatorEntry ? moderatorEntry.role?.id ?? moderatorEntry.roleId ?? null : null,
+  };
+}
+
+function buildRoleWiringPanel(summaryText, suggestion) {
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('🔗 Asignar tiers de NEXO (opcional)')
+    .setDescription(
+      (summaryText ? `${summaryText}\n\n` : '') +
+        'Esto es DISTINTO de los permisos nativos de Discord que ya tienen los roles — acá elegís qué rol usa NEXO para dar acceso a comandos como `/warn`, `/ban` (tier Moderador) o `/economia-staff`, `/xp`, `/shop-admin` (tier Administrador). Es opcional: se puede dejar para después con `/config rol-admin`.',
+    );
+
+  const rowAdmin = new ActionRowBuilder().addComponents(
+    (() => {
+      const select = new RoleSelectMenuBuilder()
+        .setCustomId('setupwizard_roles_admintier_select')
+        .setPlaceholder('Tier Administrador de NEXO (economía/XP/shop-admin)')
+        .setMinValues(0)
+        .setMaxValues(1);
+      if (suggestion.adminRoleId) select.setDefaultRoles(suggestion.adminRoleId);
+      return select;
+    })(),
+  );
+  const rowModerator = new ActionRowBuilder().addComponents(
+    (() => {
+      const select = new RoleSelectMenuBuilder()
+        .setCustomId('setupwizard_roles_modtier_select')
+        .setPlaceholder('Tier Moderador de NEXO (moderación día a día)')
+        .setMinValues(0)
+        .setMaxValues(1);
+      if (suggestion.moderatorRoleId) select.setDefaultRoles(suggestion.moderatorRoleId);
+      return select;
+    })(),
+  );
+  const rowButtons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('setupwizard_roles_wiring_save').setLabel('✅ Guardar').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('setuphome_back').setLabel('Omitir / Volver al inicio').setStyle(ButtonStyle.Secondary),
+  );
+
+  return { embeds: [embed], components: [rowAdmin, rowModerator, rowButtons] };
+}
+
+// Crea los roles elegidos, uno por uno — un fallo en uno NUNCA aborta a los demás
+// (Bloque 9, "resistente a errores parciales"). El reposicionamiento final es
+// best-effort: si falla, los roles ya existen y están por debajo del bot (posición por
+// defecto de Discord al crear), solo queda cosmético que no respeten el orden exacto
+// entre sí.
+async function createSelectedRoleTiers(interaction, rolesDraft) {
+  const me = interaction.guild.members.me;
+  if (!me || me.roles.highest.position <= 0) {
+    return { results: [], createdRoles: [], fatalError: 'NEXO no tiene ningún rol propio por encima de @everyone — no puede crear roles de staff todavía.' };
+  }
+
+  const orderedKeys = ROLE_TIER_ORDER.filter((key) => rolesDraft.selectedTiers.includes(key));
+  const results = [];
+  const createdRoles = [];
+
+  for (const tierKey of orderedKeys) {
+    const tier = ROLE_TIERS[tierKey];
+    const override = rolesDraft.overrides[tierKey] || {};
+    try {
+      const role = await interaction.guild.roles.create({
+        name: (override.name || tier.defaultName).slice(0, 100),
+        color: override.color || tier.defaultColor,
+        hoist: true,
+        permissions: tier.permissions,
+        reason: 'Creado por /setup de NEXO (Setup Inteligente — roles de staff)',
+      });
+      createdRoles.push({ tierKey, role });
+      results.push({ tierKey, label: tier.label, ok: true, role });
+    } catch (error) {
+      results.push({ tierKey, label: tier.label, ok: false, reason: describeError(error, 'Error desconocido creando el rol.').replace(/^❌\s*/, '') });
+    }
+  }
+
+  if (createdRoles.length > 1) {
+    try {
+      const basePosition = me.roles.highest.position - 1;
+      const positions = createdRoles.map(({ tierKey, role }) => ({
+        role: role.id,
+        position: Math.max(1, basePosition - ROLE_TIER_ORDER.indexOf(tierKey)),
+      }));
+      await interaction.guild.roles.setPositions(positions);
+    } catch (error) {
+      console.error('⚠️ No se pudo reordenar la jerarquía de los roles de staff nuevos (cosmético, no crítico):', error);
+    }
+  }
+
+  return { results, createdRoles, fatalError: null };
+}
+
+registerButtonPrefix('setuphome_roles', async (i) => {
+  const session = ensureWizardSession(i);
+  await i.update(buildRoleWizardPanel(session.draft.rolesDraft));
+});
+
+registerSelectPrefix('setupwizard_roles_select', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.draft.rolesDraft.selectedTiers = i.values;
+  refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
+  await i.update(buildRoleWizardPanel(session.draft.rolesDraft));
+});
+
+registerSelectPrefix('setupwizard_roles_edittarget_select', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const tierKey = i.values[0];
+  const tier = ROLE_TIERS[tierKey];
+  if (!tier) return i.reply({ content: '❌ Rol inválido.', flags: MessageFlags.Ephemeral });
+
+  const override = session.draft.rolesDraft.overrides[tierKey] || {};
+  const modal = new ModalBuilder().setCustomId(`modal_setupwizard_roleedit_${tierKey}`).setTitle(`Editar: ${tier.label}`);
+  const nameInput = new TextInputBuilder()
+    .setCustomId('nombre')
+    .setLabel('Nombre del rol')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(100)
+    .setRequired(true)
+    .setValue(override.name || tier.defaultName);
+  const colorInput = new TextInputBuilder()
+    .setCustomId('color')
+    .setLabel('Color (hex, ej. #7F5AF0)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(7)
+    .setRequired(true)
+    .setValue(override.color || tier.defaultColor);
+  modal.addComponents(new ActionRowBuilder().addComponents(nameInput), new ActionRowBuilder().addComponents(colorInput));
+  await i.showModal(modal);
+});
+
+registerModalPrefix('modal_setupwizard_roleedit_', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const tierKey = i.customId.slice('modal_setupwizard_roleedit_'.length);
+  const tier = ROLE_TIERS[tierKey];
+  if (!tier) return i.reply({ content: '❌ Rol inválido.', flags: MessageFlags.Ephemeral });
+
+  const previous = session.draft.rolesDraft.overrides[tierKey] || {};
+  const name = i.fields.getTextInputValue('nombre').trim().slice(0, 100) || tier.defaultName;
+  const colorRaw = i.fields.getTextInputValue('color').trim();
+  const color = isValidHexColor(colorRaw) ? normalizeHexColor(colorRaw) : previous.color || tier.defaultColor;
+
+  session.draft.rolesDraft.overrides[tierKey] = { name, color };
+  refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
+  await i.update(buildRoleWizardPanel(session.draft.rolesDraft));
+});
+
+registerButtonPrefix('setupwizard_roles_create', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  if (session.draft.rolesDraft.selectedTiers.length === 0) {
+    await i.update(buildRoleWiringPanel(null, {}));
+    return;
+  }
+
+  await i.update({ content: '⏳ Creando roles...', embeds: [], components: [] });
+
+  // El chequeo de "¿hay algo para crear?" se repite ACÁ ADENTRO, releyendo la sesión
+  // fresca, en vez de confiar en el de arriba (que corrió ANTES de tomar el lock): dos
+  // clicks casi simultáneos en "Crear" pueden entrar los dos antes de que ninguno
+  // termine — sin este segundo chequeo, el segundo repetiría la creación completa de
+  // los mismos roles apenas se libera el lock del primero. selectedTiers se vacía recién
+  // cuando la creación termina bien, así que el segundo la ve vacía y no hace nada.
+  await withLock(`setup-roles-create:${i.guildId}:${i.user.id}`, async () => {
+    const freshSession = requireWizardSession(i);
+    if (!freshSession) return; // sesión expiró justo en el medio — esta interacción ya quedó en "Creando..."
+
+    if (freshSession.draft.rolesDraft.selectedTiers.length === 0) {
+      // Un click anterior en carrera ya terminó de crear (o no había nada para crear) —
+      // muestra el MISMO resultado final en vez de dejar esta interacción congelada en
+      // "Creando roles..." para siempre.
+      await i.editReply(buildRoleWiringPanel(null, suggestWiring(freshSession.draft.rolesDraft.lastCreated || [])));
+      return;
+    }
+    const rolesDraft = freshSession.draft.rolesDraft;
+
+    const { results, createdRoles, fatalError } = await createSelectedRoleTiers(i, rolesDraft);
+
+    if (fatalError) {
+      await i.editReply({ content: `❌ ${fatalError}`, embeds: [], components: [] });
+      return;
+    }
+
+    const summaryLines = results.map((r) => (r.ok ? `✅ Creado: ${r.role}` : `❌ ${r.label}: ${r.reason}`));
+    freshSession.draft.rolesDraft.lastCreated = createdRoles.map(({ tierKey, role }) => ({ tierKey, roleId: role.id }));
+    freshSession.draft.rolesDraft.selectedTiers = []; // hecho — idempotente ante un segundo click en cola
+    refreshWizardSession(wizardKey(i.guildId, i.user.id), freshSession.draft);
+
+    if (createdRoles.length > 0) {
+      try {
+        const logChannel = await getGuildLogChannel(i.client, i.guildId, 'activity');
+        if (logChannel) await logChannel.send({ embeds: [createBotConfigLogEmbed({ executor: i.user, changes: summaryLines })] });
+      } catch (error) {
+        console.error('⚠️ No se pudo registrar la creación de roles de staff en el canal de logs:', error);
+      }
+    }
+
+    await i.editReply(buildRoleWiringPanel(summaryLines.join('\n'), suggestWiring(createdRoles)));
+  });
+});
+
+registerSelectPrefix('setupwizard_roles_admintier_select', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.draft.rolesDraft.wiringAdminRoleId = i.values[0] || null;
+  refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
+  await i.deferUpdate();
+});
+
+registerSelectPrefix('setupwizard_roles_modtier_select', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  session.draft.rolesDraft.wiringModeratorRoleId = i.values[0] || null;
+  refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
+  await i.deferUpdate();
+});
+
+registerButtonPrefix('setupwizard_roles_wiring_save', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const { wiringAdminRoleId, wiringModeratorRoleId } = session.draft.rolesDraft;
+  const patch = {};
+  if (wiringAdminRoleId) patch.admin_role_id = wiringAdminRoleId;
+  if (wiringModeratorRoleId) patch.moderator_role_id = wiringModeratorRoleId;
+
+  if (Object.keys(patch).length > 0) {
+    await setGuildConfig(i.guildId, patch);
+    try {
+      const logChannel = await getGuildLogChannel(i.client, i.guildId, 'activity');
+      if (logChannel) {
+        const lines = [];
+        if (patch.admin_role_id) lines.push(`👑 Tier Administrador de NEXO → <@&${patch.admin_role_id}>`);
+        if (patch.moderator_role_id) lines.push(`🔨 Tier Moderador de NEXO → <@&${patch.moderator_role_id}>`);
+        await logChannel.send({ embeds: [createBotConfigLogEmbed({ executor: i.user, changes: lines })] });
+      }
+    } catch (error) {
+      console.error('⚠️ No se pudo registrar la asignación de tiers de NEXO en el canal de logs:', error);
+    }
+  }
+
+  wizardSessions.delete(wizardKey(i.guildId, i.user.id));
+  const payload = await renderHome(i, i.guild, i.guildId);
+  await i.update(payload);
+});
+
+// ---------- Bloques 6-9: diagnóstico de canales ----------
+
+function buildDiagnosticsPanel(findings) {
+  const problems = findings.filter((f) => f.status === STATUS.ERROR);
+  const warnings = findings.filter((f) => f.status === STATUS.WARN);
+
+  const embed = new EmbedBuilder()
+    .setColor(problems.length > 0 ? LOG_COLOR : warnings.length > 0 ? GOLD_COLOR : SUCCESS_COLOR)
+    .setTitle('🔎 Diagnóstico de canales')
+    .setFooter({ text: BRAND_NAME });
+
+  if (findings.length === 0) {
+    embed.setDescription('🟢 No se detectó ningún problema — revisado contra los canales que NEXO gestiona, más un heurístico por nombre para el resto del servidor.');
+  } else {
+    const groups = groupFindingsByCategory(findings);
+    const lines = [];
+    for (const [categoryName, items] of groups) {
+      lines.push(`**📁 ${categoryName}**`);
+      for (const f of items) lines.push(`${STATUS_EMOJI[f.status]} #${f.channelName} — ${f.summary}`);
+    }
+    embed.setDescription(lines.join('\n').slice(0, 3900));
+    embed.addFields({ name: 'Total', value: `${problems.length} problema(s), ${warnings.length} para revisar a mano.` });
+  }
+
+  const correctable = findings.filter((f) => f.correctable);
+  const rows = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('setuphome_back').setLabel('⬅️ Volver').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('setuphome_diagnostics').setLabel('🔄 Reescanear').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('setupwizard_diagnostics_fix')
+        .setLabel(`🛠️ Corregir ${correctable.length} problema(s)`)
+        .setStyle(ButtonStyle.Danger)
+        .setDisabled(correctable.length === 0),
+    ),
+  ];
+
+  return { embeds: [embed], components: rows };
+}
+
+registerButtonPrefix('setuphome_diagnostics', async (i) => {
+  const cfg = await getGuildConfig(i.guildId);
+  const findings = scanGuildChannels(i.guild, cfg);
+  const session = ensureWizardSession(i);
+  session.draft.diagnosticsFindings = findings;
+  refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
+  await i.update(buildDiagnosticsPanel(findings));
+});
+
+registerButtonPrefix('setupwizard_diagnostics_fix', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const correctable = (session.draft.diagnosticsFindings || []).filter((f) => f.correctable);
+  if (correctable.length === 0) return i.reply({ content: '❌ No hay nada para corregir.', flags: MessageFlags.Ephemeral });
+
+  const description = `Se van a modificar ${correctable.length} canal(es):\n${correctable.map((f) => `• #${f.channelName} — ${f.summary}`).join('\n')}`.slice(0, 1900);
+
+  await i.reply(
+    buildConfirmation({
+      userId: i.user.id,
+      guildId: i.guildId,
+      description,
+      run: (confirmInteraction) =>
+        withLock(`setup-diagnostics-fix:${confirmInteraction.guildId}:${confirmInteraction.user.id}`, async () => {
+          await confirmInteraction.update({ content: '⏳ Aplicando correcciones...', embeds: [], components: [] });
+
+          const outcomes = [];
+          for (const finding of correctable) {
+            const result = await applyChannelCorrection(confirmInteraction.guild, finding.correction);
+            outcomes.push({ finding, result });
+          }
+          const ok = outcomes.filter((o) => o.result.ok);
+          const failed = outcomes.filter((o) => !o.result.ok);
+          const lines = [`✅ ${ok.length} cambio(s) aplicados`];
+          if (failed.length > 0) {
+            lines.push(`❌ ${failed.length} cambio(s) no pudieron aplicarse`);
+            for (const o of failed) lines.push(`#${o.finding.channelName} — Motivo: ${o.result.reason}`);
+          }
+          await confirmInteraction.editReply({ content: lines.join('\n'), embeds: [], components: [] });
+
+          if (ok.length > 0) {
+            try {
+              const logChannel = await getGuildLogChannel(confirmInteraction.client, confirmInteraction.guildId, 'activity');
+              if (logChannel) {
+                await logChannel.send({
+                  embeds: [createBotConfigLogEmbed({ executor: confirmInteraction.user, changes: ok.map((o) => `🔎 Corregido: #${o.finding.channelName} — ${o.finding.summary}`) })],
+                });
+              }
+            } catch (error) {
+              console.error('⚠️ No se pudo registrar la corrección de canales en el canal de logs:', error);
+            }
+          }
+        }),
+    }),
+  );
+});
+
+// ---------- Bloque 10: contador de miembros ----------
+
+function buildCounterPanel(cfg, guild) {
+  const active = Boolean(cfg.member_counter_channel_id);
+  const channelExists = active && guild.channels.cache.has(cfg.member_counter_channel_id);
+
+  const embed = new EmbedBuilder()
+    .setColor(BRAND_COLOR)
+    .setTitle('👥 Contador de miembros')
+    .setDescription(
+      !active
+        ? 'Crea un canal de voz bloqueado (nadie se puede conectar) cuyo nombre muestra la cantidad de miembros del servidor — se actualiza solo, cada 15 minutos como mucho.'
+        : channelExists
+          ? `Activo — <#${cfg.member_counter_channel_id}>. Se actualiza cada 15 minutos si el número cambió (Discord limita los cambios de nombre, por eso no es instantáneo).`
+          : '⚠️ El canal configurado ya no existe en el servidor (¿se borró a mano?) — creá uno nuevo o desactivá el contador.',
+    );
+
+  const rows = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('setuphome_back').setLabel('⬅️ Volver').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('setupwizard_counter_create').setLabel(active ? '♻️ Recrear' : '🆕 Crear').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('setupwizard_counter_disable').setLabel('🗑️ Desactivar').setStyle(ButtonStyle.Danger).setDisabled(!active),
+    ),
+  ];
+
+  return { embeds: [embed], components: rows };
+}
+
+registerButtonPrefix('setuphome_counter', async (i) => {
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildCounterPanel(cfg, i.guild));
+});
+
+registerButtonPrefix('setupwizard_counter_create', async (i) => {
+  await withLock(`setup-counter:${i.guildId}:${i.user.id}`, async () => {
+    await i.update({ content: '⏳ Configurando el contador...', embeds: [], components: [] });
+    const cfg = await getGuildConfig(i.guildId);
+    try {
+      const { category } = await resolveCategory(i, cfg);
+      const initialName = buildCounterChannelName(i.guild.memberCount);
+      const { channel, created } = await resolveChannel(i, cfg, category, {
+        column: 'member_counter_channel_id',
+        name: initialName,
+        type: ChannelType.GuildVoice,
+        overwrites: [
+          { id: i.guild.roles.everyone.id, allow: [PermissionFlagsBits.ViewChannel], deny: [PermissionFlagsBits.Connect] },
+        ],
+      });
+      await setGuildConfig(i.guildId, {
+        member_counter_channel_id: channel.id,
+        member_counter_last_count: i.guild.memberCount,
+        setup_category_id: category?.id ?? cfg.setup_category_id ?? null,
+      });
+      if (!created) await syncMemberCounterForGuild(i.guild).catch(() => {});
+      const refreshedCfg = await getGuildConfig(i.guildId);
+      await i.editReply(buildCounterPanel(refreshedCfg, i.guild));
+    } catch (error) {
+      await i.editReply({ content: describeError(error, '❌ No se pudo crear el canal del contador.'), embeds: [], components: [] });
+    }
+  });
+});
+
+registerButtonPrefix('setupwizard_counter_disable', async (i) => {
+  await setGuildConfig(i.guildId, { member_counter_channel_id: null, member_counter_last_count: null });
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildCounterPanel(cfg, i.guild));
+});
+
+// ---------- Bloques 11-12: editor de bienvenida ----------
+
+function buildWelcomeEditorPanel(cfg, welcomeDraft, ctx) {
+  const merged = { ...cfg, ...welcomeDraft };
+  const preview = buildWelcomePreviewEmbed(merged, ctx);
+
+  const metaEmbed = new EmbedBuilder()
+    .setColor(NEUTRAL_COLOR)
+    .setTitle('🎉 Editor de bienvenida — vista previa abajo')
+    .setDescription(
+      'Variables disponibles en título/descripción/footer: `{servidor}` `{usuario}` `{usuarioNombre}` `{miembroNumero}`.\n\n' +
+        (cfg.welcome_channel_id ? `Canal actual: <#${cfg.welcome_channel_id}>` : '⚠️ Todavía no hay canal de bienvenida — creá uno con el botón de abajo.'),
+    );
+
+  const hasChanges = Object.keys(welcomeDraft).length > 0;
+  const rows = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('setuphome_back').setLabel('⬅️ Volver').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('setupwizard_welcome_edit').setLabel('✏️ Editar').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId('setupwizard_welcome_channel')
+        .setLabel(cfg.welcome_channel_id ? '♻️ Recrear canal' : '🆕 Crear canal')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('setupwizard_welcome_save').setLabel('✅ Guardar').setStyle(ButtonStyle.Success).setDisabled(!hasChanges),
+    ),
+  ];
+
+  return { embeds: [metaEmbed, preview], components: rows };
+}
+
+registerButtonPrefix('setuphome_welcome', async (i) => {
+  const session = ensureWizardSession(i);
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildWelcomeEditorPanel(cfg, session.draft.welcomeDraft, contextFromInteraction(i)));
+});
+
+registerButtonPrefix('setupwizard_welcome_edit', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const cfg = await getGuildConfig(i.guildId);
+  const draft = session.draft.welcomeDraft;
+
+  const modal = new ModalBuilder().setCustomId('modal_setupwizard_welcometext').setTitle('Editor de bienvenida');
+  const titleInput = new TextInputBuilder()
+    .setCustomId('titulo')
+    .setLabel('Título')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(256)
+    .setRequired(false)
+    .setValue((draft.welcome_title ?? cfg.welcome_title) || DEFAULT_WELCOME_TITLE);
+  const descriptionInput = new TextInputBuilder()
+    .setCustomId('descripcion')
+    .setLabel('Descripción (se agrega el hint de /help solo)')
+    .setStyle(TextInputStyle.Paragraph)
+    .setMaxLength(3500)
+    .setRequired(false)
+    .setValue((draft.welcome_description ?? cfg.welcome_description) || DEFAULT_WELCOME_DESCRIPTION);
+  const colorInput = new TextInputBuilder()
+    .setCustomId('color')
+    .setLabel('Color (hex, opcional)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(7)
+    .setRequired(false)
+    .setValue((draft.welcome_color ?? cfg.welcome_color) || '');
+  const footerInput = new TextInputBuilder()
+    .setCustomId('footer')
+    .setLabel('Footer (opcional)')
+    .setStyle(TextInputStyle.Short)
+    .setMaxLength(2048)
+    .setRequired(false)
+    .setValue((draft.welcome_footer ?? cfg.welcome_footer) || '');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(titleInput),
+    new ActionRowBuilder().addComponents(descriptionInput),
+    new ActionRowBuilder().addComponents(colorInput),
+    new ActionRowBuilder().addComponents(footerInput),
+  );
+  await i.showModal(modal);
+});
+
+registerModalPrefix('modal_setupwizard_welcometext', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const titulo = i.fields.getTextInputValue('titulo').trim();
+  const descripcion = i.fields.getTextInputValue('descripcion').trim();
+  const colorRaw = i.fields.getTextInputValue('color').trim();
+  const footer = i.fields.getTextInputValue('footer').trim();
+
+  session.draft.welcomeDraft.welcome_title = titulo || null;
+  session.draft.welcomeDraft.welcome_description = descripcion || null;
+  session.draft.welcomeDraft.welcome_color = colorRaw && isValidHexColor(colorRaw) ? normalizeHexColor(colorRaw) : null;
+  session.draft.welcomeDraft.welcome_footer = footer || null;
+  refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
+
+  const cfg = await getGuildConfig(i.guildId);
+  await i.update(buildWelcomeEditorPanel(cfg, session.draft.welcomeDraft, contextFromInteraction(i)));
+});
+
+registerButtonPrefix('setupwizard_welcome_channel', async (i) => {
+  await withLock(`setup-welcome-channel:${i.guildId}:${i.user.id}`, async () => {
+    const session = requireWizardSession(i);
+    if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+    await i.update({ content: '⏳ Configurando el canal de bienvenida...', embeds: [], components: [] });
+    const cfg = await getGuildConfig(i.guildId);
+    try {
+      const { category } = await resolveCategory(i, cfg);
+      const { channel } = await resolveChannel(i, cfg, category, {
+        column: 'welcome_channel_id',
+        name: 'bienvenida',
+        overwrites: [{ id: i.guild.roles.everyone.id, allow: [PermissionFlagsBits.ViewChannel] }],
+      });
+      await setGuildConfig(i.guildId, { welcome_channel_id: channel.id, setup_category_id: category?.id ?? cfg.setup_category_id ?? null });
+      const refreshedCfg = await getGuildConfig(i.guildId);
+      await i.editReply(buildWelcomeEditorPanel(refreshedCfg, session.draft.welcomeDraft, contextFromInteraction(i)));
+    } catch (error) {
+      await i.editReply({ content: describeError(error, '❌ No se pudo crear/verificar el canal de bienvenida.'), embeds: [], components: [] });
+    }
+  });
+});
+
+registerButtonPrefix('setupwizard_welcome_save', async (i) => {
+  const session = requireWizardSession(i);
+  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+
+  const patch = {};
+  for (const field of ['welcome_title', 'welcome_description', 'welcome_color', 'welcome_footer']) {
+    if (field in session.draft.welcomeDraft) patch[field] = session.draft.welcomeDraft[field];
+  }
+
+  if (Object.keys(patch).length > 0) {
+    await setGuildConfig(i.guildId, patch);
+    try {
+      const logChannel = await getGuildLogChannel(i.client, i.guildId, 'activity');
+      if (logChannel) await logChannel.send({ embeds: [createBotConfigLogEmbed({ executor: i.user, changes: ['🎉 Bienvenida personalizada (texto/color)'] })] });
+    } catch (error) {
+      console.error('⚠️ No se pudo registrar el cambio de bienvenida en el canal de logs:', error);
+    }
+  }
+
+  session.draft.welcomeDraft = {};
+  refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
+  const payload = await renderHome(i, i.guild, i.guildId);
+  await i.update(payload);
+});
+
+// ---------- Bloques 13-14: economía y casino ----------
+
+async function buildEconomyPanel(guildId) {
+  const custom = await hasCustomShopItems(guildId);
+
+  const embed = new EmbedBuilder()
+    .setColor(GOLD_COLOR)
+    .setTitle('💰 Economía y Casino')
+    .addFields(
+      {
+        name: `${custom ? '🟢' : '🟡'} Tienda`,
+        value: custom
+          ? 'Este servidor tiene su propio catálogo — `/shop` muestra tus ítems.'
+          : '`/shop` está usando el catálogo de ejemplo genérico — funciona igual, pero personalizarlo con `/shop-admin agregar` hace que la economía se sienta propia de este servidor.',
+      },
+      {
+        name: '🟢 Rangos de /daily /work /crime /rob',
+        value: 'Usan los valores por defecto de NEXO salvo que los personalices con `/config economia` — nunca bloquean nada, son opcionales.',
+      },
+      {
+        name: '🟢 Casino (/coinflip /dado /slots /ruleta)',
+        value: 'No depende de ninguna configuración por-servidor — funciona igual en cualquier NEXO, sin pasos previos.',
+      },
+    )
+    .setFooter({ text: 'Editar: /shop-admin (tienda) · /config economia (rangos y probabilidades)' });
+
+  const rows = [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('setuphome_back').setLabel('⬅️ Volver').setStyle(ButtonStyle.Secondary))];
+  return { embeds: [embed], components: rows };
+}
+
+registerButtonPrefix('setuphome_economy', async (i) => {
+  await i.update(await buildEconomyPanel(i.guildId));
 });

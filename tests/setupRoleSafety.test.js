@@ -22,6 +22,9 @@ vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig, setGuildCon
 const getGuildLogChannel = vi.fn().mockResolvedValue(null); // sin canal de logs — no hace falta para este archivo
 vi.mock('../src/utils/guildLogChannels.js', () => ({ getGuildLogChannel }));
 
+// NEXO Setup Inteligente — evita depender del cliente real de Supabase (ver setupOnboarding.test.js).
+vi.mock('../src/utils/shopStore.js', () => ({ hasCustomShopItems: vi.fn().mockResolvedValue(false) }));
+
 await import('../src/commands/admin/setup.js'); // side effect: registra los handlers de botón/select
 const { routeButton } = await import('../src/components/buttons.js');
 

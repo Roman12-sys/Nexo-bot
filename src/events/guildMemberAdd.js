@@ -4,9 +4,9 @@ import { findExecutor } from '../utils/auditLog.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { getGuildConfig } from '../utils/guildConfigStore.js';
 import { getDangerousRolePermission } from '../utils/permissions.js';
-import { buildWelcomeImageAttachment } from '../utils/welcomeImage.js';
+import { buildWelcomeEmbed, contextFromMember } from '../utils/welcomeEmbed.js';
 import { buildSelfRolesMessage } from '../utils/selfRoles.js';
-import { MAGENTA_COLOR, LOG_COLOR, BRAND_NAME } from '../utils/embeds.js';
+import { LOG_COLOR } from '../utils/embeds.js';
 import { checkMemberCountAchievements } from '../utils/guildAchievements.js';
 import { eventBus } from '../utils/eventBus.js'; // Event Engine — auditoría 2026-08-29, Fase 5 (analytics)
 import { getActivePunishment } from '../utils/punishStore.js';
@@ -163,16 +163,14 @@ export async function execute(member, client) {
       return;
     }
 
-    const attachment = await buildWelcomeImageAttachment(member);
-    // QUÉ CAMBIÓ (CICLO 1, Mejora 2/2 — experiencia del miembro): antes este embed no
-    // tenía NINGÚN texto, solo la imagen — un miembro nuevo no tenía forma de enterarse
-    // de que /help existe. Una sola línea, sin mencionar de nuevo al usuario (ya lo hace
-    // el `content` de abajo) — sigue siendo UN solo mensaje, nada de spam.
-    const embed = new EmbedBuilder()
-      .setColor(MAGENTA_COLOR)
-      .setDescription(`Usá \`/help\` para conocer todo lo que podés hacer en **${member.guild.name}**.`)
-      .setImage('attachment://welcome.png')
-      .setFooter({ text: BRAND_NAME });
+    // NEXO Setup Inteligente (Bloque 11): el embed de bienvenida reemplaza el enfoque
+    // anterior basado en imagen (@napi-rs/canvas, welcomeImage.js) — texto + color +
+    // footer 100% personalizables desde /setup (welcome_title/welcome_description/
+    // welcome_color/welcome_footer en guild_config, todos nullable: null = el texto de
+    // ejemplo de siempre). welcomeImage.js no se borró — rankCardImage.js sigue
+    // dependiendo de la misma infraestructura de canvas/fuentes — solo dejó de ser el
+    // camino por defecto acá.
+    const embed = buildWelcomeEmbed(cfg, contextFromMember(member));
 
     // El menú de roles autoasignables es opcional a propósito: si el server no
     // configuró ninguno (o todos quedaron inválidos, ver resolveLiveSelfRoles), esto es
@@ -184,7 +182,6 @@ export async function execute(member, client) {
     await channel.send({
       content: `${member}`,
       embeds: [embed],
-      files: [attachment],
       components: selfRolesMessage?.components || [],
       allowedMentions: { users: [member.id] },
     });

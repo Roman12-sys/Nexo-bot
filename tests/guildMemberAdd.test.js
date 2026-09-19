@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { PermissionFlagsBits } from 'discord.js';
+import { PermissionFlagsBits, EmbedBuilder } from 'discord.js';
 
 // guildMemberAdd.js — CICLO 1, Mejora 2/2: el mensaje de bienvenida ahora incluye texto
 // guiando a /help y, si el server configuró roles autoasignables, el select menu de
@@ -24,8 +24,15 @@ vi.mock('../src/utils/punishStore.js', () => ({ getActivePunishment }));
 const recordModerationAction = vi.fn().mockResolvedValue(undefined);
 vi.mock('../src/utils/moderationActionsStore.js', () => ({ recordModerationAction }));
 
-const buildWelcomeImageAttachment = vi.fn().mockResolvedValue({ name: 'welcome.png' });
-vi.mock('../src/utils/welcomeImage.js', () => ({ buildWelcomeImageAttachment }));
+// NEXO Setup Inteligente (Bloque 11) — el embed de bienvenida reemplazó a la imagen de
+// canvas; welcomeEmbed.js tiene su propia batería de tests (welcomeEmbed.test.js) para
+// el armado real (variables, color, footer, trailer de /help) — acá se mockea para que
+// este archivo siga enfocado en la orquestación de guildMemberAdd.js, no en el texto.
+// El mock devuelve un EmbedBuilder REAL (no un objeto plano) para que .addFields() del
+// caller siga funcionando igual que con el embed real.
+const buildWelcomeEmbed = vi.fn(() => new EmbedBuilder().setDescription('Bienvenida de prueba — usá `/help` para más.'));
+const contextFromMember = vi.fn((member) => ({ servidor: member.guild.name, usuario: `${member}` }));
+vi.mock('../src/utils/welcomeEmbed.js', () => ({ buildWelcomeEmbed, contextFromMember }));
 
 const buildSelfRolesMessage = vi.fn().mockResolvedValue(null);
 vi.mock('../src/utils/selfRoles.js', () => ({ buildSelfRolesMessage }));
