@@ -1321,6 +1321,13 @@ registerButtonPrefix('setupwizard_welcome_edit', async (i) => {
       .setCustomId('welcome_emoji_pick')
       .setMinValues(0)
       .setMaxValues(1)
+      // Reventó en producción (DiscordAPIError 50035, COMPONENT_REQUIRED_ZERO_MIN_VALUES):
+      // un select DENTRO de un modal es "required" por defecto — eso es un concepto
+      // SEPARADO de minValues, expuesto por BaseSelectMenuBuilder.setRequired() ("Only
+      // for use in modals", confirmado leyendo el .d.ts de @discordjs/builders). Sin
+      // esto, Discord rechaza la combinación "required + minValues 0" como contradictoria
+      // — no lo agarra ningún validador cliente, es un chequeo 100% del lado del servidor.
+      .setRequired(false)
       .addOptions(
         guildEmojis.map((emoji) =>
           new StringSelectMenuOptionBuilder().setLabel(emoji.name.slice(0, 100)).setValue(emoji.id).setEmoji({ id: emoji.id, name: emoji.name, animated: emoji.animated }),

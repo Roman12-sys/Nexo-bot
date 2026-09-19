@@ -467,6 +467,27 @@ describe('NEXO Setup — editor de bienvenida', () => {
     expect(modal.toJSON().components).toHaveLength(5); // exactamente el máximo real de un modal
   });
 
+  // DiscordAPIError 50035 real en producción: un select DENTRO de un modal es
+  // "required" por defecto (BaseSelectMenuBuilder.setRequired, "Only for use in
+  // modals") — un concepto SEPARADO de minValues. min_values:0 + required:true es una
+  // combinación que Discord rechaza del lado del SERVIDOR, algo que .toJSON() nunca
+  // detecta (es válido como objeto, el .toJSON() de discord.js no lo valida) — por eso
+  // este test no reemplaza la verificación en vivo, solo evita que la MISMA
+  // combinación rota se reintroduzca sin querer.
+  it('el selector de emoji queda min_values:0 + required:false (nunca la combinación que Discord rechaza)', async () => {
+    const emojis = new Map([['emoji-1', makeGuildEmoji('emoji-1', 'pizza')]]);
+    const guild = makeGuild({ emojis });
+    const interaction = makeInteraction({ guild });
+    await routeButton(click(interaction, 'setuphome_welcome'));
+
+    const editClick = click(interaction, 'setupwizard_welcome_edit');
+    await routeButton(editClick);
+
+    const label = editClick.showModal.mock.calls[0][0].toJSON().components[4];
+    expect(label.component.min_values).toBe(0);
+    expect(label.component.required).toBe(false);
+  });
+
   it('elegir un emoji en el mismo submit lo agrega al final de la descripción que se acaba de escribir', async () => {
     const emojis = new Map([['emoji-1', makeGuildEmoji('emoji-1', 'pizza')]]);
     const guild = makeGuild({ emojis });
