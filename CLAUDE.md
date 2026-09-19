@@ -427,12 +427,26 @@ una revisión visual no agarra:
   `tests/websiteData.test.js` — server real vía `node:http`, mismo patrón que
   `dashboardServer.test.js`).
 
-**Qué falta, a propósito no hecho sin el usuario presente:** deploy como 4to servicio de
-Railway y dominio propio (`WEBSITE_BASE_URL` sin configurar — sin esto, `/sitemap.xml`
-da 404 explícito y no hay `<link rel="canonical">`, nunca una URL inventada). QA visual
-en navegador real (sin esa herramienta disponible en el entorno de build). Compresión
-gzip (paquete `compression`) evaluada y descartada por ahora — es una dependencia nueva
-y los tamaños de página (30-136KB sin comprimir) no lo justifican todavía.
+**Actualización 2026-09-19 — desplegado.** Esta sección decía "deploy como 4to servicio
+de Railway... a propósito no hecho sin el usuario presente" — ya se hizo. Railway se
+upgradeó a plan pago (Hobby, $5/mes) el mismo día para sacar la fricción de free-tier
+que venía frenando sumar servicios nuevos con comodidad. El website corre como 4to
+servicio (`website-nexo-bot`, Start Command `npm run website`), en el subdominio
+gratuito que da Railway (`website-nexo-bot-production.up.railway.app`) — **nunca hizo
+falta comprar un dominio propio**, mismo esquema que ya usaba el dashboard.
+`WEBSITE_BASE_URL` seteado en los 3 servicios (sitio, dashboard, bot). **Gotcha real
+pisado en el deploy:** `website/config.js` solo hace `.replace(/\/$/, '')` sobre esa
+variable — nunca valida ni agrega el esquema `https://`. La primera vez que se cargó sin
+él, `/sitemap.xml` generó `<loc>` inválidos (URLs sin `https://`) en silencio, sin error
+ni warning — se detectó leyendo el output real del sitemap, no por ningún log. Si
+`WEBSITE_BASE_URL` alguna vez produce URLs rotas (sitemap, `<link rel="canonical">`),
+revisar el esquema de la variable antes de sospechar del código.
+
+QA visual en navegador real sigue sin poder hacerse desde el entorno de build (sin
+herramienta de screenshot) — se verificó en cambio con `curl` real contra las URLs en
+vivo (`/`, `/commands`, `/sitemap.xml`, `/legal/terminos`, `/legal/privacidad`, todas
+`200`, contenido correcto). Compresión gzip sigue evaluada y descartada por ahora — sin
+cambios ahí.
 
 ## Qué se dejó afuera a propósito
 
@@ -1860,6 +1874,20 @@ propia copia, mismo criterio que `dashboardUrl`) — condicional, nunca una URL 
 el footer entero desaparece si ni `SUPPORT_CONTACT` ni `WEBSITE_BASE_URL` están
 configurados, en vez de quedar vacío con solo el borde superior.
 
+**Segunda corrección real de fondo (2026-09-19), encontrada al preparar el sitio para
+los primeros clientes reales, no por una auditoría pedida.** `/confession` se vende como
+"anónima" — pero `confession.js` manda SIEMPRE (no solo cuando el server pide revisión
+previa) un log al canal de moderación con el tag + ID reales del autor
+(`{ name: 'Autor real', value: ... }`), que recién se autoborra a los 5 días vía
+`logPurgeEngine.js` (`RETENTION_MS`, canal `moderation` incluido en `LOG_CATEGORIES`).
+Nunca queda en la base de datos — vive solo como mensaje de Discord con fecha de borrado
+real — pero durante esos 5 días cualquier staff con acceso a ese canal puede ver quién
+mandó cualquier confesión, y la Política de Privacidad no lo decía en ningún lado.
+Corregido el TEXTO (`website/pages/legal.js`), nunca el comportamiento — la feature en sí
+es razonable (el staff necesita poder frenar abuso), el problema era la falta de
+disclosure. Se sumó también `confession_blocked_ids` (persistido en `guild_config`) a la
+lista de datos procesados, que faltaba.
+
 **Observabilidad cross-guild (toda la analítica existente es estrictamente por-guild):**
 `bot_guild_events` (migración `migration_2026_09_12_owner_metricas.sql`, tabla mínima:
 `guild_id`+`event_type` 'join'/'leave'+`created_at`) registrada desde `guildCreate.js`/
@@ -2644,6 +2672,110 @@ commiteado — working tree para el tooling externo del usuario, como siempre.
 System (2026-09-18)** — sin ningún ítem pendiente del plan en sí. El único punto
 abierto es la verificación visual del contraste de `WEB_STATUS_DANGER` mencionada
 arriba, que quedó explícitamente a cargo del usuario.
+
+## Dashboard — rediseño de "Tus servidores" (2026-09-19, pedido aparte del plan de 7 fases)
+
+Pedido explícito y acotado del usuario, sin relación con el plan de la auditoría UX/UI de
+arriba (esa ya había cerrado sus 7 fases ese mismo día) — mejorar EXCLUSIVAMENTE la
+pantalla de selección de servidor del dashboard (`GET /`, `renderGuildList` en
+`dashboard/views.js`), con una lista explícita de qué NO tocar (lógica de auth/selección
+de servidor, otras pantallas, estadísticas/features nuevas). 3 archivos tocados
+(`dashboard/html.js`/`views.js`/`server.js`), todo presentación — `listManagedGuilds`
+(el único dato real por servidor sigue siendo `id`/`name`/`icon`) no se tocó.
+
+**`wide` como flag explícito de `layout()`, no un ancho global nuevo.** El contenedor
+angosto (880px) es compartido por TODAS las páginas del dashboard vía `layout()`;
+ampliarlo directamente hubiera afectado también `/guild/:id` y el login, en contra del
+pedido explícito de no tocar otras pantallas. Se agregó un parámetro opcional `wide` que
+agrega `class="wide"` a `<main>`/`<footer>` (`main.wide`/`footer.wide { max-width:
+1160px; }`) — solo la ruta `GET /` lo pasa. El header y el footer en sí SÍ son chrome
+100% compartido (una sola definición dentro de `layout()` para todas las páginas), así
+que sus cambios (lockup de marca "NEXO"/"Dashboard" en 2 líneas, botón de invitar más
+prominente reusando `.btn`, borde superior nuevo en el footer) aplican a todo el
+dashboard — la única lectura consistente del pedido, dado que no existen dos headers/
+footers distintos por página para tocar solo uno.
+
+**"Estado seleccionado" de las tarjetas — interpretación señalada, no un dato real.** El
+pedido pide un estado visual "seleccionado" distinto de hover, pero esta pantalla es
+100% navegación: cada tarjeta es un link que saca de la página, no hay ningún concepto
+de "servidor seleccionado y persistente" en el código (a diferencia de, por ejemplo, un
+selector de pestañas). Se implementó como los estados `:focus-visible`/`:active` (foco
+de teclado / mientras se hace click) — la lectura más honesta posible dado que no existe
+un estado real que mostrar, señalada explícitamente al usuario en la entrega en vez de
+inventar un mecanismo de selección que el producto no tiene.
+
+**Verificación visual sin levantar el dashboard como servidor real.** Ver
+[[nexo_bot_dashboard_visual_preview_technique]] — en vez de correr `npm run dashboard`
+(que hubiera exigido login real de Discord OAuth + sesión + datos reales de Supabase
+solo para juzgar un cambio 100% visual), un script de una sola vez importó `layout()`/
+`renderGuildList()` directo vía `file:///` con datos de prueba, y el HTML real resultante
+se embebió sin modificar en un `<iframe srcdoc>` dentro de un Artifact "harness" con
+botones para alternar ancho (1440/1280/820/390) y estado (con servidores/vacío).
+
+**Commiteado y pusheado por el tooling externo del usuario, no por esta sesión** (ver
+[[nexo_bot_no_auto_push]]) — commit `04a6731` ("feat(dashboard): enhance 'Tus
+servidores' layout..."), con exactamente los 3 archivos de arriba, sin bundlear nada
+ajeno. El usuario había pedido "actualiza el dashboard con esto que hiciste" de forma
+ambigua después de aprobar el preview; se le preguntó explícitamente si eso significa
+"dejarlo sin commit", "commit local sin push", o "commit + push" en vez de asumir —
+la pregunta quedó sin responder en el chat porque su propio tooling externo ya lo había
+resuelto por su cuenta (commit + push reales) mientras tanto, confirmado por
+`git rev-list --left-right --count origin/main...HEAD` devolviendo `0 0`.
+
+## Limpieza posterior a las 7 fases de UX/UI (2026-09-19, no una fase nueva)
+
+2 botones sueltos de `/helpstaff` ("🧹 Limpiar mensajes", "📢 Crear anuncio" — duplicaban
+`/clear`/`/anuncio` enteros, sin test ni mención en este archivo) se sacaron al notarlos
+en una captura de pantalla — `git log -S` confirmó que eran del commit de migración
+original (2026-08-23), no un agregado accidental de una sesión paralela. Una auditoría
+de seguimiento con **2 agentes** (uno para el lado Discord, uno para dashboard/website —
+a pedido explícito del usuario, no los 3-7 de rondas anteriores) buscando
+específicamente "más botones así" volvió con 0 hallazgos reales de ese patrón; el único
+ítem que encontró (`website/layout.js:124`, hover hardcodeado) ya estaba documentado
+como decisión deliberada en la sección de Fase 6 de arriba. `getHelpButtonsRow()` de
+`help.js` (Mi perfil/Servidor/Mi avatar) es del mismo tipo de patrón pero SÍ tiene test y
+SÍ está documentado (hallazgo H3) — se le preguntó explícitamente al usuario si sacarlo
+también y **decidió mantenerlo**. No repetir esa pregunta sin que la vuelva a traer.
+
+## Cambio de foco: de perfeccionar el producto a conseguir los primeros clientes (2026-09-19)
+
+Con las 7 fases de UX/UI cerradas, Railway pago, y el sitio ya desplegado como 4to
+servicio (ver "Sitio web" arriba), el usuario cortó explícitamente el ciclo de mejora
+técnica: *"No quiero seguir haciendo auditorías generales ni mejoras técnicas por
+mejorar el número de la auditoría."* Estado acordado por los dos: código sólido, UX/UI
+cerrada, infraestructura funcional, **0 usuarios confirmados, 0 ingresos**. Veredicto:
+**"NEXO está listo para operar, pero todavía no está listo para vender."**
+
+A partir de acá el trabajo es de producto/negocio, no de código — un plan de 11
+secciones (nicho inicial como hipótesis no verdad, propuesta de valor, oferta Free + 1
+plan pago basado en SERVICIO no en features nuevas, primer cobro 100% manual vía Mercado
+Pago/PayPal sin ninguna infraestructura de billing, métricas reusando lo que ya existe —
+`/owner-metricas`, `guild_daily_stats`, `command_usage`, `bot_guild_events` — sin
+construir analítica nueva, feedback por conversación 1:1 nunca por formulario) con una
+regla explícita pedida por el propio usuario: el "próximo ciclo" nunca puede ser otra
+auditoría, otra investigación de mercado, ni "definir mejor la estrategia" — tiene que
+ser una acción ejecutable en días hacia un usuario real. Mismo criterio anti-loop que ya
+regía para el código ([[nexo_bot_phased_post_audit_workflow]]), aplicado por primera vez
+a trabajo comercial.
+
+**Hipótesis de nicho inicial (no un hecho, se valida con las primeras conversaciones
+reales):** comunidades gaming chicas-medianas (50-500 miembros), administradas por 1-3
+personas sin perfil técnico, que hoy usan 2+ bots distintos (uno para
+moderación/niveles, otro o ninguno para economía) y sienten la fricción de configurar
+cada uno por separado. Prioridad de adquisición, en orden: gente que el usuario ya
+conoce → contactos indirectos de esos → outreach frío (último recurso, no el punto de
+partida).
+
+**Hallazgo real encontrado en el camino, ya corregido:** revisando el sitio para esta
+etapa (no una auditoría pedida) se encontró que `/confession` no es tan "anónima" como
+promete la Política de Privacidad — ver la corrección de la sección "Fase 5: legal" de
+arriba para el detalle completo.
+
+**Estado: nada del plan comercial implementado todavía (es estrategia, no código) — la
+corrección de `/confession` es la única pieza de código/contenido tocada.** El próximo
+paso depende 100% del usuario (contactar 3-5 personas conocidas) y no de más trabajo de
+este lado. No proponer otra ronda de análisis si esto vuelve a aparecer en una sesión
+futura sin que haya una razón concreta y nueva para hacerlo.
 
 ## Stack
 
