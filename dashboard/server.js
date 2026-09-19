@@ -104,7 +104,7 @@ app.get('/', async (req, res) => {
 
   try {
     const guilds = await listManagedGuilds(session.userId);
-    res.send(layout({ title: 'Tus servidores', body: renderGuildList(guilds), loggedIn: true }));
+    res.send(layout({ title: 'Tus servidores', body: renderGuildList(guilds), loggedIn: true, wide: true }));
   } catch (error) {
     console.error('❌ Error listando servidores del dashboard:', error);
     reportCriticalError(null, 'dashboard: GET /', error);

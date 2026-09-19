@@ -12,28 +12,40 @@ export function renderLoginPage() {
     </div>`;
 }
 
+// Mejora de composición de "Tus servidores" (2026-09-19, presentación únicamente —
+// ver CLAUDE.md). El único dato real disponible por servidor sigue siendo el mismo de
+// siempre (listManagedGuilds solo devuelve id/name/icon, sin tocar esa función): la
+// tarjeta usa exclusivamente eso, más una inicial derivada del nombre para el avatar
+// de respaldo (nunca un dato inventado, mismo criterio que un avatar placeholder de
+// cualquier producto real).
 export function renderGuildList(guilds) {
+  const head = `
+    <h1>Tus servidores</h1>
+    <p class="servers-subtitle">Seleccioná un servidor para administrar NEXO.</p>`;
+
   if (guilds.length === 0) {
-    return `
-      <h1>Tus servidores</h1>
+    return `${head}
       <div class="card"><p class="muted">No encontramos servidores donde tengas rol de staff configurado (o no sos dueño de ninguno donde esté el bot).</p></div>`;
   }
 
   const items = guilds
-    .map(
-      (g) => `
-      <a class="guild-item" href="/guild/${g.id}">
-        ${
-          g.icon
-            ? `<img class="guild-icon" src="https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64" alt="">`
-            : '<div class="guild-icon-placeholder"></div>'
-        }
-        <span>${escapeHtml(g.name)}</span>
-      </a>`,
-    )
+    .map((g) => {
+      const initial = escapeHtml((g.name || '?').trim().charAt(0).toUpperCase() || '?');
+      const avatar = g.icon
+        ? `<img class="guild-avatar" src="https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64" alt="">`
+        : `<div class="guild-avatar-placeholder">${initial}</div>`;
+      return `
+      <a class="guild-card" href="/guild/${g.id}">
+        ${avatar}
+        <div class="guild-info">
+          <div class="guild-name">${escapeHtml(g.name)}</div>
+        </div>
+        <span class="guild-cta">Administrar →</span>
+      </a>`;
+    })
     .join('');
 
-  return `<h1>Tus servidores</h1><div class="guild-list">${items}</div>`;
+  return `${head}<div class="guild-grid">${items}</div>`;
 }
 
 function userLabel(usersById, userId) {

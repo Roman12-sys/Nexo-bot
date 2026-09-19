@@ -44,7 +44,7 @@ export function escapeHtml(value) {
 // WEBSITE_BASE_URL no hay línea legal (recién ahí el dashboard sabe dónde vive el sitio
 // real). El footer entero desaparece si ninguno de los dos está configurado, en vez de
 // quedar vacío con solo el borde superior.
-function buildFooter() {
+function buildFooter(wide = false) {
   const parts = [];
   if (config.supportContact) {
     parts.push(`<p class="muted">🆘 ¿Problemas con el bot? ${escapeHtml(config.supportContact)}</p>`);
@@ -54,10 +54,15 @@ function buildFooter() {
       `<p class="muted">Legal: <a href="${escapeHtml(config.websiteUrl)}/legal/terminos" target="_blank" rel="noopener">Términos de servicio</a> · <a href="${escapeHtml(config.websiteUrl)}/legal/privacidad" target="_blank" rel="noopener">Política de privacidad</a></p>`,
     );
   }
-  return parts.length > 0 ? `<footer>${parts.join('')}</footer>` : '';
+  return parts.length > 0 ? `<footer${wide ? ' class="wide"' : ''}>${parts.join('')}</footer>` : '';
 }
 
-export function layout({ title, body, loggedIn = false }) {
+// `wide` amplía únicamente el contenedor de ESTA llamada a layout() (clase `.wide` en
+// <main>/<footer>, ver CSS) — pensado para la pantalla de "Tus servidores" (mejora de
+// composición, 2026-09-19), que tenía demasiado espacio vacío a los costados con el
+// max-width angosto de siempre. El resto de páginas (login, dashboard de un servidor,
+// errores) no pasan este flag y conservan el ancho de 880px sin cambios.
+export function layout({ title, body, loggedIn = false, wide = false }) {
   return `<!doctype html>
 <html lang="es">
 <head>
@@ -96,11 +101,20 @@ export function layout({ title, body, loggedIn = false }) {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    row-gap: 0.6rem;
     padding: 1rem 1.5rem;
     border-bottom: 1px solid var(--border);
   }
-  header .brand { font-weight: 700; color: var(--brand); text-decoration: none; font-size: 1.05rem; }
+  /* Mejora dashboard "Tus servidores" (2026-09-19) — jerarquía de marca en 2 líneas
+     (NEXO / Dashboard) en vez de un solo renglón chico "Nexo Bot · Dashboard". Es
+     parte del chrome compartido (header), así que aplica a todas las páginas, no solo
+     a la de selección de servidor. */
+  header .brand { display: flex; flex-direction: column; gap: 0.05rem; line-height: 1.15; text-decoration: none; }
+  header .brand-name { font-weight: 800; font-size: 1.2rem; color: var(--brand); letter-spacing: 0.01em; }
+  header .brand-sub { font-weight: 600; font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.09em; }
   main { max-width: 880px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  main.wide { max-width: 1160px; }
   h1 { font-size: 1.5rem; margin: 0 0 1.25rem; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
   .card h2 { margin-top: 0; font-size: 1.02rem; }
@@ -108,19 +122,49 @@ export function layout({ title, body, loggedIn = false }) {
   th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--border); }
   th { color: var(--text-muted); font-weight: 600; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; }
   tbody tr:last-child td { border-bottom: none; }
-  .guild-list { display: flex; flex-direction: column; gap: 0.6rem; }
-  .guild-item { display: flex; align-items: center; gap: 0.9rem; padding: 0.8rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; text-decoration: none; color: inherit; }
-  .guild-item:hover { border-color: var(--brand); }
-  .guild-icon, .guild-icon-placeholder { width: 40px; height: 40px; border-radius: 50%; flex: none; }
-  .guild-icon-placeholder { background: var(--border); }
-  .btn { display: inline-block; background: var(--brand); color: #fff; text-decoration: none; padding: 0.65rem 1.3rem; border-radius: 8px; font-weight: 600; }
+  /* Pantalla "Tus servidores" (mejora de composición, 2026-09-19) — tarjetas
+     seleccionables reales en vez de la lista de bloques tipo formulario que había
+     antes (.guild-list/.guild-item). Estados normal/hover/foco-teclado/click
+     distintos entre sí, sin colores nuevos: reusan --brand/--bg-raised ya definidos
+     arriba + una sombra neutra (rgba negro) para la elevación en hover, nunca un
+     "glow" de color de marca — evita introducir un valor rgba nuevo del violeta de
+     marca solo para eso. */
+  .servers-subtitle { margin: -1rem 0 1.75rem; color: var(--text-muted); font-size: 0.95rem; }
+  .guild-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+  @media (max-width: 720px) { .guild-grid { grid-template-columns: 1fr; } }
+  .guild-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.1rem 1.25rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .guild-card:hover { border-color: var(--brand); background: var(--bg-raised); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3); transform: translateY(-2px); }
+  .guild-card:focus-visible { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand); }
+  .guild-card:active { border-color: var(--brand); background: var(--bg-raised); box-shadow: 0 0 0 2px var(--brand); transform: translateY(0); }
+  .guild-avatar, .guild-avatar-placeholder { width: 52px; height: 52px; border-radius: 50%; flex: none; object-fit: cover; }
+  .guild-avatar-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--brand), var(--brand-soft)); color: #fff; font-weight: 700; font-size: 1.1rem; }
+  .guild-info { flex: 1; min-width: 0; }
+  .guild-name { font-weight: 600; font-size: 1.02rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .guild-cta { flex: none; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; transition: color 0.15s ease; }
+  .guild-card:hover .guild-cta, .guild-card:focus-visible .guild-cta, .guild-card:active .guild-cta { color: var(--brand-soft); }
+  .btn { display: inline-block; background: var(--brand); color: #fff; text-decoration: none; padding: 0.65rem 1.3rem; border-radius: 8px; font-weight: 600; transition: background-color 0.15s ease; }
+  .btn:hover { background: var(--brand-soft); }
+  .btn-sm { padding: 0.5rem 1rem; font-size: 0.85rem; }
   .muted { color: var(--text-muted); font-size: 0.85rem; text-decoration: none; }
   .stat-row { display: flex; gap: 1.75rem; flex-wrap: wrap; }
   .stat .value { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .stat .label, .label { font-size: 0.74rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
   .login-card { text-align: center; padding: 3rem 1.5rem; }
   .header-actions { display: flex; align-items: center; gap: 1rem; }
-  footer { max-width: 880px; margin: 0 auto; padding: 0 1.5rem 2rem; }
+  footer { max-width: 880px; margin: 2.5rem auto 0; padding: 1.5rem 1.5rem 2rem; border-top: 1px solid var(--border); }
+  footer.wide { max-width: 1160px; }
+  footer p { margin: 0.3rem 0; }
 
   /* Dashboard 2.0 (MEJORA 1/2, CICLO 1) — resumen, acciones rápidas, estado de sistemas
      y problemas de configuración. Mismos tokens de color de arriba, nada nuevo. Los
@@ -147,14 +191,17 @@ export function layout({ title, body, loggedIn = false }) {
 </head>
 <body>
 <header>
-  <a class="brand" href="/">📊 Nexo Bot · Dashboard</a>
+  <a class="brand" href="/">
+    <span class="brand-name">NEXO</span>
+    <span class="brand-sub">Dashboard</span>
+  </a>
   <div class="header-actions">
-    <a class="muted" href="${buildInviteUrl()}" target="_blank" rel="noopener">+ Invitar a otro servidor</a>
+    <a class="btn btn-sm" href="${buildInviteUrl()}" target="_blank" rel="noopener">+ Invitar servidor</a>
     ${loggedIn ? '<a class="muted" href="/auth/logout">Cerrar sesión</a>' : ''}
   </div>
 </header>
-<main>${body}</main>
-${buildFooter()}
+<main${wide ? ' class="wide"' : ''}>${body}</main>
+${buildFooter(wide)}
 </body>
 </html>`;
 }
