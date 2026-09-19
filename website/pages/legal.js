@@ -12,7 +12,18 @@
 // que sigue activo. Corregido para describir lo que el Bot puede hacer HOY (automático
 // a nivel servidor, manual/a pedido a nivel de un usuario puntual) — nunca prometer una
 // función que no existe.
-const LAST_UPDATED = '12 de septiembre de 2026';
+//
+// SEGUNDA CORRECCIÓN (2026-09-19, revisión previa a los primeros clientes reales): la
+// Política no mencionaba que /confession, vendida como "anónima", NO lo es para el
+// staff — confession.js manda SIEMPRE (no solo cuando pide revisión previa) un log al
+// canal de moderación con el tag + ID reales del autor (`{ name: 'Autor real', value:
+// ... }`), que recién se autoborra a los 5 días vía logPurgeEngine.js (RETENTION_MS).
+// Nunca se guarda en la base de datos — vive solo como mensaje de Discord, con fecha de
+// borrado real — pero durante esos 5 días cualquier staff con acceso a ese canal puede
+// ver quién mandó cualquier confesión. "Anónima" significa anónima para el resto de los
+// miembros, nunca para el staff, y ahora el texto lo dice. También se sumó
+// `confession_blocked_ids` (guild_config) a la lista de datos procesados — faltaba.
+const LAST_UPDATED = '19 de septiembre de 2026';
 
 function legalNotice(text) {
   return `<div class="docs-card" data-reveal><p><strong>Nota:</strong> ${text}</p></div>`;
@@ -88,10 +99,13 @@ export function renderPrivacyPage() {
         <p><strong>Advertencias</strong> (motivo, quién la aplicó) — historial de moderación (<code>/warns</code>, <code>/sanciones</code>).</p>
         <p><strong>IDs de roles/canales configurados</strong> — que <code>/setup</code> y <code>/config</code> recuerden la configuración del servidor.</p>
         <p><strong>Puntos de trivia y logros desbloqueados</strong> — rankings y progreso de <code>/perfil</code>.</p>
+        <p><strong>Usuarios bloqueados de /confession</strong> — si el staff de tu servidor bloqueó a alguien de usar ese comando.</p>
         <p style="margin:0"><strong>Estadísticas agregadas de voz</strong> (duración, cantidad de usuarios) — nada visible al usuario todavía; nunca identifica qué dijiste ni con quién hablaste.</p>
       </div>
 
       <p>El contenido de los mensajes de texto se procesa <strong>de forma transitoria</strong> en dos casos puntuales, sin guardarse nunca: para calcular si un mensaje es elegible para XP (longitud, si es repetido) y para detectar si alguien pegó por accidente un token/secreto (el mensaje se borra automáticamente, nunca se guarda el secreto en texto plano).</p>
+
+      <p><strong>Excepción real a lo anterior: las confesiones enviadas con <code>/confession</code>.</strong> Se publican de forma anónima en el canal público del servidor, pero tu identidad real SÍ queda visible para el staff de moderación — cada confesión (la pida o no revisión previa) genera un mensaje interno en el canal de logs de moderación con tu usuario y tu ID de Discord, que se borra solo automáticamente a los 5 días. Nunca se guarda en la base de datos, solo vive como mensaje de Discord con fecha de borrado real. "Anónima" significa anónima para el resto de los miembros — no para el staff de tu propio servidor.</p>
 
       <h2>2. Lo que el Bot NO recolecta</h2>
       <ul class="docs-list">
