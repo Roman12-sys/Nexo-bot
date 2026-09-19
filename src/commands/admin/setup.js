@@ -1235,8 +1235,9 @@ function buildWelcomeEditorPanel(cfg, welcomeDraft, ctx) {
   const rows = [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('setuphome_back').setLabel('⬅️ Volver').setStyle(ButtonStyle.Secondary),
+      // El selector de emoji vive DENTRO del modal de "✏️ Editar" (ver
+      // setupwizard_welcome_edit) — pedido explícito en vivo, no un botón aparte.
       new ButtonBuilder().setCustomId('setupwizard_welcome_edit').setLabel('✏️ Editar').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('setupwizard_welcome_emoji').setLabel('😀 Insertar emoji').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
         .setCustomId('setupwizard_welcome_channel')
         .setLabel(cfg.welcome_channel_id ? '♻️ Recrear canal' : '🆕 Crear canal')
@@ -1254,6 +1255,15 @@ registerButtonPrefix('setuphome_welcome', async (i) => {
   await i.update(buildWelcomeEditorPanel(cfg, session.draft.welcomeDraft, contextFromInteraction(i)));
 });
 
+// Feedback en vivo probando el editor: el selector de emoji tenía que aparecer DENTRO
+// de esta misma pantalla de edición, no como un botón aparte (ver el diseño original,
+// descartado). Components V2 (LabelBuilder + StringSelectMenu con búsqueda nativa,
+// mismo patrón que /rolreacciones) SÍ puede convivir con los TextInput clásicos en el
+// MISMO modal — confirmado leyendo el validador real de @discordjs/builders
+// (componentsValidator acepta ActionRowBuilder o LabelBuilder mezclados en el mismo
+// array, no exige un solo estilo), no adivinado. Ocupa la 5ta fila — el máximo real de
+// un modal es 5, así que con los 4 campos de texto de siempre no queda lugar para nada
+// más. minValues 0: dejarlo sin tocar sigue guardando el texto igual que antes.
 registerButtonPrefix('setupwizard_welcome_edit', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
@@ -1297,6 +1307,33 @@ registerButtonPrefix('setupwizard_welcome_edit', async (i) => {
     new ActionRowBuilder().addComponents(colorInput),
     new ActionRowBuilder().addComponents(footerInput),
   );
+
+  // .fetch(), nunca .cache a secas — el bot no tiene el intent GuildEmojisAndStickers,
+  // el cache de gateway puede estar desactualizado (mismo gotcha ya documentado para el
+  // selector de /rolreacciones). Sin emojis propios: el modal queda con los 4 campos de
+  // siempre, sin selector — Discord exige al menos 1 opción, no se puede mostrar vacío.
+  const guildEmojis = [...(await i.guild.emojis.fetch().catch(() => i.guild.emojis.cache)).values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 25);
+
+  if (guildEmojis.length > 0) {
+    const select = new StringSelectMenuBuilder()
+      .setCustomId('welcome_emoji_pick')
+      .setMinValues(0)
+      .setMaxValues(1)
+      .addOptions(
+        guildEmojis.map((emoji) =>
+          new StringSelectMenuOptionBuilder().setLabel(emoji.name.slice(0, 100)).setValue(emoji.id).setEmoji({ id: emoji.id, name: emoji.name, animated: emoji.animated }),
+        ),
+      );
+    // LabelBuilder.setLabel tiene el MISMO límite real de 45 caracteres que
+    // TextInputBuilder.setLabel — reventó en producción una vez con un texto de 66
+    // chars, porque node --check y un showModal mockeado nunca ejercitan el .toJSON()
+    // real que discord.js usa para validar esto.
+    const label = new LabelBuilder().setLabel('Emoji (opcional, va al final del texto)').setStringSelectMenuComponent(select);
+    modal.addLabelComponents(label);
+  }
+
   await i.showModal(modal);
 });
 
@@ -1305,9 +1342,25 @@ registerModalPrefix('modal_setupwizard_welcometext', async (i) => {
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
   const titulo = i.fields.getTextInputValue('titulo').trim();
-  const descripcion = i.fields.getTextInputValue('descripcion').trim();
+  let descripcion = i.fields.getTextInputValue('descripcion').trim();
   const colorRaw = i.fields.getTextInputValue('color').trim();
   const footer = i.fields.getTextInputValue('footer').trim();
+
+  // El selector de emoji es opcional Y solo existe en el modal si el servidor tenía
+  // emojis propios (ver arriba) — getStringSelectValues tira si el customId no estaba
+  // en ESTE modal en absoluto, así que se envuelve en try/catch en vez de asumir que
+  // siempre está. Si el selector SÍ estaba pero no se tocó (minValues 0), devuelve un
+  // array vacío sin tirar — pickedEmojiId queda undefined y no pasa nada.
+  let pickedEmojiId;
+  try {
+    [pickedEmojiId] = i.fields.getStringSelectValues('welcome_emoji_pick');
+  } catch {
+    pickedEmojiId = undefined;
+  }
+  if (pickedEmojiId) {
+    const emoji = i.guild.emojis.cache.get(pickedEmojiId);
+    if (emoji) descripcion = `${descripcion} ${emoji.toString()}`.trim();
+  }
 
   session.draft.welcomeDraft.welcome_title = titulo || null;
   session.draft.welcomeDraft.welcome_description = descripcion || null;
@@ -1317,76 +1370,6 @@ registerModalPrefix('modal_setupwizard_welcometext', async (i) => {
 
   const cfg = await getGuildConfig(i.guildId);
   await i.update(buildWelcomeEditorPanel(cfg, session.draft.welcomeDraft, contextFromInteraction(i)));
-});
-
-// Pedido en vivo del usuario probando el editor: en vez de tener que escribir/recordar
-// el código de un emoji custom a mano dentro del campo de texto, un selector con
-// búsqueda nativa de Discord — mismo patrón EXACTO que el selector de emoji de
-// /rolreacciones (Components V2: LabelBuilder + StringSelectMenu DENTRO de un modal,
-// soporte de discord.js 14.27). Un solo nivel de modal (abierto directo desde un botón,
-// nunca encadenado desde OTRO modal) — el mismo caso ya probado en rolreacciones.js, sin
-// el riesgo extra que sí tiene su fallback de "escribir manualmente" anidado.
-//
-// Se inserta SIEMPRE al final de la DESCRIPCIÓN (no pide "¿en qué campo?" — un paso
-// menos, y la descripción es donde el ejemplo del Bloque 11 usa emojis por línea). Si
-// querés el emoji en el título/footer, copialo del resultado y pegalo con "✏️ Editar".
-registerButtonPrefix('setupwizard_welcome_emoji', async (i) => {
-  const session = requireWizardSession(i);
-  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
-
-  // .fetch(), nunca .cache a secas — el bot no tiene el intent GuildEmojisAndStickers,
-  // así que el cache de gateway puede estar desactualizado (mismo gotcha documentado
-  // para el selector de /rolreacciones).
-  const guildEmojis = [...(await i.guild.emojis.fetch().catch(() => i.guild.emojis.cache)).values()]
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, 25); // máximo real de un StringSelectMenu — sin "sin emoji"/"manual" acá, así que entran 25 (no 23)
-
-  if (guildEmojis.length === 0) {
-    return i.reply({
-      content: '❌ Este servidor todavía no tiene emojis propios — subí uno en Ajustes del servidor → Emoji, o escribilo a mano con "✏️ Editar".',
-      flags: MessageFlags.Ephemeral,
-    });
-  }
-
-  const select = new StringSelectMenuBuilder()
-    .setCustomId('welcome_emoji_pick')
-    .setMinValues(1)
-    .setMaxValues(1)
-    .addOptions(
-      guildEmojis.map((emoji) =>
-        new StringSelectMenuOptionBuilder().setLabel(emoji.name.slice(0, 100)).setValue(emoji.id).setEmoji({ id: emoji.id, name: emoji.name, animated: emoji.animated }),
-      ),
-    );
-  // LabelBuilder.setLabel tiene el MISMO límite real de 45 caracteres que
-  // TextInputBuilder.setLabel — reventó en producción con el texto largo original
-  // (66 chars), porque node --check/los tests con showModal mockeado nunca llaman
-  // .toJSON() de verdad, que es donde discord.js valida esto. rolreacciones.js ya
-  // truncaba sus labels de rol a 45 por el mismo motivo (`r.label.slice(0, 45)`) — acá
-  // el texto es estático, así que se acortó a mano en vez de truncar.
-  const label = new LabelBuilder().setLabel('Elegí un emoji (va a la descripción)').setStringSelectMenuComponent(select);
-
-  const modal = new ModalBuilder().setCustomId('modal_setupwizard_welcome_emoji').setTitle('Insertar emoji en la bienvenida');
-  modal.addLabelComponents(label);
-  await i.showModal(modal);
-});
-
-registerModalPrefix('modal_setupwizard_welcome_emoji', async (i) => {
-  const session = requireWizardSession(i);
-  if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
-
-  const [emojiId] = i.fields.getStringSelectValues('welcome_emoji_pick');
-  const emoji = i.guild.emojis.cache.get(emojiId);
-  if (!emoji) {
-    return i.reply({ content: '❌ Ese emoji ya no existe en el servidor — probá de nuevo.', flags: MessageFlags.Ephemeral });
-  }
-
-  const cfg = await getGuildConfig(i.guildId);
-  const draft = session.draft.welcomeDraft;
-  const currentDescription = (draft.welcome_description ?? cfg.welcome_description) || DEFAULT_WELCOME_DESCRIPTION;
-  draft.welcome_description = `${currentDescription} ${emoji.toString()}`.trim();
-  refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
-
-  await i.update(buildWelcomeEditorPanel(cfg, draft, contextFromInteraction(i)));
 });
 
 registerButtonPrefix('setupwizard_welcome_channel', async (i) => {
