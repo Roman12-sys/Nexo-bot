@@ -4,9 +4,6 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
   PermissionFlagsBits,
   MessageFlags,
 } from 'discord.js';
@@ -14,28 +11,6 @@ import { BRAND_COLOR, BRAND_NAME, GOLD_COLOR, EMERALD_COLOR, INDIGO_COLOR, MAGEN
 import { isStaff } from '../../utils/permissions.js';
 import { ESSENTIAL_BOT_PERMISSIONS } from '../../utils/botPermissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
-import { registerModalPrefix } from '../../components/modals.js';
-import { runClear } from '../moderacion/clear.js';
-import { startBuilder as startAnuncioBuilder } from '../anuncios/anuncio.js';
-
-function buildClearModal() {
-  const modal = new ModalBuilder().setCustomId('modal_helpstaff_clear').setTitle('Limpiar mensajes');
-  const cantidadInput = new TextInputBuilder()
-    .setCustomId('cantidad')
-    .setLabel('¿Cuántos mensajes eliminar? (1-100)')
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder('Ej: 20')
-    .setRequired(true);
-  modal.addComponents(new ActionRowBuilder().addComponents(cantidadInput));
-  return modal;
-}
-
-export function getHelpStaffButtonsRow() {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('helpstaff_clear').setLabel('🧹 Limpiar mensajes').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId('helpstaff_anuncio').setLabel('📢 Crear anuncio').setStyle(ButtonStyle.Primary),
-  );
-}
 
 // Auditoría UX/UI (2026-09-18), hallazgo Importante "/helpstaff no distingue acciones
 // Tier 2/peligrosas": el puente hacia /staff (el panel visual equivalente) solo existía
@@ -287,7 +262,7 @@ export async function execute(interaction) {
 
   await interaction.reply({
     embeds: [buildMainMenuEmbed()],
-    components: [buildMainMenuRow(), buildMainMenuRow2(), getHelpStaffButtonsRow()],
+    components: [buildMainMenuRow(), buildMainMenuRow2()],
     flags: MessageFlags.Ephemeral,
   });
 }
@@ -325,25 +300,5 @@ registerButtonPrefix('helpstaff_cat_bot', async (i) => {
   await i.update({ embeds: [buildBotEmbed()], components: [buildBackRow()] });
 });
 registerButtonPrefix('helpstaff_back', async (i) => {
-  await i.update({ embeds: [buildMainMenuEmbed()], components: [buildMainMenuRow(), buildMainMenuRow2(), getHelpStaffButtonsRow()] });
-});
-
-registerButtonPrefix('helpstaff_clear', async (i) => {
-  if (!(await isStaff(i))) return i.reply({ content: '❌ No tenés permisos para usar esta función.', flags: MessageFlags.Ephemeral });
-  await i.showModal(buildClearModal());
-});
-registerButtonPrefix('helpstaff_anuncio', async (i) => {
-  await startAnuncioBuilder(i);
-});
-
-registerModalPrefix('modal_helpstaff_clear', async (i) => {
-  const cantidadRaw = i.fields.getTextInputValue('cantidad');
-  const cantidad = parseInt(cantidadRaw, 10);
-
-  if (Number.isNaN(cantidad) || cantidad < 1 || cantidad > 100) {
-    await i.reply({ content: '❌ Ingresá un número entre 1 y 100.', flags: MessageFlags.Ephemeral });
-    return;
-  }
-
-  await runClear(i, cantidad);
+  await i.update({ embeds: [buildMainMenuEmbed()], components: [buildMainMenuRow(), buildMainMenuRow2()] });
 });
