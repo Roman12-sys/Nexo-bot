@@ -81,16 +81,21 @@ function makeChannelRegistry(ownerGuildRef) {
 // pero entre tests distintos NUNCA, o el estado de un test se filtra al siguiente).
 let guildCounter = 0;
 
-function makeGuild({ guildId, botPosition = 10, roleRegistry, channelRegistry, memberCount = 50, botPermissionsGranted = true } = {}) {
+function makeGuild({ guildId, botPosition = 10, roleRegistry, channelRegistry, memberCount = 50, botPermissionsGranted = true, emojis = new Map() } = {}) {
   const id = guildId || `guild-test-${++guildCounter}`;
   const guild = {
     id,
     memberCount,
     roles: roleRegistry || makeGuildRoleRegistry(),
     members: { me: { roles: { highest: { position: botPosition } }, permissions: { has: () => botPermissionsGranted } } },
+    emojis: { cache: emojis, fetch: vi.fn().mockResolvedValue(emojis) },
   };
   guild.channels = channelRegistry || makeChannelRegistry(guild);
   return guild;
+}
+
+function makeGuildEmoji(id, name, animated = false) {
+  return { id, name, animated, toString: () => `<${animated ? 'a' : ''}:${name}:${id}>` };
 }
 
 function makeInteraction({ guild, userId = 'admin-1' } = {}) {
@@ -417,5 +422,71 @@ describe('NEXO Setup — editor de bienvenida', () => {
     const saveClick = click(interaction, 'setupwizard_welcome_save');
     await routeButton(saveClick);
     expect(setGuildConfig).toHaveBeenCalledWith(interaction.guildId, { welcome_title: '🎊 Hola {usuario}', welcome_description: 'Texto custom', welcome_color: null, welcome_footer: null });
+  });
+
+  it('sin emojis propios en el servidor: avisa en vez de abrir un selector vacío', async () => {
+    const guild = makeGuild({ emojis: new Map() });
+    const interaction = makeInteraction({ guild });
+    await routeButton(click(interaction, 'setuphome_welcome'));
+
+    const emojiClick = click(interaction, 'setupwizard_welcome_emoji');
+    await routeButton(emojiClick);
+
+    expect(emojiClick.showModal).not.toHaveBeenCalled();
+    expect(emojiClick.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('no tiene emojis propios') }));
+  });
+
+  it('con emojis propios: el botón abre el selector con búsqueda nativa (Components V2)', async () => {
+    const emojis = new Map([['emoji-1', makeGuildEmoji('emoji-1', 'pizza')]]);
+    const guild = makeGuild({ emojis });
+    const interaction = makeInteraction({ guild });
+    await routeButton(click(interaction, 'setuphome_welcome'));
+
+    const emojiClick = click(interaction, 'setupwizard_welcome_emoji');
+    await routeButton(emojiClick);
+
+    expect(emojiClick.showModal).toHaveBeenCalledTimes(1);
+  });
+
+  it('elegir un emoji lo agrega al final de la descripción (default o custom) y refresca el preview', async () => {
+    const emojis = new Map([['emoji-1', makeGuildEmoji('emoji-1', 'pizza')]]);
+    const guild = makeGuild({ emojis });
+    const interaction = makeInteraction({ guild });
+    await routeButton(click(interaction, 'setuphome_welcome'));
+    await routeButton(click(interaction, 'setupwizard_welcome_emoji'));
+
+    const modalSubmit = click(interaction, 'modal_setupwizard_welcome_emoji', {
+      fields: { getTextInputValue: () => '', getStringSelectValues: () => ['emoji-1'] },
+    });
+    await routeModal(modalSubmit);
+
+    const [, preview] = modalSubmit.update.mock.calls[0][0].embeds;
+    expect(preview.data.description).toContain('<:pizza:emoji-1>');
+    expect(preview.data.description).toContain('Ya sos parte de nuestra comunidad'); // sigue el texto de ejemplo, solo se le agregó el emoji
+
+    // Guardar persiste la descripción CON el emoji ya insertado.
+    await routeButton(click(interaction, 'setupwizard_welcome_save'));
+    expect(setGuildConfig).toHaveBeenCalledWith(interaction.guildId, expect.objectContaining({ welcome_description: expect.stringContaining('<:pizza:emoji-1>') }));
+  });
+
+  it('elegir un emoji sobre texto YA personalizado lo agrega al final de ESE texto, no pisa el default', async () => {
+    const emojis = new Map([['emoji-1', makeGuildEmoji('emoji-1', 'pizza')]]);
+    const guild = makeGuild({ emojis });
+    const interaction = makeInteraction({ guild });
+    await routeButton(click(interaction, 'setuphome_welcome'));
+    await routeModal(
+      click(interaction, 'modal_setupwizard_welcometext', {
+        fields: { getTextInputValue: (id) => (id === 'descripcion' ? 'Mi texto propio' : '') },
+      }),
+    );
+
+    await routeButton(click(interaction, 'setupwizard_welcome_emoji'));
+    const modalSubmit = click(interaction, 'modal_setupwizard_welcome_emoji', {
+      fields: { getTextInputValue: () => '', getStringSelectValues: () => ['emoji-1'] },
+    });
+    await routeModal(modalSubmit);
+
+    const [, preview] = modalSubmit.update.mock.calls[0][0].embeds;
+    expect(preview.data.description).toBe('Mi texto propio <:pizza:emoji-1>');
   });
 });
