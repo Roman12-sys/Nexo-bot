@@ -205,34 +205,30 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
   .activity-list li { font-size: 0.85rem; color: var(--text); }
   .activity-list .muted { display: block; font-size: 0.78rem; }
 
-  /* Pantalla de carga (2026-09-19) — /guild/:id dispara ~22 fuentes de datos con
-     concurrencia 6 (loadGuildDashboardData) y puede tardar varios segundos; sin esto, el
-     click sobre una tarjeta de "Tus servidores" se sentía como que no pasó nada hasta que
-     el navegador terminaba de cargar la página siguiente. No hay forma de acortar ese
-     tiempo de carga real desde acá (es trabajo de red/Supabase, no de presentación) —
-     esto solo da feedback inmediato (0ms) en vez de una pantalla en blanco durante la
-     espera real. Overlay simple a pantalla completa, sin animación de framework, mismo
-     criterio "sin dependencias nuevas" del resto de este archivo. */
-  .page-loading-overlay {
-    position: fixed; inset: 0; z-index: 9999;
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.85rem;
-    background: var(--bg); color: var(--text-muted);
+  /* Barra de carga arriba (2026-09-19, reemplaza el overlay a pantalla completa de la
+     primera versión — pedido explícito: algo como la barrita nativa de carga del
+     navegador, estilo YouTube/GitHub, no un bloqueo de pantalla completa). /guild/:id
+     dispara ~22 fuentes de datos con concurrencia 6 (loadGuildDashboardData) y puede
+     tardar varios segundos — sin esto, el click sobre una tarjeta de "Tus servidores" se
+     sentía como que no pasó nada hasta que el navegador terminaba de cargar la página
+     siguiente. No hay forma de acortar ese tiempo real desde acá (es trabajo de red/
+     Supabase, no de presentación); esto da feedback inmediato (0ms) en vez de dejar la
+     página vieja quieta durante la espera. El avance (20% al toque, después una curva
+     que se acerca a 90% sin llegar nunca) es el mismo truco que usa NProgress — nunca se
+     completa al 100% desde acá porque no hay forma real de saber cuánto falta; el 100%
+     real lo pone el propio navegador al reemplazar la página entera por la siguiente. */
+  .page-loading-bar {
+    position: fixed; top: 0; left: 0; height: 3px; width: 0%; z-index: 9999;
+    background: linear-gradient(90deg, var(--brand), var(--brand-soft));
+    box-shadow: 0 0 8px 0 var(--brand);
+    opacity: 0;
+    transition: width 0.25s ease, opacity 0.2s ease;
   }
-  .page-loading-overlay[hidden] { display: none; }
-  .page-loading-spinner {
-    width: 34px; height: 34px; border-radius: 50%;
-    border: 3px solid var(--border); border-top-color: var(--brand);
-    animation: page-loading-spin 0.7s linear infinite;
-  }
-  @keyframes page-loading-spin { to { transform: rotate(360deg); } }
-  .page-loading-overlay span { font-size: 0.85rem; }
+  .page-loading-bar.is-active { opacity: 1; }
 </style>
 </head>
 <body>
-<div class="page-loading-overlay" id="page-loading-overlay" hidden aria-live="polite">
-  <div class="page-loading-spinner" aria-hidden="true"></div>
-  <span>Cargando…</span>
-</div>
+<div class="page-loading-bar" id="page-loading-bar" role="progressbar" aria-hidden="true"></div>
 <header>
   <a class="brand" href="/">
     <span class="brand-name">NEXO</span>
@@ -247,8 +243,37 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
 ${buildFooter(wide)}
 <script>
 (function () {
-  var overlay = document.getElementById('page-loading-overlay');
-  if (!overlay) return;
+  var bar = document.getElementById('page-loading-bar');
+  if (!bar) return;
+  var tickTimer = null;
+  var safetyTimer = null;
+  var width = 0;
+
+  function reset() {
+    clearInterval(tickTimer);
+    clearTimeout(safetyTimer);
+    bar.classList.remove('is-active');
+    bar.style.width = '0%';
+  }
+
+  function start() {
+    reset();
+    width = 20; // salto inicial visible al toque, no arranca de 0 imperceptible
+    bar.style.width = width + '%';
+    bar.classList.add('is-active');
+    // Se acerca a 90% sin llegar nunca — mismo truco que NProgress. No hay forma de
+    // saber desde acá cuánto falta de verdad (loadGuildDashboardData no reporta
+    // progreso parcial); el 100% real lo pone el propio navegador al reemplazar esta
+    // página entera por la siguiente, nunca este script.
+    tickTimer = setInterval(function () {
+      width += (90 - width) * 0.1;
+      bar.style.width = width + '%';
+    }, 200);
+    // Red de seguridad: si la navegación nunca llega a completarse (el usuario cancela
+    // la carga, un bfcache raro), la barra no debe quedar a mitad de camino para siempre.
+    safetyTimer = setTimeout(reset, 15000);
+  }
+
   // Solo links de navegación REAL dentro del propio dashboard — nunca los target="_blank"
   // (invitar, abrir servidor en Discord, soporte, legal) ni anclas de la misma página
   // (#config, #economia, etc. — no navegan a ningún lado, no hay nada que esperar).
@@ -258,14 +283,12 @@ ${buildFooter(wide)}
     if (!a || a.target === '_blank' || a.hasAttribute('download')) return;
     var href = a.getAttribute('href') || '';
     if (!href.startsWith('/')) return; // externo, o ancla "#..."
-    overlay.hidden = false;
-    // Red de seguridad: si la navegación nunca llega a completarse (bfcache raro, el
-    // usuario cancela la carga), el overlay no debe quedar bloqueando la UI para siempre.
-    setTimeout(function () { overlay.hidden = true; }, 15000);
+    start();
   });
-  // pageshow cubre tanto una carga fresca como una restauración de bfcache (volver con
-  // el botón "Atrás") — en cualquiera de los dos casos, la página ya está lista.
-  window.addEventListener('pageshow', function () { overlay.hidden = true; });
+  // pageshow cubre tanto una carga fresca (la barra ya nace en 0% en el HTML servido)
+  // como una restauración de bfcache (volver con el botón "Atrás") — en los dos casos
+  // hay que resetear por si había quedado a mitad de camino.
+  window.addEventListener('pageshow', reset);
 })();
 </script>
 </body>
