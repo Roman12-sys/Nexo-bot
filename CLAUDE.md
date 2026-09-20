@@ -28,6 +28,9 @@ Dos comandos llenan `guild_config`:
   de bienvenida, canal de confesiones, rol automático ("Miembro") y rol de castigo
   ("Sancionado"). `resolveRole`/`resolveChannel` son los genéricos que resuelven
   cualquiera de estos (reusar por ID → por nombre → crear), no solo el rol de staff.
+  **Esto describe el flujo rápido por plantillas, que sigue intacto.** Desde 2026-09-19
+  `/setup` abre primero un panel principal con estado derivado (🟢/🟡/🔴) y secciones
+  separadas — ver "NEXO Setup Inteligente" más abajo.
 - **`/config`** (`src/commands/admin/config.js`) — para cuando el admin quiere apuntar
   a un canal/rol que YA existe en el server en vez de crear uno nuevo (ej. usar un rol
   de castigo que ya tenía armado de antes). No quedó redundante con la ampliación de
@@ -299,7 +302,11 @@ Decisiones puntuales:
   sabe (roles del usuario en cada guild donde está el bot, comparados contra
   `admin_role_id`/`moderator_role_id` de `guild_config`) — mismo criterio que `isStaff()`
   de `src/utils/permissions.js`, reimplementado en `dashboard/permissions.js` porque acá
-  no hay un `GuildMember` de discord.js, solo el JSON crudo de la REST API.
+  no hay un `GuildMember` de discord.js, solo el JSON crudo de la REST API. Para un
+  guild SIN `guild_config` todavía (bot recién invitado, nadie corrió `/setup`) no hay
+  roles contra los cuales comparar: solo el dueño real (`guild.owner_id`) lo ve, marcado
+  como pendiente — ver "Dashboard — servidores sin /setup, barra de carga, skeleton y
+  Manrope" más abajo.
 - **Sesión propia con cookie firmada** (`dashboard/session.js`, HMAC-SHA256) en vez de
   `express-session`/`jsonwebtoken` — no hace falta un store de sesiones ni el resto de
   features de esas libs para guardar un solo dato (el user ID).
@@ -402,7 +409,10 @@ los embeds del bot y el dashboard desde siempre — nunca un segundo color de ma
 inventado). Las 2 fuentes Manrope de `src/assets/fonts/` (agregadas en su momento para
 `@napi-rs/canvas`) se reusan tal cual vía `express.static` en `/fonts/*` — sin duplicar
 archivos, solo para encabezados (`h1`-`h3`); el resto del texto usa la misma pila de
-fuentes de sistema que ya usa `dashboard/html.js`, cero requests a Google Fonts.
+fuentes de sistema que ya usa `dashboard/html.js`, cero requests a Google Fonts. Desde
+2026-09-19 el dashboard sirve estas mismas 2 fuentes desde su propio `/fonts/*` y las
+usa igual (solo headings) — ver "Dashboard — servidores sin /setup, barra de carga,
+skeleton y Manrope".
 
 **Build en 2 sesiones el mismo día:** Fase 4 (landing completa) y Fase 5 (`/commands` +
 `/docs` + `/faq` + `/status` + `/changelog`) se acordaron por separado vía
@@ -486,6 +496,16 @@ cambios ahí.
 - `node src/deploy-commands.js` (sin `dev`) registra los comandos **globalmente** —
   correrlo solo cuando se confirma explícitamente, porque afecta a cualquier server que
   tenga el bot invitado (no solo el de test) y tarda hasta 1h en propagar.
+- **Cambios visuales en `dashboard/`/`website/`:** no levantar el server real (pide login
+  de Discord + sesión + Supabase real). Importar `layout()`/las funciones `render*` por
+  `file:///` desde un script de una sola vez y embeber el HTML resultante en un
+  `<iframe srcdoc>` dentro de un Artifact "harness" con toggles de página/ancho — ver la
+  memoria `nexo_bot_dashboard_visual_preview_technique` (incluye cómo mostrar las fuentes
+  reales y cómo disparar la barra de carga desde el preview).
+- **Respuestas libres de `AskUserQuestion`:** si el usuario escribe su propia respuesta en
+  vez de elegir una opción, leerla literal y confirmar el alcance contra ella antes de
+  implementar ("los iconos solo en dashboard y en website" era dashboard + website, no
+  solo dashboard como decía la primera opción).
 
 ## Anunciador de patch notes de League of Legends
 
@@ -826,6 +846,17 @@ en `missionsStore` y `punishEngine` es el caso de mayor riesgo real porque ambos
 estado en memoria keyeado por string (`${guildId}:${userId}`), no solo una query
 filtrada. `guildDelete.test.js` dejó de mantener una lista manual de tablas: compara
 contra `GUILD_SCOPED_TABLES`, la constante real exportada por el propio módulo.
+
+Estado al 2026-09-19: **125 archivos / 1253 tests**. **Flaky conocido, no relacionado con
+lo que se esté tocando:** `tests/moderation.test.js` — los tests de confirmación de `/kick`
+y `/ban` a veces vencen el timeout de 5000ms al correr la suite COMPLETA (pasó en 3 de 4
+corridas completas de la sesión del 2026-09-19, todas con cambios que no tocaban moderación),
+y pasan 25/25 en aislamiento (`npx vitest run tests/moderation.test.js`, ~2s). Antes
+de investigar un fallo ahí, re-correr ese archivo solo; la causa raíz no se investigó (parece
+carga de la suite, no un bug del comando). Cuando se agrega un export nuevo a un módulo que
+un test mockea entero con `vi.mock(...)` (ej. `dashboard/discordApi.js` en
+`dashboardQueries.test.js`), hay que sumarlo al mock: sin él el import a nivel de módulo
+devuelve `undefined` y rompe todos los tests del archivo, no solo los del cambio.
 
 ## Sistema de música (`src/utils/music*.js`, `src/commands/musica/`)
 
@@ -2681,7 +2712,9 @@ pantalla de selección de servidor del dashboard (`GET /`, `renderGuildList` en
 `dashboard/views.js`), con una lista explícita de qué NO tocar (lógica de auth/selección
 de servidor, otras pantallas, estadísticas/features nuevas). 3 archivos tocados
 (`dashboard/html.js`/`views.js`/`server.js`), todo presentación — `listManagedGuilds`
-(el único dato real por servidor sigue siendo `id`/`name`/`icon`) no se tocó.
+(el único dato real por servidor era `id`/`name`/`icon`) no se tocó EN ESTE REDISEÑO;
+más tarde ese mismo día sí cambió (devuelve además `needsSetup`), ver "Dashboard —
+servidores sin /setup, barra de carga, skeleton y Manrope" más abajo.
 
 **`wide` como flag explícito de `layout()`, no un ancho global nuevo.** El contenedor
 angosto (880px) es compartido por TODAS las páginas del dashboard vía `layout()`;
@@ -2721,6 +2754,91 @@ ambigua después de aprobar el preview; se le preguntó explícitamente si eso s
 la pregunta quedó sin responder en el chat porque su propio tooling externo ya lo había
 resuelto por su cuenta (commit + push reales) mientras tanto, confirmado por
 `git rev-list --left-right --count origin/main...HEAD` devolviendo `0 0`.
+
+## Dashboard — servidores sin /setup, barra de carga, skeleton y Manrope (2026-09-19)
+
+Cuatro cambios del mismo día, todos en `dashboard/` (más un experimento de íconos que se
+revirtió casi entero — ver abajo). Nada commiteado por esta sesión.
+
+**Servidores sin `/setup` aparecen como "Pendiente de configurar".** Origen: un usuario
+real invitó el bot, el bot entró a su Discord pero el server no aparecía en el dashboard.
+Diagnosticado leyendo el código, sin logs (no hay Railway CLI acá): `guildCreate.js` nunca
+inserta en `guild_config`, y `listManagedGuilds` recorría SOLO las filas de `guild_config`
+— un guild sin `/setup` era invisible hasta para su dueño. Primero se acordó (vía
+`AskUserQuestion`) dejarlo así por ser el flujo de producto; el usuario revirtió esa
+decisión enseguida y pidió mostrarlo como inactivo. Implementación:
+- `fetchBotGuilds()` (`dashboard/discordApi.js`, `GET /users/@me/guilds`, paginado por
+  `after`, 200 por página) es la única fuente de "en qué guilds está el bot" que no depende
+  de ninguna tabla. Se descartó `bot_guild_events`: es un log best-effort de altas/bajas
+  para métricas (sin ningún helper de "membresía actual", y solo existe desde 2026-09-12).
+- `listManagedGuilds` une los IDs de `guild_config` con los del bot. Un guild sin fila se
+  devuelve con `needsSetup: true` **solo si el usuario es el dueño real** (`guild.owner_id`):
+  sin `guild_config` no hay `admin_role_id`/`moderator_role_id` contra los cuales chequear
+  staff, y calcular el permiso efectivo (ManageGuild vía roles+overwrites) sin gateway es
+  el trabajo que el proyecto ya decidió no hacer (mismo motivo que en `/estado`). Un admin
+  nativo de Discord que no es el dueño NO lo ve hasta que alguien corra `/setup`.
+- Si `fetchBotGuilds()` falla (`.catch(() => null)`) la lista cae al comportamiento previo
+  (solo los de `guild_config`) — nunca rompe la página.
+- `/guild/:id` no necesitó cambios: `checkGuildAccess` ya dejaba pasar al dueño sin fila, y
+  `computeConfigIssues` ya mostraba "Todavía no se corrió /setup" sin roles configurados.
+  La tarjeta pendiente linkea ahí a propósito (borde punteado + badge `.badge-warning` +
+  CTA "Cómo activarlo →").
+- **Gotcha de test:** `dashboardQueries.test.js` mockea `dashboard/discordApi.js` entero;
+  `queries.js` importa `fetchBotGuilds` a nivel de módulo, así que sin ese export en el mock
+  (default `mockResolvedValue([])`) revienta TODO el archivo, no solo los tests nuevos.
+
+**Barra de carga arriba + skeleton (`layout()` en `dashboard/html.js`).** El usuario pidió
+primero una "pantalla de carga" (citando la regla de <2s ideal / 5s límite), se hizo un
+overlay a pantalla completa con spinner; después pidió una barrita arriba "como carga la
+página" (estilo YouTube/GitHub) y se REEMPLAZÓ el overlay; después pidió skeleton y se sumó
+al mismo `start()`. Es el primer JS de cliente del dashboard: un `<script>` inline al final
+de `layout()`. Click en un `<a>` con `href` que empieza con `/` (nunca `target="_blank"`,
+anclas `#`, `download`, ni click con modificadores) → barra a 20% al instante, curva
+asintótica hacia 90% (`width += (90 - width) * 0.1` cada 200ms, mismo truco que NProgress)
+y `<main>` se reemplaza por un skeleton genérico (3 tarjetas de líneas de ancho variado con
+shimmer, sin réplica exacta de la página destino — nunca se sabe cuál es). El HTML real de
+`<main>` se guarda al iniciar y `reset()` lo restaura; `reset()` corre en `pageshow` (carga
+fresca o bfcache) y en un timeout de seguridad de 15s (usuario cancela la navegación), y solo
+toca el DOM si la barra estaba activa. La barra nunca llega a 100% desde JS: la navegación
+es completa (no SPA/pjax), el 100% real lo pone el navegador al reemplazar la página, y
+`loadGuildDashboardData` (~22 fuentes con concurrencia 6) no reporta progreso parcial. Solo
+dashboard: el website es casi estático, sin latencia real que tapar. `prefers-reduced-motion`
+apaga el shimmer.
+
+**Tipografía: Manrope en headings del dashboard.** Antes solo la pila de sistema. Ahora
+`h1`-`h4` y `.brand-name` usan Manrope (SemiBold/Bold), las MISMAS 2 `.ttf` de
+`src/assets/fonts/` que ya usa el sitio, servidas desde `dashboard/server.js`
+(`express.static` en `/fonts`, `maxAge: 30d`) — cuerpo y tablas siguen en fuente de sistema,
+mismo criterio que el sitio. Se reusó Manrope (en vez de buscar una tercera fuente) por
+consistencia de marca entre las dos superficies web y cero costo de assets/CDN. El usuario
+pidió "una tipografía diferente y mejor" sin nombrar cuál: es una decisión reversible; para
+cambiarla, tocar el `@font-face` y la regla `h1, h2, h3, h4` de `dashboard/html.js`.
+
+**Íconos SVG: probado y revertido — no reintentar sin pedido explícito.** Pedido: cambiar
+los emoji por "librerías de íconos como react-icons". `react-icons` son componentes de
+React y este proyecto no tiene React ni bundler, así que se usó `lucide-static` (el mismo
+set Lucide que `react-icons/lu` empaqueta), leyendo el SVG real en runtime
+(`src/utils/webIcons.js`, `icon(name)`). Alcance elegido por el usuario: dashboard + website,
+bot excluido (Discord no renderiza SVG en un embed); los emoji de categoría de
+`website/data/categories.js` (copia exacta de `/help`) se dejaron como emoji por su
+invariante de paridad con Discord. Se aplicó en ~25 lugares y se verificó; después el usuario
+pidió dejar SOLO el ⏳ del badge "Pendiente de configurar" de "Tus servidores" (ahora ícono
+`hourglass`) y volver todo lo demás a emoji. Estado final: `webIcons.js` exporta solo
+`icon()`; `lucide-static` sigue en `package.json` para ese único uso; la clase `.icon` queda
+en `dashboard/html.js`; `statusDot()`, `.status-dot` y todo lo del website se borraron (código
+muerto). `npm audit` sigue mostrando solo la CVE de `qs` ya cerrada sin acción (ver
+"Dependencias"), nada nuevo de `lucide-static`. Detalle de cómo interpretar un "revertí" y
+del espaciado ícono+texto en la memoria del proyecto.
+
+**Principios UX que el usuario pidió respetar (2026-09-19, "necesito que respetes esto").**
+Consistencia (un solo set/estilo, mismos colores en todas las superficies), jerarquía
+visual, Ley de Jakob (patrones que ya conoce: barra superior y skeleton como YouTube/
+LinkedIn), visibilidad del estado del sistema (la barra y el skeleton existen por esto),
+libertad y control (nada bloquea la página mientras carga; el timeout de 15s nunca deja algo
+trabado), prevención de errores, accesibilidad (íconos decorativos con `aria-hidden`, nunca
+un ícono solo reemplazando texto; `prefers-reduced-motion`; contraste medido, no a ojo),
+Ley de Fitts y UX writing simple, directo, sin tecnicismos. Vale para cualquier cambio
+visual futuro en `dashboard/`/`website/`, no solo estos.
 
 ## Limpieza posterior a las 7 fases de UX/UI (2026-09-19, no una fase nueva)
 
@@ -2776,6 +2894,104 @@ corrección de `/confession` es la única pieza de código/contenido tocada.** E
 paso depende 100% del usuario (contactar 3-5 personas conocidas) y no de más trabajo de
 este lado. No proponer otra ronda de análisis si esto vuelve a aparecer en una sesión
 futura sin que haya una razón concreta y nueva para hacerlo.
+
+## NEXO Setup Inteligente — `/setup` como panel de estado, no como formulario (2026-09-19/20)
+
+Pedido del usuario (24 "bloques"): `/setup` dejó de ser una pantalla de plantilla + toggles
+y pasó a analizar el servidor, mostrar qué está bien/mal y dejar arreglar cada sección por
+separado. **Commiteado y pusheado** (`1fd6d5e` … `4be0fb1`, `origin/main...HEAD` = 0/0 al
+cierre). `migration_2026_09_19_setup_inteligente.sql` (6 columnas nullable de
+`guild_config`) corrida y verificada por API el mismo día, con el código ya desplegado.
+1253 tests en verde al 2026-09-20.
+
+**Dos entradas al mismo comando, a propósito.** El flujo viejo (plantilla → toggles →
+confirmar, `setup_template_*`/`setup_toggle_*`) quedó intacto, alcanzable con "🚀
+Configuración rápida"; el panel principal (`buildHomePanel`) es lo nuevo. Sesiones
+separadas (`sessions` vs `wizardSessions`, ambas `Map` con TTL de 10 min por
+`guildId:userId`). **Sin tabla de progreso**: `getSetupStatus()` (`setupState.js`) recalcula
+🟢/🟡/🔴 en vivo contra `guild_config` + Discord cada vez que se abre `/setup` — reabrirlo
+semanas después nunca muestra un estado viejo. Casino es SIEMPRE 🟢 (no existe ninguna
+configuración por servidor que gatear; no inventar una). Economía es 🟡, nunca 🔴, con el
+catálogo de ejemplo (la tienda funciona igual).
+
+Lógica pura en `src/utils/` (`setupState.js`, `setupRoleTiers.js`, `setupDiagnostics.js`,
+`welcomeEmbed.js`, `memberCounterEngine.js`), toda la UI de Discord en `setup.js`.
+
+- **Roles**: matriz de 6 tiers (Administrador/Co-Founder/Coordinador/Moderador/Ayudante/
+  Staff), nombre y color editables (por hex, sin selector visual). Nunca incluyen el bit
+  nativo `Administrator`. **Permisos nativos de Discord ≠ tier de NEXO**: crear un rol de la
+  matriz no le da ningún comando; asignarlo a `admin_role_id`/`moderator_role_id` es un paso
+  aparte (sugerido por `tierHint`, editable). La creación usa `withLock`, re-lee la sesión
+  DENTRO del lock y vacía `selectedTiers` al terminar — así un doble click no crea los
+  roles dos veces. `setPositions` es best-effort.
+- **Diagnóstico**: tres fuentes con distinto nivel de certeza. (1) Canales que NEXO
+  gestiona: certeza, corregible con confirmación. (2) Permisos peligrosos otorgados de más
+  en el overwrite de CUALQUIER canal de cualquier tipo, y a nivel base en CUALQUIER rol
+  (`scanGuildChannels`/`scanGuildRoles`, reusan `getDangerousRolePermission`; exentos los
+  roles de staff/admin configurados y los `managed`): **solo informativo, nunca
+  corregible** — no hay forma de saber si fue intencional. (3) Heurístico por nombre para
+  canales ajenos, también informativo. `applyChannelCorrection` solo entiende los 2 tipos
+  de (1). Sin hallazgos, el panel dice contra QUÉ se comparó.
+- **Bienvenida**: embed en vez de la imagen de canvas (`welcomeEmbed.js`). Título/
+  descripción/color/footer en 4 columnas nullable, `null` = texto de ejemplo. El trailer
+  con el hint de `/help` se agrega SIEMPRE en el mensaje real (`buildWelcomeEmbed`) y NUNCA
+  en la vista previa del editor. `welcomeImage.js` quedó **sin ningún import real** (solo
+  comentarios) — código muerto, candidato a borrar.
+- **Contador**: canal de voz con Connect denegado, barrido cada 15 min
+  (`startMemberCounterLoop` en `ready.js`), **solo renombra si el conteo cambió** (Discord
+  limita los renames a ~2 cada 10 min por canal). "Desactivar" limpia la columna, no borra
+  el canal.
+
+**Selector de emoji DENTRO del modal de "✏️ Editar"** (pedido explícito: "que apareciera
+directamente en esta pantalla"). 4 `TextInput` clásicos + 1 `LabelBuilder`+
+`StringSelectMenu` como 5ta y última fila posible, con los emojis propios del servidor
+(`guild.emojis.fetch()`, nunca `.cache` — el bot no tiene ese intent). Se agrega al final
+de la descripción tipeada en ese mismo submit. Sin emojis propios el modal queda de 4
+filas (Discord exige ≥1 opción). La primera versión fue un botón "Insertar emoji" aparte —
+lectura equivocada del pedido, descartada.
+
+**Tres bugs de producción de la MISMA feature, tres clases distintas — ninguna la atrapa
+`node --check`:**
+1. `LabelBuilder.setLabel` ≤ **45** caracteres (igual que `TextInputBuilder.setLabel` y
+   `ModalBuilder.setTitle`): `CombinedPropertyError` al hacer `showModal`. Un `showModal`
+   mockeado con `.mockResolvedValue()` nunca ejecuta `.toJSON()`, que es donde discord.js
+   valida.
+2. Un select dentro de un modal es **`required` por defecto**, concepto SEPARADO de
+   `minValues` (`BaseSelectMenuBuilder.setRequired`, "Only for use in modals").
+   `minValues(0)` sin `.setRequired(false)` → `DiscordAPIError[50035]
+   COMPONENT_REQUIRED_ZERO_MIN_VALUES`, rechazado por el SERVIDOR de Discord. **Esta clase
+   no se puede atrapar localmente**: `.toJSON()` la acepta.
+3. Verificado leyendo el fuente ANTES de que rompiera: un modal sí puede mezclar
+   `ActionRowBuilder`+`TextInput` clásicos con `LabelBuilder`+select (el
+   `componentsValidator` de `@discordjs/builders` es una unión). El máximo de 5
+   componentes no lo valida el cliente, solo Discord.
+
+Regla: ante una API de Discord nueva para el proyecto, leer
+`node_modules/@discordjs/builders/dist/index.d.ts` y el `.js` antes de escribir, no
+adivinar; y asumir que la primera ejecución en vivo de cada flujo puede mostrar algo que
+ningún test agarra.
+
+**Harness de tests (`tests/setupWizard.test.js`)**: `showModal` llama `modal.toJSON()` de
+verdad (`validatingShowModal`) — atrapa la clase 1, no la 2. Cada test usa un `guildId`
+autoincremental: `wizardSessions` es un `Map` de módulo, así que dos tests con el mismo
+`guild-1`/`admin-1` se filtran estado entre sí. Los `cache` de mock de canales/roles tienen
+que ser `Map` reales con `.find` agregado (los scans iteran `.values()`), y los overwrites
+necesitan `.id` como propiedad, no solo como key del Map.
+
+**Pendiente / no verificado en vivo (2026-09-20):**
+- **Creación real de roles** (`roles.create({permissions:[...]})`, `setPositions`),
+  **Diagnóstico → Corregir**, **crear el contador** y el **scan ampliado**: solo probados
+  con mocks. Únicamente el editor de bienvenida se probó de verdad en Discord.
+- **`/rolreacciones crear` sigue mostrando en Discord las opciones viejas** (`rol1`-`rol5`,
+  `canal`, `titulo`, `descripcion`). El código ya no las tiene desde el 2026-09-15 (`crear`
+  no tiene ninguna opción): es un registro de comandos desactualizado, falta `node
+  src/deploy-commands.js dev` (o el global). No es un bug de código.
+- Decisión de producto abierta: el flujo rápido crea UN rol "Staff" y el wizard hasta 6 —
+  un admin puede correr los dos y terminar con roles redundantes; el panel principal no
+  dice cuál es el camino recomendado.
+- Corrección propia: se afirmó que `toLocaleString('es-ES')` "podía no agrupar miles por un
+  ICU limitado". Falso: `es-ES` no agrupa números de 4 dígitos (`1234`), sí los de 5
+  (`12.345`) — es comportamiento correcto de la locale, no un defecto del entorno.
 
 ## Stack
 

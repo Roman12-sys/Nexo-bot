@@ -1,5 +1,7 @@
 -- NEXO Setup Inteligente — bienvenida personalizable + contador de miembros.
--- PREPARADA, NO CORRIDA TODAVÍA (ver CLAUDE.md / informe de la sesión que la generó).
+-- CORRIDA Y VERIFICADA EN PRODUCCIÓN el 2026-09-19 (GET guild_config?select=welcome_title,...
+-- devuelve las 6 columnas en null contra gmcqbvrqqpmcqjrbtauk) — el código que las usa ya
+-- está desplegado. Se deja el archivo como historial, no hace falta volver a correrlo.
 --
 -- 100% aditiva, todas nullable sin default — un guild que nunca toca el editor de
 -- bienvenida ni activa el contador sigue funcionando exactamente igual que hoy (mismo

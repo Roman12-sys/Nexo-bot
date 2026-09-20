@@ -162,8 +162,8 @@ create table if not exists guild_config (
   -- "no personalizado" en conjunto). member_counter_channel_id null = feature apagada
   -- (mismo criterio que welcome_channel_id); member_counter_last_count solo existe para
   -- que el barrido periódico no gaste un rename de Discord si el número no cambió.
-  -- PREPARADAS EN ESTA MIGRACIÓN, NO CORRIDAS TODAVÍA — ver
-  -- migration_2026_09_19_setup_inteligente.sql.
+  -- Agregadas por migration_2026_09_19_setup_inteligente.sql (corrida y verificada en
+  -- producción el 2026-09-19).
   welcome_title text,
   welcome_description text,
   welcome_color text,
