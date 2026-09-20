@@ -107,8 +107,8 @@ describe('renderGuildDashboard — tarjeta de configuración actual (DASH-1)', (
     expect(html).toContain('111111111111111111');
     expect(html).toContain('222222222222222222');
     expect(html).toContain('333333333333333333');
-    expect(html).toContain('✅ Activo'); // moderación
-    expect(html).toContain('❌ Apagado'); // xp
+    expect(html).toContain('Activo'); // moderación
+    expect(html).toContain('Apagado'); // xp
     expect(html).toContain('Siempre activa'); // economía no tiene toggle real
   });
 
@@ -117,7 +117,7 @@ describe('renderGuildDashboard — tarjeta de configuración actual (DASH-1)', (
 
     // La tarjeta menciona economía como "siempre activa", nunca con el mismo
     // toggle ✅/❌ que moderación/XP (features.economia no existe en el código real).
-    expect(html).toContain('💰 Siempre activa');
+    expect(html).toContain('Siempre activa');
   });
 
   // Ciclo 1, Bloque 4A — antes la tarjeta no mostraba absolutamente nada de
@@ -146,7 +146,7 @@ describe('renderGuildDashboard — Resumen (Dashboard 2.0)', () => {
 
     const html = renderGuildDashboard(guild, data, new Map());
 
-    expect(html).toContain('📋 Resumen');
+    expect(html).toContain('Resumen');
     expect(html).toContain('1/2'); // sistemas activos (solo economía es 'ok')
     expect(html).toContain('Problema detectado'); // singular con 1 solo issue
   });
@@ -162,7 +162,7 @@ describe('renderGuildDashboard — Resumen (Dashboard 2.0)', () => {
 
   it('"Ayuda" solo aparece si config.supportContact está configurado (nunca un link inventado)', () => {
     const html = renderGuildDashboard(guild, baseData(), new Map());
-    expect(html).not.toContain('🆘 Ayuda');
+    expect(html).not.toContain('Ayuda');
   });
 
   it('muestra actividad reciente reusando recentWarns/activeGiveaways ya cargados (sin queries nuevas)', () => {
@@ -173,7 +173,7 @@ describe('renderGuildDashboard — Resumen (Dashboard 2.0)', () => {
 
     const html = renderGuildDashboard(guild, data, new Map());
 
-    expect(html).toContain('🕒 Actividad reciente');
+    expect(html).toContain('Actividad reciente');
     expect(html).toContain('Spam');
     expect(html).toContain('Nitro');
   });
@@ -201,8 +201,8 @@ describe('renderGuildDashboard — problemas de configuración (Dashboard 2.0)',
     const html = renderGuildDashboard(guild, data, new Map());
 
     expect(html).toContain('Problemas de configuración (2)');
-    expect(html).toContain('🔴 Urgente');
-    expect(html).toContain('🟡 Atención');
+    expect(html).toContain('Urgente');
+    expect(html).toContain('Atención');
     expect(html).toContain('Moderación');
     expect(html).toContain('El canal configurado ya no existe.');
   });
@@ -219,7 +219,7 @@ describe('renderGuildDashboard — estado de sistemas (Dashboard 2.0)', () => {
 
     const html = renderGuildDashboard(guild, data, new Map());
 
-    expect(html).toContain('🧩 Sistemas');
+    expect(html).toContain('Sistemas</h2>'); // el header real, no la stat "Sistemas activos" de Resumen
     expect(html).toContain('Salas de voz temporales');
     expect(html).toContain('Configuración pendiente');
     expect(html).toContain('badge-ok');

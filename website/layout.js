@@ -6,6 +6,7 @@
 import { websiteConfig } from './config.js';
 import { essentialPermissionsBitfield } from '../src/utils/botPermissions.js';
 import { BRAND_NAME } from '../src/utils/embeds.js';
+import { icon } from '../src/utils/webIcons.js';
 import {
   WEB_BG,
   WEB_BG_RAISED,
@@ -112,11 +113,17 @@ const GLOBAL_STYLES = `
   nav.nav-links a { text-decoration: none; color: var(--text-muted); font-size: 0.92rem; font-weight: 500; transition: color .15s ease; }
   nav.nav-links a:hover { color: var(--text); }
   .nav-actions { display: flex; align-items: center; gap: 0.75rem; }
+  /* Íconos SVG (2026-09-19, reemplazo de emoji de UI — src/utils/webIcons.js). Los
+     emoji de CATEGORÍA (features.js/categories.js/home.js) NO pasan por acá a propósito
+     — están documentados como copia exacta de lo que un usuario ve en /help dentro de
+     Discord, ver CLAUDE.md. Esto es solo para chrome de interfaz sin esa obligación. */
+  .icon { display: inline-block; vertical-align: -0.15em; margin-right: 0.2em; flex: none; }
   .nav-toggle {
     display: none; background: transparent; border: 1px solid var(--border); border-radius: 8px;
     color: var(--text); width: 38px; height: 38px; align-items: center; justify-content: center;
-    cursor: pointer; font-size: 1.1rem;
+    cursor: pointer;
   }
+  .nav-toggle .icon { margin-right: 0; } /* ícono solo, sin texto al lado — sin el margen por defecto */
 
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; text-decoration: none; font-weight: 600; border-radius: 10px; border: 1px solid transparent; cursor: pointer; font-size: 0.92rem; padding: 0.7rem 1.35rem; transition: transform .15s ease, background .15s ease, border-color .15s ease; }
   .btn:hover { transform: translateY(-1px); }
@@ -395,7 +402,7 @@ function renderNav() {
     <div class="nav-actions">
       ${loginHref ? `<a class="btn btn-ghost btn-sm" href="${escapeHtml(loginHref)}">Iniciar sesión</a>` : ''}
       <a class="btn btn-primary btn-sm" href="${escapeHtml(buildInviteUrl())}" target="_blank" rel="noopener">Añadir NEXO</a>
-      <button type="button" class="nav-toggle" aria-controls="primary-nav" aria-expanded="false" aria-label="Abrir menú">☰</button>
+      <button type="button" class="nav-toggle" aria-controls="primary-nav" aria-expanded="false" aria-label="Abrir menú">${icon('menu', { size: 20 })}</button>
     </div>
   </div>
 </header>`;

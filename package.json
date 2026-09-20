@@ -23,7 +23,8 @@
     "@supabase/supabase-js": "^2.116.0",
     "discord.js": "^14.16.0",
     "dotenv": "^16.4.5",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "lucide-static": "^1.47.0"
   },
   "devDependencies": {
     "vitest": "^4.1.11"

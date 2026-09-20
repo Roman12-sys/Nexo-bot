@@ -2,6 +2,7 @@
 // es de solo lectura y de bajo tráfico, no justifica esa dependencia extra.
 import { config } from '../src/config.js';
 import { essentialPermissionsBitfield } from '../src/utils/botPermissions.js';
+import { icon } from '../src/utils/webIcons.js';
 import {
   WEB_BG,
   WEB_BG_RAISED,
@@ -47,7 +48,7 @@ export function escapeHtml(value) {
 function buildFooter(wide = false) {
   const parts = [];
   if (config.supportContact) {
-    parts.push(`<p class="muted">🆘 ¿Problemas con el bot? ${escapeHtml(config.supportContact)}</p>`);
+    parts.push(`<p class="muted">${icon('life-buoy')} ¿Problemas con el bot? ${escapeHtml(config.supportContact)}</p>`);
   }
   if (config.websiteUrl) {
     parts.push(
@@ -176,6 +177,16 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
      y problemas de configuración. Mismos tokens de color de arriba, nada nuevo. Los
      fondos tintados de cada badge (#123524 etc.) quedan como estaban a propósito — la
      auditoría UX/UI solo flageó el color de TEXTO/estado, no estos tintes de fondo. */
+  /* Íconos SVG (2026-09-19, reemplazo de emoji — src/utils/webIcons.js) — siempre pegados
+     a una etiqueta de texto visible, nunca solos (accesibilidad: el texto ya dice lo que
+     hace falta, el ícono es puramente decorativo). currentColor hereda el color real del
+     contexto (ej. el verde/amarillo/rojo de cada .badge-* de abajo), consistencia real en
+     vez de un emoji con su propio color fijo sin relación con el resto de la paleta. */
+  /* 0.2em (no más) — cada template ya trae un espacio literal entre el ícono y la
+     palabra siguiente (mismo texto que antes tenía "🔧 Palabra"); sumarle un margen
+     grande de más quedaba con demasiado aire entre ícono y texto. */
+  .icon { display: inline-block; vertical-align: -0.15em; margin-right: 0.2em; flex: none; }
+  .status-dot { vertical-align: -0.05em; }
   .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
   .badge-ok { background: #123524; color: var(--status-ok); }
   .badge-warning { background: #3a2f12; color: var(--status-warn); }
@@ -193,9 +204,35 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
   .activity-list { list-style: none; margin: 0.75rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
   .activity-list li { font-size: 0.85rem; color: var(--text); }
   .activity-list .muted { display: block; font-size: 0.78rem; }
+
+  /* Pantalla de carga (2026-09-19) — /guild/:id dispara ~22 fuentes de datos con
+     concurrencia 6 (loadGuildDashboardData) y puede tardar varios segundos; sin esto, el
+     click sobre una tarjeta de "Tus servidores" se sentía como que no pasó nada hasta que
+     el navegador terminaba de cargar la página siguiente. No hay forma de acortar ese
+     tiempo de carga real desde acá (es trabajo de red/Supabase, no de presentación) —
+     esto solo da feedback inmediato (0ms) en vez de una pantalla en blanco durante la
+     espera real. Overlay simple a pantalla completa, sin animación de framework, mismo
+     criterio "sin dependencias nuevas" del resto de este archivo. */
+  .page-loading-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.85rem;
+    background: var(--bg); color: var(--text-muted);
+  }
+  .page-loading-overlay[hidden] { display: none; }
+  .page-loading-spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid var(--border); border-top-color: var(--brand);
+    animation: page-loading-spin 0.7s linear infinite;
+  }
+  @keyframes page-loading-spin { to { transform: rotate(360deg); } }
+  .page-loading-overlay span { font-size: 0.85rem; }
 </style>
 </head>
 <body>
+<div class="page-loading-overlay" id="page-loading-overlay" hidden aria-live="polite">
+  <div class="page-loading-spinner" aria-hidden="true"></div>
+  <span>Cargando…</span>
+</div>
 <header>
   <a class="brand" href="/">
     <span class="brand-name">NEXO</span>
@@ -208,6 +245,29 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
 </header>
 <main${wide ? ' class="wide"' : ''}>${body}</main>
 ${buildFooter(wide)}
+<script>
+(function () {
+  var overlay = document.getElementById('page-loading-overlay');
+  if (!overlay) return;
+  // Solo links de navegación REAL dentro del propio dashboard — nunca los target="_blank"
+  // (invitar, abrir servidor en Discord, soporte, legal) ni anclas de la misma página
+  // (#config, #economia, etc. — no navegan a ningún lado, no hay nada que esperar).
+  document.addEventListener('click', function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var a = e.target.closest('a');
+    if (!a || a.target === '_blank' || a.hasAttribute('download')) return;
+    var href = a.getAttribute('href') || '';
+    if (!href.startsWith('/')) return; // externo, o ancla "#..."
+    overlay.hidden = false;
+    // Red de seguridad: si la navegación nunca llega a completarse (bfcache raro, el
+    // usuario cancela la carga), el overlay no debe quedar bloqueando la UI para siempre.
+    setTimeout(function () { overlay.hidden = true; }, 15000);
+  });
+  // pageshow cubre tanto una carga fresca como una restauración de bfcache (volver con
+  // el botón "Atrás") — en cualquiera de los dos casos, la página ya está lista.
+  window.addEventListener('pageshow', function () { overlay.hidden = true; });
+})();
+</script>
 </body>
 </html>`;
 }

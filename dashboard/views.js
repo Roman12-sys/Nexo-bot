@@ -2,6 +2,7 @@ import { escapeHtml } from './html.js';
 import { GUILD_ACHIEVEMENTS } from '../src/utils/guildAchievements.js';
 import { config } from '../src/config.js';
 import { getEffectiveDailyRange, getEffectiveWorkRange, getEffectiveCrimeConfig, getEffectiveRobConfig, describeRange, describePercent } from '../src/utils/economyTuning.js';
+import { icon, statusDot } from '../src/utils/webIcons.js';
 
 export function renderLoginPage() {
   return `
@@ -42,7 +43,7 @@ export function renderGuildList(guilds) {
       const avatar = g.icon
         ? `<img class="guild-avatar" src="https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64" alt="">`
         : `<div class="guild-avatar-placeholder">${initial}</div>`;
-      const pendingBadge = g.needsSetup ? '<div class="guild-status-pending"><span class="badge badge-warning">⏳ Pendiente de configurar</span></div>' : '';
+      const pendingBadge = g.needsSetup ? `<div class="guild-status-pending"><span class="badge badge-warning">${icon('hourglass')} Pendiente de configurar</span></div>` : '';
       return `
       <a class="guild-card${g.needsSetup ? ' guild-card-pending' : ''}" href="/guild/${g.id}">
         ${avatar}
@@ -73,14 +74,14 @@ function userLabel(usersById, userId) {
 // ---------------------------------------------------------------------------
 
 const STATUS_BADGE = {
-  ok: '<span class="badge badge-ok">🟢</span>',
-  warning: '<span class="badge badge-warning">🟡</span>',
-  off: '<span class="badge badge-off">⚪</span>',
+  ok: `<span class="badge badge-ok">${statusDot()}</span>`,
+  warning: `<span class="badge badge-warning">${statusDot()}</span>`,
+  off: `<span class="badge badge-off">${statusDot()}</span>`,
 };
 
 const SEVERITY_BADGE = {
-  danger: '<span class="badge badge-danger">🔴 Urgente</span>',
-  warning: '<span class="badge badge-warning">🟡 Atención</span>',
+  danger: `<span class="badge badge-danger">${statusDot()} Urgente</span>`,
+  warning: `<span class="badge badge-warning">${statusDot()} Atención</span>`,
 };
 
 // Accesos rápidos: anclas a secciones que YA existen más abajo en esta misma página
@@ -91,19 +92,19 @@ const SEVERITY_BADGE = {
 // "Ayuda" solo aparece si config.supportContact está seteado (nunca un link inventado).
 function buildQuickActions(guild) {
   const links = [
-    ['#config', '⚙️ Configuración'],
-    ['#moderacion', '🛡️ Moderación'],
-    ['#economia', '💰 Economía'],
-    ['#xp', '⭐ XP'],
-    ['#giveaways', '🎉 Giveaways'],
-    ['#tempvoice', '🔊 Temp Voice'],
+    ['#config', `${icon('settings')} Configuración`],
+    ['#moderacion', `${icon('shield')} Moderación`],
+    ['#economia', `${icon('coins')} Economía`],
+    ['#xp', `${icon('star')} XP`],
+    ['#giveaways', `${icon('party-popper')} Giveaways`],
+    ['#tempvoice', `${icon('volume-2')} Temp Voice`],
   ]
     .map(([href, label]) => `<a href="${href}">${label}</a>`)
     .join('');
 
   const externalLinks = [
-    `<a href="https://discord.com/channels/${escapeHtml(guild.id)}" target="_blank" rel="noopener">🎮 Abrir servidor</a>`,
-    config.supportContact ? `<a href="${escapeHtml(config.supportContact)}" target="_blank" rel="noopener">🆘 Ayuda</a>` : '',
+    `<a href="https://discord.com/channels/${escapeHtml(guild.id)}" target="_blank" rel="noopener">${icon('gamepad-2')} Abrir servidor</a>`,
+    config.supportContact ? `<a href="${escapeHtml(config.supportContact)}" target="_blank" rel="noopener">${icon('life-buoy')} Ayuda</a>` : '',
   ].join('');
 
   return `<div class="quick-actions">${links}${externalLinks}</div>`;
@@ -118,9 +119,9 @@ function buildRecentActivity(data, usersById) {
       .slice(0, 3)
       .map(
         (w) =>
-          `<li>⚠️ Advertencia a ${userLabel(usersById, w.user_id)} — ${escapeHtml(w.reason || 'sin motivo')} <span class="muted">${new Date(w.created_at).toLocaleDateString('es-ES')}</span></li>`,
+          `<li>${icon('triangle-alert')} Advertencia a ${userLabel(usersById, w.user_id)} — ${escapeHtml(w.reason || 'sin motivo')} <span class="muted">${new Date(w.created_at).toLocaleDateString('es-ES')}</span></li>`,
       ),
-    ...data.activeGiveaways.slice(0, 2).map((g) => `<li>🎉 Sorteo activo: <strong>${escapeHtml(g.prize)}</strong></li>`),
+    ...data.activeGiveaways.slice(0, 2).map((g) => `<li>${icon('party-popper')} Sorteo activo: <strong>${escapeHtml(g.prize)}</strong></li>`),
   ];
 
   if (items.length === 0) return '<p class="muted" style="margin:0.75rem 0 0;">Sin actividad reciente registrada.</p>';
@@ -134,14 +135,14 @@ function buildResumenCard(guild, data, usersById) {
 
   return `
     <div class="card">
-      <h2>📋 Resumen</h2>
+      <h2>${icon('clipboard-list')} Resumen</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${guild.approximate_member_count ?? '—'}</div><div class="label">Miembros</div></div>
         <div class="stat"><div class="value">${activeSystems}/${systemsStatus.length}</div><div class="label">Sistemas activos</div></div>
         <div class="stat"><div class="value">${configIssues.length}</div><div class="label">${configIssues.length === 1 ? 'Problema detectado' : 'Problemas detectados'}</div></div>
       </div>
       ${buildQuickActions(guild)}
-      <h3 style="margin:1.25rem 0 0.25rem;font-size:0.95rem;">🕒 Actividad reciente</h3>
+      <h3 style="margin:1.25rem 0 0.25rem;font-size:0.95rem;">${icon('clock')} Actividad reciente</h3>
       ${buildRecentActivity(data, usersById)}
     </div>`;
 }
@@ -167,7 +168,7 @@ function buildIssuesCard(configIssues) {
 
   return `
     <div class="card">
-      <h2>⚠️ Problemas de configuración (${configIssues.length})</h2>
+      <h2>${icon('triangle-alert')} Problemas de configuración (${configIssues.length})</h2>
       ${items}
     </div>`;
 }
@@ -185,7 +186,7 @@ function buildSystemsCard(systemsStatus) {
 
   return `
     <div class="card">
-      <h2>🧩 Sistemas</h2>
+      <h2>${icon('puzzle')} Sistemas</h2>
       <div class="systems-grid">${items}</div>
     </div>`;
 }
@@ -264,7 +265,7 @@ export function renderGuildDashboard(guild, data, usersById) {
   // semanas de historial real, messagesDelta es null y no se muestra nada — no se inventa
   // una comparación contra datos que no existen.
   const messagesDeltaLine = data.messagesDelta
-    ? `<p class="muted">📨 Mensajes esta semana: <strong>${data.messagesDelta.current.toLocaleString('es-ES')}</strong> (${data.messagesDelta.deltaPct >= 0 ? '+' : ''}${data.messagesDelta.deltaPct}% vs. semana anterior)</p>`
+    ? `<p class="muted">${icon('message-square')} Mensajes esta semana: <strong>${data.messagesDelta.current.toLocaleString('es-ES')}</strong> (${data.messagesDelta.deltaPct >= 0 ? '+' : ''}${data.messagesDelta.deltaPct}% vs. semana anterior)</p>`
     : '';
 
   // DASH-1, Fase 4B: antes "solo lectura" aparecía UNA vez, en letra chica, solo en el
@@ -273,12 +274,12 @@ export function renderGuildDashboard(guild, data, usersById) {
   // cosas) en vez de un simple "esto es de solo lectura".
   const readOnlyBanner = `
     <div class="card">
-      <p class="muted" style="margin:0;">👁️ Este panel es <strong>solo lectura</strong>. Para cambiar cualquier cosa (roles, canales, módulos) usá <code>/setup</code> o <code>/config</code> directamente en Discord.</p>
+      <p class="muted" style="margin:0;">${icon('eye')} Este panel es <strong>solo lectura</strong>. Para cambiar cualquier cosa (roles, canales, módulos) usá <code>/setup</code> o <code>/config</code> directamente en Discord.</p>
     </div>`;
 
   const role = (id) => (id ? `<code>&lt;@&amp;${escapeHtml(id)}&gt;</code>` : '<span class="muted">— sin configurar</span>');
   const channel = (id) => (id ? `<code>#${escapeHtml(id)}</code>` : '<span class="muted">— sin configurar</span>');
-  const toggle = (on) => (on ? '✅ Activo' : '❌ Apagado');
+  const toggle = (on) => (on ? `${icon('check-circle')} Activo` : `${icon('x-circle')} Apagado`);
   const cfg = data.guildConfig || {};
   const features = cfg.features || {};
   // Tuning de economía por servidor (auditoría NEXO V, 2026-09-18) — mismas funciones
@@ -295,7 +296,7 @@ export function renderGuildDashboard(guild, data, usersById) {
   // inventar un estado on/off que el código no tiene.
   const configCard = `
     <div class="card" id="config">
-      <h2>⚙️ Configuración actual</h2>
+      <h2>${icon('settings')} Configuración actual</h2>
       <p class="muted" style="margin-top:-0.5rem;">Datos reales de este servidor — para cambiar algo de acá, usá <code>/setup</code> o <code>/config</code>.</p>
       <div class="stat-row" style="margin-top:0.75rem;">
         <div><div class="label">Rol de administrador</div>${role(cfg.admin_role_id)}</div>
@@ -309,7 +310,7 @@ export function renderGuildDashboard(guild, data, usersById) {
       <div class="stat-row" style="margin-top:0.75rem;">
         <div><div class="label">Moderación</div>${toggle(features.moderacion)}</div>
         <div><div class="label">XP</div>${toggle(features.xp)}</div>
-        <div><div class="label">Economía</div>💰 Siempre activa</div>
+        <div><div class="label">Economía</div>${icon('coins')} Siempre activa</div>
       </div>
       <div class="stat-row" style="margin-top:0.75rem;">
         <div><div class="label">Canal de bienvenida</div>${channel(cfg.welcome_channel_id)}</div>
@@ -335,7 +336,7 @@ export function renderGuildDashboard(guild, data, usersById) {
 
   const lolCard = data.lolChannelId
     ? `<div class="card">
-        <h2>🎮 League of Legends</h2>
+        <h2>${icon('gamepad-2')} League of Legends</h2>
         <p>Avisos de patch notes activos en <code>#${escapeHtml(data.lolChannelId)}</code>.</p>
         ${
           data.lolLastUrl
@@ -355,7 +356,7 @@ export function renderGuildDashboard(guild, data, usersById) {
     ${configCard}
 
     <div class="card">
-      <h2>📊 Actividad</h2>
+      <h2>${icon('bar-chart-3')} Actividad</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${guild.approximate_member_count ?? '—'}</div><div class="label">Miembros</div></div>
         <div class="stat"><div class="value">${data.totalCommands}</div><div class="label">Comandos ejecutados</div></div>
@@ -365,7 +366,7 @@ export function renderGuildDashboard(guild, data, usersById) {
     </div>
 
     <div class="card" id="economia">
-      <h2>💰 Economía</h2>
+      <h2>${icon('coins')} Economía</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.totalCoins.toLocaleString('es-ES')}</div><div class="label">Monedas en circulación</div></div>
       </div>
@@ -373,19 +374,19 @@ export function renderGuildDashboard(guild, data, usersById) {
     </div>
 
     <div class="card" id="moderacion">
-      <h2>🛡️ Moderación</h2>
+      <h2>${icon('shield')} Moderación</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.totalWarns}</div><div class="label">Advertencias totales</div></div>
       </div>
       <table><thead><tr><th>Usuario</th><th>Motivo</th><th>Staff</th><th>Fecha</th></tr></thead><tbody>${warnsRows}</tbody></table>
-      <h3 style="margin:1rem 0 0.5rem;">🚫 Sancionados activos (${data.punishedTotal})</h3>
+      <h3 style="margin:1rem 0 0.5rem;">${icon('ban')} Sancionados activos (${data.punishedTotal})</h3>
       ${data.punishedPossiblyIncomplete ? '<p class="muted">El servidor tiene muchos miembros — esta lista puede no incluirlos a todos.</p>' : ''}
       <table><thead><tr><th>Usuario</th></tr></thead><tbody>${punishedRows}</tbody></table>
       ${punishedOverflow}
     </div>
 
     <div class="card" id="giveaways">
-      <h2>🎉 Sorteos y juegos</h2>
+      <h2>${icon('party-popper')} Sorteos y juegos</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.activeGiveaways.length}</div><div class="label">Sorteos activos</div></div>
       </div>
@@ -395,14 +396,14 @@ export function renderGuildDashboard(guild, data, usersById) {
            pasa a ocupar todo el ancho en vez de compartirlo con una columna vacía. -->
       <div class="stat-row" style="margin-top:1rem;">
         <div style="flex:1;">
-          <h3 style="margin:0 0 0.5rem;">🧠 Top trivia</h3>
+          <h3 style="margin:0 0 0.5rem;">${icon('brain')} Top trivia</h3>
           <table><thead><tr><th>Usuario</th><th>Puntos</th></tr></thead><tbody>${triviaRows}</tbody></table>
         </div>
       </div>
     </div>
 
     <div class="card" id="xp">
-      <h2>⭐ XP y niveles</h2>
+      <h2>${icon('star')} XP y niveles</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.xpUserCount}</div><div class="label">Usuarios con XP</div></div>
       </div>
@@ -410,7 +411,7 @@ export function renderGuildDashboard(guild, data, usersById) {
     </div>
 
     <div class="card" id="tempvoice">
-      <h2>🔊 Salas de voz temporales</h2>
+      <h2>${icon('volume-2')} Salas de voz temporales</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.voiceStats.totalSessions}</div><div class="label">Salas creadas (histórico, últimas 500)</div></div>
         <div class="stat"><div class="value">${Math.round(data.voiceStats.totalDurationSeconds / 3600)}</div><div class="label">Horas totales</div></div>
@@ -420,7 +421,7 @@ export function renderGuildDashboard(guild, data, usersById) {
     </div>
 
     <div class="card">
-      <h2>🏅 Logros más desbloqueados</h2>
+      <h2>${icon('award')} Logros más desbloqueados</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.unlockedAchievementIds.size}/${GUILD_ACHIEVEMENTS.length}</div><div class="label">Logros de servidor (colectivos)</div></div>
       </div>
@@ -428,7 +429,7 @@ export function renderGuildDashboard(guild, data, usersById) {
     </div>
 
     <div class="card">
-      <h2>🗓️ Misiones</h2>
+      <h2>${icon('calendar-check')} Misiones</h2>
       <div class="stat-row">
         <div class="stat"><div class="value">${data.missionSummary.dailyCompletedUsers}</div><div class="label">Completaron alguna misión diaria hoy</div></div>
         <div class="stat"><div class="value">${data.missionSummary.weeklyCompletedUsers}</div><div class="label">Completaron alguna misión semanal esta semana</div></div>
@@ -437,7 +438,7 @@ export function renderGuildDashboard(guild, data, usersById) {
     ${lolCard}
 
     <div class="card">
-      <h2>📈 Actividad diaria (últimos 7 días)</h2>
+      <h2>${icon('trending-up')} Actividad diaria (últimos 7 días)</h2>
       ${messagesDeltaLine}
       <table><thead><tr><th>Fecha</th><th>Mensajes</th><th>Comandos</th><th>Monedas generadas</th><th>Monedas destruidas</th><th>XP repartida</th></tr></thead><tbody>${dailyStatsRows}</tbody></table>
     </div>`;
