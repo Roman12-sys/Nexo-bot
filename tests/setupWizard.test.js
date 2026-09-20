@@ -27,11 +27,18 @@ function makeRole(id, name, position = 1) {
 }
 
 function makeGuildRoleRegistry({ createImpl, existingRoles = [] } = {}) {
+  // `.cache` es un Map REAL (no un objeto ad-hoc con solo get/find) — setupDiagnostics.js
+  // ahora también itera TODOS los roles del servidor (`.values()`, scanGuildRoles), no
+  // solo los busca por ID/nombre.
   const byId = new Map(existingRoles.map((r) => [r.id, r]));
+  byId.find = function (predicate) {
+    for (const value of this.values()) if (predicate(value)) return value;
+    return undefined;
+  };
   let counter = 1;
   return {
     everyone: { id: 'role-everyone' },
-    cache: { get: (id) => byId.get(id), find: (predicate) => [...byId.values()].find(predicate) },
+    cache: byId,
     fetch: vi.fn(async (id) => byId.get(id) || null),
     create:
       createImpl ||

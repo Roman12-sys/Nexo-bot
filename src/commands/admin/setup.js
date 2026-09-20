@@ -37,7 +37,7 @@ import {
   isValidHexColor,
   normalizeHexColor,
 } from '../../utils/setupRoleTiers.js';
-import { scanGuildChannels, groupFindingsByCategory, applyChannelCorrection } from '../../utils/setupDiagnostics.js';
+import { scanGuildChannels, scanGuildRoles, groupFindingsByCategory, applyChannelCorrection } from '../../utils/setupDiagnostics.js';
 import { syncMemberCounterForGuild, buildCounterChannelName } from '../../utils/memberCounterEngine.js';
 import { buildWelcomePreviewEmbed, contextFromInteraction, DEFAULT_WELCOME_TITLE, DEFAULT_WELCOME_DESCRIPTION } from '../../utils/welcomeEmbed.js';
 import { hasCustomShopItems } from '../../utils/shopStore.js';
@@ -1052,7 +1052,7 @@ function buildDiagnosticsPanel(findings, cfg) {
 
   const embed = new EmbedBuilder()
     .setColor(problems.length > 0 ? LOG_COLOR : warnings.length > 0 ? GOLD_COLOR : SUCCESS_COLOR)
-    .setTitle('🔎 Diagnóstico de canales')
+    .setTitle('🔎 Diagnóstico de canales y roles')
     .setFooter({ text: BRAND_NAME });
 
   if (findings.length === 0) {
@@ -1062,14 +1062,20 @@ function buildDiagnosticsPanel(findings, cfg) {
         ? `Revisé ${managed.join(', ')} — que @everyone no pueda verlos y que el rol de staff sí.`
         : 'Todavía no tenés ningún canal que NEXO gestione (logs, bienvenida, confesiones) para revisar con certeza.';
     embed.setDescription(
-      `🟢 No se detectó ningún problema.\n\n${managedText}\n\nTambién repasé el resto de los canales del servidor buscando, por nombre (ej. "staff", "mod", "admin", "log"), alguno que debería ser privado y no lo es — tampoco encontré nada ahí.`,
+      `🟢 No se detectó ningún problema.\n\n${managedText}\n\nTambién repasé TODOS los demás canales del servidor (de cualquier tipo — texto, voz, categorías, foros) buscando permisos peligrosos otorgados de más a algún rol, y TODOS los roles del servidor buscando permisos peligrosos a nivel base fuera de tu rol de staff/administrador — tampoco encontré nada ahí.`,
     );
   } else {
-    const groups = groupFindingsByCategory(findings);
+    const channelFindings = findings.filter((f) => f.kind !== 'role');
+    const roleFindings = findings.filter((f) => f.kind === 'role');
     const lines = [];
+    const groups = groupFindingsByCategory(channelFindings);
     for (const [categoryName, items] of groups) {
       lines.push(`**📁 ${categoryName}**`);
       for (const f of items) lines.push(`${STATUS_EMOJI[f.status]} #${f.channelName} — ${f.summary}`);
+    }
+    if (roleFindings.length > 0) {
+      lines.push('**👤 Roles del servidor**');
+      for (const f of roleFindings) lines.push(`${STATUS_EMOJI[f.status]} @${f.roleName} — ${f.summary}`);
     }
     embed.setDescription(lines.join('\n').slice(0, 3900));
     embed.addFields({ name: 'Total', value: `${problems.length} problema(s), ${warnings.length} para revisar a mano.` });
@@ -1093,7 +1099,7 @@ function buildDiagnosticsPanel(findings, cfg) {
 
 registerButtonPrefix('setuphome_diagnostics', async (i) => {
   const cfg = await getGuildConfig(i.guildId);
-  const findings = scanGuildChannels(i.guild, cfg);
+  const findings = [...scanGuildChannels(i.guild, cfg), ...scanGuildRoles(i.guild, cfg)];
   const session = ensureWizardSession(i);
   session.draft.diagnosticsFindings = findings;
   refreshWizardSession(wizardKey(i.guildId, i.user.id), session.draft);
