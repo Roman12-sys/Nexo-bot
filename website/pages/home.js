@@ -7,7 +7,6 @@ import { websiteConfig } from '../config.js';
 import { FEATURES } from '../data/features.js';
 import { stats } from '../data/stats.js';
 import { BRAND_NAME } from '../../src/utils/embeds.js';
-import { icon } from '../../src/utils/webIcons.js';
 
 const WORDMARK = BRAND_NAME.replace(' Bot', ''); // "Nexo Bot" -> "Nexo", mismo dato, solo el estilo de marca que pide el prompt (sección 3).
 
@@ -236,16 +235,11 @@ function renderStats() {
 }
 
 function renderConfiabilidad() {
-  // QUÉ CAMBIÓ (2026-09-19): estos 4 íconos NO son emoji de categoría (no representan
-  // ninguna de las categorías de comandos de categories.js) — son conceptos propios del
-  // sitio ("confiabilidad técnica"), así que sí pasan por webIcons.js/Lucide, a
-  // diferencia del resto de los emoji de home.js (feature.emoji), que deliberadamente
-  // siguen siendo el mismo emoji que un usuario ve en /help — ver CLAUDE.md.
   const cards = [
-    { iconName: 'lock', title: 'Permisos', desc: 'Tres niveles reales (moderador, administrador, dueño) sobre los permisos nativos de Discord — no todo el staff puede acreditar saldo o XP sin límite.' },
-    { iconName: 'database', title: 'Persistencia', desc: 'Las operaciones de economía y XP pasan por funciones atómicas en la base de datos, no por lecturas y escrituras sueltas desde el bot.' },
-    { iconName: 'settings', title: 'Arquitectura', desc: 'Sorteos, restricciones con duración y recordatorios se reprograman solos si el bot se reinicia — nada queda a mitad de camino.' },
-    { iconName: 'check-circle', title: 'Mantenimiento', desc: `${stats.tests.toLocaleString('es-ES')} tests automatizados corren antes de cada cambio de código.` },
+    { icon: '🔐', title: 'Permisos', desc: 'Tres niveles reales (moderador, administrador, dueño) sobre los permisos nativos de Discord — no todo el staff puede acreditar saldo o XP sin límite.' },
+    { icon: '🗄️', title: 'Persistencia', desc: 'Las operaciones de economía y XP pasan por funciones atómicas en la base de datos, no por lecturas y escrituras sueltas desde el bot.' },
+    { icon: '⚙️', title: 'Arquitectura', desc: 'Sorteos, restricciones con duración y recordatorios se reprograman solos si el bot se reinicia — nada queda a mitad de camino.' },
+    { icon: '✅', title: 'Mantenimiento', desc: `${stats.tests.toLocaleString('es-ES')} tests automatizados corren antes de cada cambio de código.` },
   ];
   return `
 <section>
@@ -255,7 +249,7 @@ function renderConfiabilidad() {
       <h2>Tu comunidad merece una base confiable</h2>
     </div>
     <div class="trust-grid" data-reveal>
-      ${cards.map((c) => `<div class="trust-card"><h3>${icon(c.iconName)} ${escapeHtml(c.title)}</h3><p>${escapeHtml(c.desc)}</p></div>`).join('')}
+      ${cards.map((c) => `<div class="trust-card"><h3>${c.icon} ${escapeHtml(c.title)}</h3><p>${escapeHtml(c.desc)}</p></div>`).join('')}
     </div>
   </div>
 </section>`;

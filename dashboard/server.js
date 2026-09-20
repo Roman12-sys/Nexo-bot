@@ -3,6 +3,7 @@
 // (`npm run dashboard`). No comparte proceso ni conexión de gateway con el bot: solo
 // lee de la misma base de Supabase y usa el token del bot para llamadas REST puntuales.
 import crypto from 'node:crypto';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { dashboardConfig } from './config.js';
@@ -38,9 +39,12 @@ process.on('uncaughtException', (error) => {
   reportCriticalError(null, 'dashboard: uncaughtException', error).finally(() => process.exit(1));
 });
 
+const FONTS_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'assets', 'fonts'); // mismas 2 fuentes Manrope que ya usa website/server.js — no se duplican archivos.
+
 const app = express();
 app.disable('x-powered-by');
 app.use(rateLimitMiddleware);
+app.use('/fonts', express.static(FONTS_DIR, { maxAge: '30d', immutable: true }));
 
 // Auditoría completa NEXO (2026-09-11), DASH-1: ninguna respuesta llevaba headers de
 // hardening básico. `X-Frame-Options`/`X-Content-Type-Options` van global (no hay

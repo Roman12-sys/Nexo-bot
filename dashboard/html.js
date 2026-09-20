@@ -2,7 +2,6 @@
 // es de solo lectura y de bajo tráfico, no justifica esa dependencia extra.
 import { config } from '../src/config.js';
 import { essentialPermissionsBitfield } from '../src/utils/botPermissions.js';
-import { icon } from '../src/utils/webIcons.js';
 import {
   WEB_BG,
   WEB_BG_RAISED,
@@ -48,7 +47,7 @@ export function escapeHtml(value) {
 function buildFooter(wide = false) {
   const parts = [];
   if (config.supportContact) {
-    parts.push(`<p class="muted">${icon('life-buoy')} ¿Problemas con el bot? ${escapeHtml(config.supportContact)}</p>`);
+    parts.push(`<p class="muted">🆘 ¿Problemas con el bot? ${escapeHtml(config.supportContact)}</p>`);
   }
   if (config.websiteUrl) {
     parts.push(
@@ -89,6 +88,14 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
     --status-warn: ${WEB_STATUS_WARN};
     --status-danger: ${WEB_STATUS_DANGER};
   }
+  /* Tipografía (2026-09-19) — Manrope para headings, mismas 2 fuentes self-hosted que ya
+     usa website/layout.js (src/assets/fonts/, servidas acá vía /fonts/*, sin duplicar
+     archivos ni pegarle a Google Fonts) — el dashboard no tenía NINGÚN font-face propio
+     antes de esto, solo la pila de sistema. El cuerpo del texto (tablas, párrafos) se
+     queda con la pila de sistema a propósito, mismo criterio que ya usa el sitio: Manrope
+     es para jerarquía visual (headings), no para bloques largos de texto/datos. */
+  @font-face { font-family: 'Manrope'; src: url('/fonts/Manrope-SemiBold.ttf') format('truetype'); font-weight: 600; font-display: swap; }
+  @font-face { font-family: 'Manrope'; src: url('/fonts/Manrope-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
   * { box-sizing: border-box; }
   body {
     margin: 0;
@@ -98,6 +105,7 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
     line-height: 1.55;
   }
   a { color: var(--brand-soft); }
+  h1, h2, h3, h4 { font-family: 'Manrope', -apple-system, sans-serif; font-weight: 700; letter-spacing: -0.01em; }
   header {
     display: flex;
     align-items: center;
@@ -112,7 +120,7 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
      parte del chrome compartido (header), así que aplica a todas las páginas, no solo
      a la de selección de servidor. */
   header .brand { display: flex; flex-direction: column; gap: 0.05rem; line-height: 1.15; text-decoration: none; }
-  header .brand-name { font-weight: 800; font-size: 1.2rem; color: var(--brand); letter-spacing: 0.01em; }
+  header .brand-name { font-family: 'Manrope', -apple-system, sans-serif; font-weight: 800; font-size: 1.2rem; color: var(--brand); letter-spacing: 0.01em; }
   header .brand-sub { font-weight: 600; font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.09em; }
   main { max-width: 880px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
   main.wide { max-width: 1160px; }
@@ -177,16 +185,11 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
      y problemas de configuración. Mismos tokens de color de arriba, nada nuevo. Los
      fondos tintados de cada badge (#123524 etc.) quedan como estaban a propósito — la
      auditoría UX/UI solo flageó el color de TEXTO/estado, no estos tintes de fondo. */
-  /* Íconos SVG (2026-09-19, reemplazo de emoji — src/utils/webIcons.js) — siempre pegados
-     a una etiqueta de texto visible, nunca solos (accesibilidad: el texto ya dice lo que
-     hace falta, el ícono es puramente decorativo). currentColor hereda el color real del
-     contexto (ej. el verde/amarillo/rojo de cada .badge-* de abajo), consistencia real en
-     vez de un emoji con su propio color fijo sin relación con el resto de la paleta. */
-  /* 0.2em (no más) — cada template ya trae un espacio literal entre el ícono y la
-     palabra siguiente (mismo texto que antes tenía "🔧 Palabra"); sumarle un margen
-     grande de más quedaba con demasiado aire entre ícono y texto. */
+  /* Ícono SVG (2026-09-19, src/utils/webIcons.js) — se probó en TODO el dashboard y se
+     revirtió a pedido explícito a favor de los emoji originales, salvo acá: el badge
+     "Pendiente de configurar" de renderGuildList (pantalla "Tus servidores"), el único
+     lugar donde se decidió dejarlo. Siempre pegado a texto visible, nunca solo. */
   .icon { display: inline-block; vertical-align: -0.15em; margin-right: 0.2em; flex: none; }
-  .status-dot { vertical-align: -0.05em; }
   .badge { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
   .badge-ok { background: #123524; color: var(--status-ok); }
   .badge-warning { background: #3a2f12; color: var(--status-warn); }
@@ -225,6 +228,25 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
     transition: width 0.25s ease, opacity 0.2s ease;
   }
   .page-loading-bar.is-active { opacity: 1; }
+
+  /* Skeleton de carga (2026-09-19) — junto con la barra de arriba, reemplaza el
+     contenido real de <main> por bloques placeholder apenas se clickea un link interno,
+     mismo patrón que YouTube/LinkedIn/Facebook (Ley de Jakob: nadie tiene que aprender a
+     leer esto). Genérico a propósito — no imita el layout EXACTO de la página destino
+     (nunca se sabe cuál es hasta que termina de cargar), solo transmite "esto va a
+     mostrar tarjetas de datos en un momento". El HTML real de <main> se guarda antes de
+     reemplazarlo y se restaura si la navegación no llega a completarse (ver el script). */
+  .skeleton-title { height: 28px; width: 40%; margin-bottom: 1.5rem; }
+  .skeleton-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; }
+  .skeleton-line { height: 14px; border-radius: 6px; margin-bottom: 0.65rem; }
+  .skeleton-line:last-child { margin-bottom: 0; }
+  .skeleton-block {
+    background: linear-gradient(90deg, var(--bg-raised) 25%, var(--surface) 37%, var(--bg-raised) 63%);
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease infinite;
+  }
+  @keyframes skeleton-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+  @media (prefers-reduced-motion: reduce) { .skeleton-block { animation: none; background: var(--bg-raised); } }
 </style>
 </head>
 <body>
@@ -245,13 +267,39 @@ ${buildFooter(wide)}
 (function () {
   var bar = document.getElementById('page-loading-bar');
   if (!bar) return;
+  var main = document.querySelector('main');
+  // Contenido REAL de esta carga, guardado una sola vez al inicio — si la navegación
+  // arranca (start() reemplaza esto por el skeleton) pero nunca llega a completarse
+  // (usuario cancela, bfcache raro), reset() lo restaura tal cual estaba.
+  var originalMainHtml = main ? main.innerHTML : '';
   var tickTimer = null;
   var safetyTimer = null;
   var width = 0;
 
+  function skeletonCard(lineWidths) {
+    var lines = lineWidths.map(function (w) { return '<div class="skeleton-block skeleton-line" style="width:' + w + '"></div>'; }).join('');
+    return '<div class="skeleton-card">' + lines + '</div>';
+  }
+
+  // Genérico a propósito (ver el comentario de .skeleton-card en el <style>) — 3
+  // tarjetas con anchos de línea variados, ni una réplica exacta de ninguna página real.
+  function buildSkeletonHtml() {
+    return (
+      '<div class="skeleton-block skeleton-title"></div>' +
+      skeletonCard(['35%', '100%', '90%']) +
+      skeletonCard(['45%', '100%', '80%', '60%']) +
+      skeletonCard(['30%', '100%', '100%', '70%'])
+    );
+  }
+
   function reset() {
     clearInterval(tickTimer);
     clearTimeout(safetyTimer);
+    // Solo tocar el DOM de <main> si de verdad había un skeleton puesto — reset() corre
+    // también en CADA pageshow (incluida una carga fresca normal, donde nunca se llegó a
+    // llamar start()), y ahí main.innerHTML ya es el real: reescribirlo sería una
+    // reflow/repaint inútil, no un bug visible, pero tampoco gratis.
+    if (bar.classList.contains('is-active') && main) main.innerHTML = originalMainHtml;
     bar.classList.remove('is-active');
     bar.style.width = '0%';
   }
@@ -269,8 +317,9 @@ ${buildFooter(wide)}
       width += (90 - width) * 0.1;
       bar.style.width = width + '%';
     }, 200);
+    if (main) main.innerHTML = buildSkeletonHtml();
     // Red de seguridad: si la navegación nunca llega a completarse (el usuario cancela
-    // la carga, un bfcache raro), la barra no debe quedar a mitad de camino para siempre.
+    // la carga, un bfcache raro), ni la barra ni el skeleton deben quedar para siempre.
     safetyTimer = setTimeout(reset, 15000);
   }
 

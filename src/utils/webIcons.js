@@ -1,20 +1,11 @@
-// Íconos SVG compartidos entre dashboard/ y website/ (2026-09-19) — reemplaza el emoji
-// de UI "de interfaz" (headers, badges de estado, accesos rápidos) por el mismo set de
-// Lucide que react-icons empaqueta bajo react-icons/lu. Este proyecto no usa React ni
-// bundler (dashboard/website son Express + template literals a mano, decisión
-// documentada en CLAUDE.md) — react-icons en sí (componentes JSX) no aplica acá. La
-// equivalencia real es leer los SVG reales de `lucide-static` (MIT/ISC, sin build step,
-// mismo criterio que website/ ya usa para servir sus fuentes .ttf locales) y devolver el
-// markup tal cual, cacheado en memoria tras la primera lectura.
-//
-// QUÉ QUEDA AFUERA A PROPÓSITO: los emoji de CATEGORÍA de comandos (🧹 Moderación,
-// 💰 Economía, 🎰 Casino, ⭐ Progresión, 🎲 Diversión, 🎭 Acción, 🎉 Sorteos, 📢 Anuncios,
-// 🔊 Voz, ⚙️ Administración, ℹ️ Información) — website/data/categories.js documenta que
-// son copia EXACTA de lo que un usuario ve en /help dentro de Discord, a propósito, para
-// que el sitio nunca muestre un ícono distinto al que el bot realmente usa (Discord no
-// puede renderizar un SVG arbitrario en un embed). Cualquier lugar que muestre esas
-// mismas categorías (features.js, home.js, commands.js) se deja igual. Este módulo solo
-// cubre chrome de interfaz sin ninguna obligación de parecerse a un embed de Discord.
+// Ícono SVG (2026-09-19) — se probó reemplazando el emoji de UI en todo dashboard/ y
+// website/ (Lucide, el mismo set que react-icons empaqueta bajo react-icons/lu; este
+// proyecto no usa React ni bundler, así que la equivalencia real es leer los SVG reales
+// de `lucide-static` en vez de importar componentes JSX). A pedido explícito del usuario
+// se revirtió TODO a los emoji originales salvo un solo lugar: el badge "Pendiente de
+// configurar" de dashboard/views.js (renderGuildList, pantalla "Tus servidores"). Este
+// módulo se mantiene chico a propósito (una sola función) porque ya no tiene más que ese
+// único consumidor — no hay necesidad de un catálogo de íconos que nadie más usa.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -49,13 +40,4 @@ export function icon(name, { size = 16 } = {}) {
     .replace(/width="24"/, `width="${size}"`)
     .replace(/height="24"/, `height="${size}"`)
     .replace('<svg', '<svg aria-hidden="true" focusable="false"');
-}
-
-// Punto de estado (🟢/🟡/🔴/⚪ de antes) — un dot sólido, no un ícono de línea: es el
-// patrón estándar para "operativo/advertencia/caído" (Ley de Jakob, cualquier status
-// page real usa esto), y necesita heredar el color semántico real de cada estado
-// (var(--status-ok) etc., ya definidos en webTheme.js) vía currentColor — un ícono de
-// línea de Lucide no da esa lectura instantánea de un vistazo.
-export function statusDot(size = 10) {
-  return `<svg class="icon status-dot" width="${size}" height="${size}" viewBox="0 0 10 10" aria-hidden="true" focusable="false"><circle cx="5" cy="5" r="5" fill="currentColor" /></svg>`;
 }
