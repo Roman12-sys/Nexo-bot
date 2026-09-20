@@ -12,7 +12,7 @@ import { getGuildVoiceStatsSummary } from '../src/utils/tempVoiceStore.js';
 import { getGuildMissionCompletionSummary } from '../src/utils/missionsStore.js';
 import { getGuildDailyStats } from '../src/utils/guildDailyStatsStore.js';
 import { getLastAnnouncedPatchUrl, getLolPatchMonitorState } from '../src/utils/lolPatchStore.js';
-import { fetchGuild, fetchGuildMember, fetchGuildMembersWithRole, fetchGuildChannels, fetchGuildRoles, mapWithConcurrency } from './discordApi.js';
+import { fetchGuild, fetchGuildMember, fetchGuildMembersWithRole, fetchGuildChannels, fetchGuildRoles, fetchBotGuilds, mapWithConcurrency } from './discordApi.js';
 import { isStaffFromRoles } from './permissions.js';
 import { getGuildVoiceConfig } from '../src/utils/voiceConfigStore.js';
 
@@ -58,30 +58,55 @@ setInterval(() => {
 }, GUILD_METADATA_CACHE_TTL_MS).unref();
 
 // Lista los servidores donde el usuario logueado es dueño o tiene el rol de staff
-// configurado — recorre todos los guild_config (uno por server que corrió /setup) y
-// descarta los que no aplican. Solo lectura, nada de esto escribe en ningún lado.
-// Concurrencia limitada (mapWithConcurrency): esto escala con el TOTAL de servers del
-// bot, no solo los del usuario, así que sin límite podía disparar decenas de requests
-// en paralelo contra el token del bot en un solo GET a "/".
+// configurado — recorre todos los guild_config (uno por server que corrió /setup) MÁS
+// los guilds reales del bot (fetchBotGuilds, GET /users/@me/guilds) que todavía no
+// tienen fila — y descarta los que no aplican. Solo lectura, nada de esto escribe en
+// ningún lado. Concurrencia limitada (mapWithConcurrency): esto escala con el TOTAL de
+// servers del bot, no solo los del usuario, así que sin límite podía disparar decenas
+// de requests en paralelo contra el token del bot en un solo GET a "/".
+//
+// QUÉ CAMBIÓ (2026-09-19): antes de esto, un server recién invitado era INVISIBLE en el
+// dashboard hasta que alguien corriera /setup ahí — ni siquiera el dueño real lo veía en
+// la lista, porque listManagedGuilds solo recorría guild_config. Ahora un guild SIN fila
+// todavía aparece igual, marcado `needsSetup: true`, pero solo para el dueño real (sin
+// guild_config no hay forma de saber quién es staff en ese server) — nunca se muestra
+// ningún dato del server, es solo un aviso de "está invitado, falta activar".
 export async function listManagedGuilds(userId) {
-  const { data: configs, error } = await supabase.from('guild_config').select('guild_id, admin_role_id, moderator_role_id');
+  const [{ data: configs, error }, botGuilds] = await Promise.all([
+    supabase.from('guild_config').select('guild_id, admin_role_id, moderator_role_id'),
+    // Best-effort: si esto falla, no rompe la página — simplemente no se pueden detectar
+    // guilds nuevos sin /setup todavía, mismo comportamiento que existía antes de este
+    // cambio (los que ya tienen guild_config siguen apareciendo igual).
+    fetchBotGuilds().catch(() => null),
+  ]);
   if (error) throw error;
 
-  const results = await mapWithConcurrency(configs || [], 5, async (cfg) => {
-    const guild = await fetchGuildCached(cfg.guild_id).catch(() => null);
+  const cfgByGuildId = new Map((configs || []).map((cfg) => [cfg.guild_id, cfg]));
+  const guildIds = new Set(cfgByGuildId.keys());
+  if (botGuilds) for (const g of botGuilds) guildIds.add(g.id);
+
+  const results = await mapWithConcurrency([...guildIds], 5, async (guildId) => {
+    const guild = await fetchGuildCached(guildId).catch(() => null);
     if (!guild) return null; // el bot ya no está en ese server, o el ID quedó viejo
 
+    const cfg = cfgByGuildId.get(guildId);
     const isOwner = guild.owner_id === userId;
+
+    if (!cfg) {
+      if (!isOwner) return null;
+      return { id: guild.id, name: guild.name, icon: guild.icon, needsSetup: true };
+    }
+
     let hasStaffRole = false;
     if (!isOwner && (cfg.admin_role_id || cfg.moderator_role_id)) {
       // Chequeo de rol SIEMPRE en vivo, nunca cacheado — es lo que determina acceso real
       // para quien no es dueño del server.
-      const member = await fetchGuildMember(cfg.guild_id, userId).catch(() => null);
+      const member = await fetchGuildMember(guildId, userId).catch(() => null);
       if (member) hasStaffRole = isStaffFromRoles(cfg, member.roles);
     }
 
     if (!isOwner && !hasStaffRole) return null;
-    return { id: guild.id, name: guild.name, icon: guild.icon };
+    return { id: guild.id, name: guild.name, icon: guild.icon, needsSetup: false };
   });
 
   return results.filter(Boolean);

@@ -18,6 +18,14 @@ export function renderLoginPage() {
 // tarjeta usa exclusivamente eso, más una inicial derivada del nombre para el avatar
 // de respaldo (nunca un dato inventado, mismo criterio que un avatar placeholder de
 // cualquier producto real).
+//
+// QUÉ CAMBIÓ (2026-09-19, servidores sin /setup): listManagedGuilds ahora también
+// devuelve guilds recién invitados sin fila en guild_config, marcados `needsSetup:
+// true` — la tarjeta los muestra igual (con badge "Pendiente de configurar" y CTA
+// distinto) en vez de dejarlos invisibles hasta que alguien corra /setup. El link sigue
+// yendo a /guild/:id a propósito: esa página YA sabe mostrar el aviso de "corré /setup"
+// (computeConfigIssues, dashboard/queries.js) cuando no hay guild_config — no hizo
+// falta ninguna página nueva.
 export function renderGuildList(guilds) {
   const head = `
     <h1>Tus servidores</h1>
@@ -34,13 +42,15 @@ export function renderGuildList(guilds) {
       const avatar = g.icon
         ? `<img class="guild-avatar" src="https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64" alt="">`
         : `<div class="guild-avatar-placeholder">${initial}</div>`;
+      const pendingBadge = g.needsSetup ? '<div class="guild-status-pending"><span class="badge badge-warning">⏳ Pendiente de configurar</span></div>' : '';
       return `
-      <a class="guild-card" href="/guild/${g.id}">
+      <a class="guild-card${g.needsSetup ? ' guild-card-pending' : ''}" href="/guild/${g.id}">
         ${avatar}
         <div class="guild-info">
           <div class="guild-name">${escapeHtml(g.name)}</div>
+          ${pendingBadge}
         </div>
-        <span class="guild-cta">Administrar →</span>
+        <span class="guild-cta">${g.needsSetup ? 'Cómo activarlo →' : 'Administrar →'}</span>
       </a>`;
     })
     .join('');

@@ -90,6 +90,25 @@ export function fetchGuild(guildId, { withCounts = false } = {}) {
   return botFetch(`/guilds/${guildId}${withCounts ? '?with_counts=true' : ''}`);
 }
 
+// GET /users/@me/guilds — la lista real de servidores donde el BOT está, paginada (máx
+// 200 por página, así que un solo request alcanza hoy; el loop cubre el día que NEXO
+// pase ese número sin tener que volver a tocar esto). Es la ÚNICA fuente de "en qué
+// guilds está el bot" que no depende de que exista una fila en guild_config (esa fila
+// solo se crea al correr /setup) — antes de esto, listManagedGuilds no tenía forma de
+// saber que un guild recién invitado existía hasta que alguien corriera /setup ahí.
+export async function fetchBotGuilds() {
+  const guilds = [];
+  let after = '0';
+  for (;;) {
+    const page = await botFetch(`/users/@me/guilds?limit=200&after=${after}`);
+    if (!page || page.length === 0) break;
+    guilds.push(...page);
+    if (page.length < 200) break;
+    after = page[page.length - 1].id;
+  }
+  return guilds;
+}
+
 export function fetchGuildMember(guildId, userId) {
   return botFetch(`/guilds/${guildId}/members/${userId}`);
 }

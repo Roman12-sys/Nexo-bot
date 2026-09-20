@@ -151,6 +151,12 @@ export function layout({ title, body, loggedIn = false, wide = false }) {
   .guild-avatar-placeholder { display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--brand), var(--brand-soft)); color: #fff; font-weight: 700; font-size: 1.1rem; }
   .guild-info { flex: 1; min-width: 0; }
   .guild-name { font-weight: 600; font-size: 1.02rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Servidores invitados sin /setup todavía (2026-09-19) — mismo componente de tarjeta,
+     borde punteado en vez de sólido para leerse como "inactivo" a simple vista, sin
+     inventar un color nuevo (reusa --border ya definido arriba). El badge en sí reusa
+     .badge.badge-warning, ya definido más abajo para las tarjetas de "Sistemas". */
+  .guild-card-pending { border-style: dashed; }
+  .guild-status-pending { margin-top: 0.3rem; }
   .guild-cta { flex: none; font-size: 0.85rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; transition: color 0.15s ease; }
   .guild-card:hover .guild-cta, .guild-card:focus-visible .guild-cta, .guild-card:active .guild-cta { color: var(--brand-soft); }
   .btn { display: inline-block; background: var(--brand); color: #fff; text-decoration: none; padding: 0.65rem 1.3rem; border-radius: 8px; font-weight: 600; transition: background-color 0.15s ease; }

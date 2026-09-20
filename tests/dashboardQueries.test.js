@@ -48,6 +48,10 @@ const fetchGuildMembersWithRole = vi.fn().mockResolvedValue({ members: [], possi
 // interesa configIssues) no ven ningún falso positivo de "canal borrado".
 const fetchGuildChannels = vi.fn().mockResolvedValue(undefined);
 const fetchGuildRoles = vi.fn().mockResolvedValue(undefined);
+// Guilds sin /setup todavía (2026-09-19) — sin mock explícito por test, resuelve vacío:
+// listManagedGuilds se comporta exactamente como antes de este cambio (solo lo que ya
+// está en guild_config), sin ningún guild "fantasma" nuevo en los tests existentes.
+const fetchBotGuilds = vi.fn().mockResolvedValue([]);
 async function mapWithConcurrency(items, limit, fn) {
   const results = new Array(items.length);
   let nextIndex = 0;
@@ -66,6 +70,7 @@ vi.mock('../dashboard/discordApi.js', () => ({
   fetchGuildMembersWithRole,
   fetchGuildChannels,
   fetchGuildRoles,
+  fetchBotGuilds,
   mapWithConcurrency,
 }));
 
@@ -78,6 +83,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   supabaseMock.rpc.mockReset();
   fetchGuildMembersWithRole.mockResolvedValue({ members: [], possiblyIncomplete: false });
+  fetchBotGuilds.mockResolvedValue([]);
 });
 
 describe('listManagedGuilds — cache de metadata de guild (sección 1)', () => {
@@ -117,8 +123,41 @@ describe('listManagedGuilds — cache de metadata de guild (sección 1)', () => 
     fetchGuild.mockResolvedValueOnce({ id: 'guild-gone', name: 'Volvió', icon: null, owner_id: 'owner-1' });
     const second = await listManagedGuilds('owner-1');
 
-    expect(second).toEqual([{ id: 'guild-gone', name: 'Volvió', icon: null }]);
+    expect(second).toEqual([{ id: 'guild-gone', name: 'Volvió', icon: null, needsSetup: false }]);
     expect(fetchGuild).toHaveBeenCalledTimes(2); // el null no se cacheó, se volvió a pedir
+  });
+});
+
+describe('listManagedGuilds — guilds sin /setup todavía (2026-09-19)', () => {
+  it('el dueño real ve un guild recién invitado (sin fila en guild_config) marcado needsSetup', async () => {
+    supabaseMock.getBuilder('guild_config').__setResult({ data: [], error: null });
+    fetchBotGuilds.mockResolvedValue([{ id: 'guild-pending-1' }]);
+    fetchGuild.mockResolvedValue({ id: 'guild-pending-1', name: 'Recién invitado', icon: null, owner_id: 'owner-real' });
+
+    const result = await listManagedGuilds('owner-real');
+
+    expect(result).toEqual([{ id: 'guild-pending-1', name: 'Recién invitado', icon: null, needsSetup: true }]);
+  });
+
+  it('alguien que NO es el dueño no ve un guild sin guild_config (sin fila no hay forma de saber si es staff)', async () => {
+    supabaseMock.getBuilder('guild_config').__setResult({ data: [], error: null });
+    fetchBotGuilds.mockResolvedValue([{ id: 'guild-pending-2' }]);
+    fetchGuild.mockResolvedValue({ id: 'guild-pending-2', name: 'Recién invitado', icon: null, owner_id: 'owner-real' });
+
+    const result = await listManagedGuilds('otro-usuario');
+
+    expect(result).toEqual([]);
+    expect(fetchGuildMember).not.toHaveBeenCalled();
+  });
+
+  it('si fetchBotGuilds falla, sigue mostrando lo que ya tiene guild_config (nunca rompe la lista)', async () => {
+    supabaseMock.getBuilder('guild_config').__setResult({ data: [{ guild_id: 'guild-pending-3', admin_role_id: null, moderator_role_id: null }], error: null });
+    fetchBotGuilds.mockRejectedValue(new Error('rate limited'));
+    fetchGuild.mockResolvedValue({ id: 'guild-pending-3', name: 'Ya configurado', icon: null, owner_id: 'owner-real' });
+
+    const result = await listManagedGuilds('owner-real');
+
+    expect(result).toEqual([{ id: 'guild-pending-3', name: 'Ya configurado', icon: null, needsSetup: false }]);
   });
 });
 

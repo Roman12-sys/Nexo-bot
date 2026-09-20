@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderGuildDashboard } from '../dashboard/views.js';
+import { renderGuildDashboard, renderGuildList } from '../dashboard/views.js';
 
 // views.js — Fase 2C, sección 2: punishedMembers ahora puede venir recortado (a lo sumo
 // 20, ver dashboard/queries.js) con el total real aparte (punishedTotal). Lo que importa
@@ -224,5 +224,25 @@ describe('renderGuildDashboard — estado de sistemas (Dashboard 2.0)', () => {
     expect(html).toContain('Configuración pendiente');
     expect(html).toContain('badge-ok');
     expect(html).toContain('badge-warning');
+  });
+});
+
+describe('renderGuildList — servidores sin /setup todavía (2026-09-19)', () => {
+  it('un guild normal (needsSetup: false) muestra "Administrar", sin badge de pendiente', () => {
+    const html = renderGuildList([{ id: '1', name: 'Configurado', icon: null, needsSetup: false }]);
+
+    expect(html).toContain('Administrar →');
+    expect(html).not.toContain('Pendiente de configurar');
+    expect(html).not.toContain('guild-card-pending');
+  });
+
+  it('un guild sin guild_config (needsSetup: true) se muestra igual, marcado como pendiente', () => {
+    const html = renderGuildList([{ id: '2', name: 'Recién invitado', icon: null, needsSetup: true }]);
+
+    expect(html).toContain('Recién invitado');
+    expect(html).toContain('guild-card-pending');
+    expect(html).toContain('Pendiente de configurar');
+    expect(html).toContain('Cómo activarlo →');
+    expect(html).toContain('/guild/2'); // sigue siendo un link real, no un texto muerto
   });
 });
