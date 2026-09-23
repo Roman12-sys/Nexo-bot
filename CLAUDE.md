@@ -506,6 +506,14 @@ cambios ahí.
   vez de elegir una opción, leerla literal y confirmar el alcance contra ella antes de
   implementar ("los iconos solo en dashboard y en website" era dashboard + website, no
   solo dashboard como decía la primera opción).
+- **Pedidos vagos de mejora ("que sea más dinámico", "como lo que hicimos hoy"):** mandar
+  UNA `AskUserQuestion` nombrando 2-3 superficies concretas ANTES de leer código o
+  escribir un plan. El 2026-09-20 se entregaron dos planes largos de varias fases sobre
+  el mismo pedido y los dos se rechazaron por su premisa, no por su contenido (el
+  primero proponía features nuevas — prohibidas por el ciclo comercial vigente; el
+  segundo asumía que "como lo del setup" significaba seguir con `/setup`, cuando el
+  referente era el TIPO de trabajo). Un plan largo es además el formato equivocado para
+  abrir: este usuario pide respuestas cortas.
 
 ## Anunciador de patch notes de League of Legends
 
@@ -1293,6 +1301,16 @@ real, contarlo como "no-uso" subestimaría la popularidad real del comando. Migr
 métrica de "solo éxitos" necesitaría una señal explícita por comando en cada rama de
 rechazo — cambio grande, fuera de esta fase. Solo se corrigió el comentario para que
 describa lo que el código realmente hace.
+
+**Y nunca se limpia cuando un comando deja de existir** (verificado contra producción el
+2026-09-23): `command_usage` sigue teniendo filas de `play` (54 usos), `pet` (8),
+`report` (6) y `volume` (6) — 74 usos de 4 comandos eliminados en Fase 3B/3C y en la
+baja de `/report`. `guildDelete.js` borra por `guild_id`, nunca por comando, y no existe
+ningún barrido que compare la tabla contra `src/commands/**`. No es un bug (el histórico
+es real, esos comandos se usaron de verdad), pero `/metricas` y cualquier lectura de
+"top comandos" incluyen comandos muertos — tenerlo en cuenta antes de sacar una
+conclusión de producto de ese ranking. Al chequear si un comando sigue vivo, grepear
+`setName('x')`, NUNCA el nombre de archivo: `/xp` vive en `moderacion/xpStaff.js`.
 
 **`/buy` — rol borrado de Discord ya no cobra sin entregar nada.** Dos capas: (1) chequeo
 de que el rol configurado siga existiendo (`guild.roles.cache`, siempre completo y
