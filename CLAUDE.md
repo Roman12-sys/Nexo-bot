@@ -183,6 +183,19 @@ sumidero, es una compensación).
 precio de un ítem de vuelta, pero nunca de ítems con `roleId` (el rol ya se entregó,
 "devolverlo" sería cobrar dos veces por el mismo rol si se recompra después).
 
+**Catálogo de tienda: todo o nada.** `getGuildShopItems` (`shopStore.js`) devuelve el
+catálogo de ejemplo de `shopItems.js` (19 ítems) SOLO si el server no tiene ni una fila
+en `shop_items`. El primer ítem propio los reemplaza a todos (`/shop-admin` avisa con
+"Tu servidor estaba usando el catálogo de ejemplo..."). Los ítems de ejemplo no se editan
+de a uno porque no viven en la base. Y el efecto especial (`mystery_box`/`xp_boost`/
+`rob_shield`) depende SOLO de `item.type`, que no se puede cambiar después de crear el
+ítem. Pasó en producción: un ítem de prueba llamado `rob_shield`, sin tipo, dejó la tienda
+del servidor principal con un único ítem que cobraba y no daba nada, y escondía los 19 de
+ejemplo. Se borró el 2026-09-23; nadie lo había comprado. Desde entonces `/shop-admin`
+avisa si el nombre sugiere un tipo especial y no se eligió ninguno
+(`suggestSpecialType`). Ofrecer "copiar el catálogo de ejemplo a tu tienda" al crear el
+primer ítem quedó como decisión de producto pendiente, no implementada.
+
 ## Gotchas ya pisados (además del de las columnas de cooldown, arriba)
 
 **Emoji dentro de un canvas.** `@napi-rs/canvas` (usado hoy solo en `rankCardImage.js`;
@@ -472,9 +485,10 @@ cambios ahí.
   excluidos desde el blueprint original: son específicos de un operador o de una
   comunidad, no aportan a "que funcione para cualquier servidor". (Distinto del panel
   genérico multi-tenant de `dashboard/` agregado después — ver arriba.)
-- **`shopItems.js`** es una plantilla en código con 4 ítems genéricos (sin `roleId`,
+- **`shopItems.js`** es una plantilla en código con 19 ítems genéricos (sin `roleId`,
   para que funcionen sin configuración) — no el catálogo de gNoX, que tenía roles de
-  color con IDs reales de un servidor específico.
+  color con IDs reales de un servidor específico. (Decía "4": ese era el número del
+  principio y nunca se actualizó.)
 
 ## Flujo de trabajo de esta sesión (seguir así)
 
@@ -502,6 +516,13 @@ cambios ahí.
   `<iframe srcdoc>` dentro de un Artifact "harness" con toggles de página/ancho — ver la
   memoria `nexo_bot_dashboard_visual_preview_technique` (incluye cómo mostrar las fuentes
   reales y cómo disparar la barra de carga desde el preview).
+- **Tocar datos de producción (auditorías, limpiezas):** los scripts de verificación son
+  de solo lectura. No se sondea la existencia de una RPC haciéndole POST: una que modifica
+  datos se ejecuta de verdad (el 2026-09-23 así se creó una fila real en `economy`, que se
+  borró enseguida). Para eso está la raíz OpenAPI (`GET /rest/v1/`). Todo borrado pedido
+  sigue este orden: respaldo JSON de las filas en el Escritorio, `DELETE` con el filtro
+  más estricto posible, y un conteo posterior de lo borrado (→ 0) y de lo que tenía que
+  quedar.
 - **Respuestas libres de `AskUserQuestion`:** si el usuario escribe su propia respuesta en
   vez de elegir una opción, leerla literal y confirmar el alcance contra ella antes de
   implementar ("los iconos solo en dashboard y en website" era dashboard + website, no
