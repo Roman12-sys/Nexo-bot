@@ -121,3 +121,56 @@ describe('/shop-admin agregar — piso de precio para mystery_box', () => {
     expect(addShopItem).toHaveBeenCalledWith('guild-1', expect.objectContaining({ type: 'mystery_box' }));
   });
 });
+
+// Auditoría 2026-09-23: en producción existía un ítem "rob_shield" guardado SIN tipo —
+// cobraba 2000 monedas y no daba ningún escudo (buy.js despacha el efecto solo por
+// item.type), y el tipo no se puede cambiar después de creado. El comando ahora avisa.
+describe('/shop-admin agregar — aviso de nombre especial guardado sin tipo', () => {
+  it('nombre que sugiere un escudo, sin tipo: se guarda igual pero avisa cómo corregirlo', async () => {
+    const interaction = makeAgregarInteraction({ nombre: 'rob_shield', tipo: null });
+
+    await execute(interaction);
+
+    expect(addShopItem).toHaveBeenCalledWith('guild-1', expect.objectContaining({ type: null }));
+    const { content } = interaction.editReply.mock.calls[0][0];
+    expect(content).toContain('⚠️');
+    expect(content).toContain('escudo anti-robo');
+    expect(content).toContain('/shop-admin quitar');
+  });
+
+  it('mismo nombre CON el tipo elegido: sin aviso', async () => {
+    const interaction = makeAgregarInteraction({ nombre: 'Escudo Anti-Robo', tipo: 'rob_shield' });
+
+    await execute(interaction);
+
+    expect(interaction.editReply.mock.calls[0][0].content).not.toContain('⚠️');
+  });
+
+  it('nombre sin relación con un tipo especial: sin aviso', async () => {
+    const interaction = makeAgregarInteraction({ nombre: 'Rol VIP', tipo: null });
+
+    await execute(interaction);
+
+    expect(interaction.editReply.mock.calls[0][0].content).not.toContain('⚠️');
+  });
+});
+
+describe('suggestSpecialType — detección por nombre', () => {
+  it.each([
+    ['rob_shield', 'rob_shield'],
+    ['Escudo Anti-Robo', 'rob_shield'],
+    ['🛡️ escudo', 'rob_shield'],
+    ['Caja Misteriosa', 'mystery_box'],
+    ['caja_misteriosa', 'mystery_box'],
+    ['Impulso de XP', 'xp_boost'],
+    ['XP Boost x2', 'xp_boost'],
+  ])('"%s" → %s', async (name, expected) => {
+    const { suggestSpecialType } = await import('../src/commands/economia/shopAdmin.js');
+    expect(suggestSpecialType(name)?.type).toBe(expected);
+  });
+
+  it.each(['Rol VIP', 'Apodo', '🎨 Rol de Color', '', null])('"%s" → sin sugerencia', async (name) => {
+    const { suggestSpecialType } = await import('../src/commands/economia/shopAdmin.js');
+    expect(suggestSpecialType(name)).toBeNull();
+  });
+});

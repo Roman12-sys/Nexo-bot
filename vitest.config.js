@@ -10,5 +10,7 @@ import { defineConfig, configDefaults } from 'vitest/config';
 export default defineConfig({
   test: {
     exclude: [...configDefaults.exclude, '.claude/**'],
+    // Corta cualquier conexión real a Supabase desde la suite — ver el archivo.
+    setupFiles: ['./tests/setup/noLiveSupabase.js'],
   },
 });

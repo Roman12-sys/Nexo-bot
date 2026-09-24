@@ -1,5 +1,5 @@
-// Tarjeta de rango visual para /nivel — mismo patrón exacto que welcomeImage.js (fuentes
-// propias registradas desde archivos, porque Railway no trae ninguna instalada; avatar
+// Tarjeta de rango visual para /nivel — mismo patrón que tenía el viejo banner de
+// bienvenida welcomeImage.js, borrado el 2026-09-23 (fuentes propias registradas desde archivos, porque Railway no trae ninguna instalada; avatar
 // circular cargado por fetch). Antes /nivel mostraba el progreso como una barra de texto
 // Unicode; esto reusa la infraestructura de canvas que el proyecto ya tiene resuelta.
 import path from 'node:path';

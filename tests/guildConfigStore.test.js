@@ -8,7 +8,7 @@ import { createSupabaseMock } from './helpers/supabaseMock.js';
 const supabaseMock = createSupabaseMock();
 vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMock; } }));
 
-const { getGuildConfig, setGuildConfig, invalidateGuildConfig, getGuildsWithWeeklyDigestEnabled } = await import('../src/utils/guildConfigStore.js');
+const { getGuildConfig, setGuildConfig, invalidateGuildConfig, getGuildsWithWeeklyDigestEnabled, getGuildsWithMemberCounter } = await import('../src/utils/guildConfigStore.js');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -91,6 +91,40 @@ describe('getGuildsWithWeeklyDigestEnabled', () => {
       { guildId: 'guild-1', lastSentAt: 1000 },
       { guildId: 'guild-2', lastSentAt: null },
     ]);
+  });
+});
+
+// Auditoría 2026-09-23 — el barrido del contador de miembros pasó de getGuildConfig por
+// cada guild del bot a esta única consulta filtrada (mismo criterio que la de arriba).
+describe('getGuildsWithMemberCounter', () => {
+  it('filtra en Postgres solo los guilds con contador (no trae la tabla entera)', async () => {
+    const builder = supabaseMock.getBuilder('guild_config');
+    builder.__setResult({ data: [], error: null });
+
+    await getGuildsWithMemberCounter();
+
+    expect(builder.not).toHaveBeenCalledWith('member_counter_channel_id', 'is', null);
+  });
+
+  it('mapea las columnas a guildId/channelId/lastCount', async () => {
+    supabaseMock.getBuilder('guild_config').__setResult({
+      data: [
+        { guild_id: 'guild-1', member_counter_channel_id: 'chan-1', member_counter_last_count: 19 },
+        { guild_id: 'guild-2', member_counter_channel_id: 'chan-2', member_counter_last_count: null },
+      ],
+      error: null,
+    });
+
+    expect(await getGuildsWithMemberCounter()).toEqual([
+      { guildId: 'guild-1', channelId: 'chan-1', lastCount: 19 },
+      { guildId: 'guild-2', channelId: 'chan-2', lastCount: null },
+    ]);
+  });
+
+  it('un error de Supabase se propaga', async () => {
+    supabaseMock.getBuilder('guild_config').__setResult({ data: null, error: new Error('boom') });
+
+    await expect(getGuildsWithMemberCounter()).rejects.toThrow('boom');
   });
 });
 

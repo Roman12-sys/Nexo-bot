@@ -121,3 +121,21 @@ export async function getGuildsWithWeeklyDigestEnabled() {
   if (error) throw error;
   return (data || []).map((row) => ({ guildId: row.guild_id, lastSentAt: row.weekly_digest_last_sent_at }));
 }
+
+// Usada por memberCounterEngine.js — mismo motivo que las dos de arriba. Antes el barrido
+// recorría TODOS los guilds del bot con getGuildConfig uno por uno cada 15 min: el cache
+// de 30s nunca servía (tick de 15 min), así que era un SELECT real por guild por tick,
+// aunque casi ninguno tenga contador (auditoría 2026-09-23).
+export async function getGuildsWithMemberCounter() {
+  const { data, error } = await supabase
+    .from('guild_config')
+    .select('guild_id, member_counter_channel_id, member_counter_last_count')
+    .not('member_counter_channel_id', 'is', null);
+
+  if (error) throw error;
+  return (data || []).map((row) => ({
+    guildId: row.guild_id,
+    channelId: row.member_counter_channel_id,
+    lastCount: row.member_counter_last_count,
+  }));
+}

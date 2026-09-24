@@ -6,7 +6,8 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 // conteo cambió desde la última vez guardada, nunca un "touch" sin cambios reales.
 const getGuildConfig = vi.fn();
 const setGuildConfig = vi.fn().mockResolvedValue(undefined);
-vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig, setGuildConfig }));
+const getGuildsWithMemberCounter = vi.fn().mockResolvedValue([]);
+vi.mock('../src/utils/guildConfigStore.js', () => ({ getGuildConfig, setGuildConfig, getGuildsWithMemberCounter }));
 
 const reportCriticalError = vi.fn().mockResolvedValue(undefined);
 vi.mock('../src/utils/errorReporter.js', () => ({ reportCriticalError }));
@@ -112,11 +113,10 @@ describe('memberCounterEngine — runMemberCounterSweep', () => {
     const guildOk = makeGuild({ guildId: 'guild-ok', memberCount: 2, channel: channelOk });
     const guildFails = makeGuild({ guildId: 'guild-fail', memberCount: 2, channel: channelFails });
 
-    getGuildConfig.mockImplementation(async (id) =>
-      id === 'guild-ok'
-        ? { member_counter_channel_id: 'chan-ok', member_counter_last_count: 1 }
-        : { member_counter_channel_id: 'chan-fail', member_counter_last_count: 1 },
-    );
+    getGuildsWithMemberCounter.mockResolvedValue([
+      { guildId: 'guild-fail', channelId: 'chan-fail', lastCount: 1 },
+      { guildId: 'guild-ok', channelId: 'chan-ok', lastCount: 1 },
+    ]);
 
     const client = { guilds: { cache: new Map([['guild-ok', guildOk], ['guild-fail', guildFails]]) } };
 
@@ -124,5 +124,37 @@ describe('memberCounterEngine — runMemberCounterSweep', () => {
     expect(channelOk.setName).toHaveBeenCalled();
     // El guild que falló nunca marcó last_count como si el cambio se hubiera aplicado.
     expect(setGuildConfig).not.toHaveBeenCalledWith('guild-fail', expect.anything());
+  });
+
+  // Auditoría 2026-09-23: el barrido hacía getGuildConfig por CADA guild del bot cada 15
+  // min (el cache de 30s nunca servía), aunque casi ninguno tenga contador.
+  it('una sola consulta de guilds con contador — nunca getGuildConfig guild por guild', async () => {
+    const channel = makeRealChannel('chan-1', '👥・Miembros: 1');
+    const withCounter = makeGuild({ guildId: 'guild-1', memberCount: 5, channel });
+    const withoutCounter = makeGuild({ guildId: 'guild-2', memberCount: 9 });
+    getGuildsWithMemberCounter.mockResolvedValue([{ guildId: 'guild-1', channelId: 'chan-1', lastCount: 1 }]);
+    const client = { guilds: { cache: new Map([['guild-1', withCounter], ['guild-2', withoutCounter]]) } };
+
+    await runMemberCounterSweep(client);
+
+    expect(getGuildsWithMemberCounter).toHaveBeenCalledTimes(1);
+    expect(getGuildConfig).not.toHaveBeenCalled();
+    expect(channel.setName).toHaveBeenCalledWith(buildCounterChannelName(5), expect.any(String));
+    expect(setGuildConfig).toHaveBeenCalledTimes(1);
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { member_counter_last_count: 5 });
+  });
+
+  it('una fila de un servidor donde el bot ya no está se saltea sin error', async () => {
+    getGuildsWithMemberCounter.mockResolvedValue([{ guildId: 'guild-gone', channelId: 'chan-x', lastCount: 1 }]);
+    const client = { guilds: { cache: new Map() } };
+
+    await expect(runMemberCounterSweep(client)).resolves.not.toThrow();
+    expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('si la consulta de guilds falla, el error sube (lo loguea y alerta startMemberCounterLoop)', async () => {
+    getGuildsWithMemberCounter.mockRejectedValue(new Error('supabase caído'));
+
+    await expect(runMemberCounterSweep({ guilds: { cache: new Map() } })).rejects.toThrow('supabase caído');
   });
 });

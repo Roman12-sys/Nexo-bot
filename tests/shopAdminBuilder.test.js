@@ -173,6 +173,43 @@ describe('/shop-admin builder — crear (vista previa)', () => {
     expect(addShopItem).not.toHaveBeenCalled();
     expect(afterCancel.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('expiró') }));
   });
+
+  // Auditoría 2026-09-23: un ítem "rob_shield" sin tipo en producción cobraba y no
+  // daba nada. El aviso aparece ANTES de guardar, en la vista previa, y desaparece
+  // apenas se elige el tipo.
+  it('nombre de escudo con tipo "Ítem normal": la vista previa avisa, y el aviso se va al elegir el tipo', async () => {
+    const base = makeBase();
+    await clickButton(base, 'shopadmin_builder_new');
+
+    const afterModal = await submitModal(base, 'modal_shopadmin_builder_fields', { nombre: 'Escudo Anti-Robo', precio: '2000' });
+    const warned = payloadOf(afterModal).embeds[0].data.fields.find((f) => f.name.startsWith('⚠️'));
+    expect(warned?.name).toContain('escudo anti-robo');
+
+    const afterTipo = await pickSelect(base, 'shopadmin_builder_tipo', ['rob_shield']);
+    expect(payloadOf(afterTipo).embeds[0].data.fields.some((f) => f.name.startsWith('⚠️'))).toBe(false);
+  });
+
+  it('un nombre sin relación con un tipo especial no muestra ningún aviso', async () => {
+    const base = makeBase();
+    await clickButton(base, 'shopadmin_builder_new');
+
+    const afterModal = await submitModal(base, 'modal_shopadmin_builder_fields', { nombre: 'Trofeo', precio: '300' });
+
+    expect(payloadOf(afterModal).embeds[0].data.fields.some((f) => f.name.startsWith('⚠️'))).toBe(false);
+  });
+
+  it('si igual se guarda sin tipo, el mensaje final repite el aviso con cómo corregirlo', async () => {
+    const base = makeBase();
+    await clickButton(base, 'shopadmin_builder_new');
+    await submitModal(base, 'modal_shopadmin_builder_fields', { nombre: 'rob_shield', precio: '2000' });
+
+    const saved = await clickButton(base, 'shopadmin_builder_save');
+
+    expect(addShopItem).toHaveBeenCalledWith('guild-1', expect.objectContaining({ type: null }));
+    const { content } = saved.editReply.mock.calls[0][0];
+    expect(content).toContain('Se agregó');
+    expect(content).toContain('/shop-admin quitar');
+  });
 });
 
 describe('/shop-admin builder — editar (vista previa, precargada)', () => {

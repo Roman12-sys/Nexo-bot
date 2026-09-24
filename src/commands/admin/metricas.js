@@ -1,12 +1,14 @@
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
 import { isStaff } from '../../utils/permissions.js';
-import { getTopCommands, getTotalUsage } from '../../utils/commandUsageStore.js';
+import { getTopLiveCommands, getTotalUsage } from '../../utils/commandUsageStore.js';
 import { BRAND_COLOR, BRAND_NAME, buildProgressBar } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
   .setName('metricas')
   .setDescription('Muestra los comandos más usados de este servidor.')
   .setDMPermission(false);
+
+const TOP_N = 10;
 
 export async function execute(interaction) {
   if (!(await isStaff(interaction))) {
@@ -16,7 +18,9 @@ export async function execute(interaction) {
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const [top, total] = await Promise.all([getTopCommands(interaction.guildId, 10), getTotalUsage(interaction.guildId)]);
+  // Solo comandos que existen hoy (ver getTopLiveCommands). El total del footer sí queda
+  // histórico: los comandos eliminados se ejecutaron de verdad.
+  const [top, total] = await Promise.all([getTopLiveCommands(interaction.guildId, interaction.client.commands, TOP_N), getTotalUsage(interaction.guildId)]);
 
   if (top.length === 0) {
     await interaction.editReply('📊 Todavía no hay uso registrado en este servidor.');

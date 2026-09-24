@@ -52,6 +52,23 @@ export async function getTopCommands(guildId, limit = 10) {
   return data ?? [];
 }
 
+// Top de comandos que EXISTEN hoy. command_usage nunca se limpia cuando un comando se
+// elimina del bot (en producción siguen /play, /pet, /report, /volume con usos reales de
+// cuando existían) — la tabla no se toca, ese histórico es real. Quien muestra un ranking
+// pasa el catálogo vivo que tiene a mano (cualquier cosa con .has()/.size): el bot,
+// client.commands; el dashboard (sin gateway), el catálogo generado del sitio. Una sola
+// implementación para las dos superficies, así nunca muestran rankings distintos.
+// Se piden filas de más para que las descartadas no dejen el top corto: en toda la vida
+// del bot se eliminaron ~10 comandos, 30 de margen sobra. Catálogo vacío (no cargó) =
+// no filtrar: mejor un ranking con un fantasma que uno vacío.
+const DEAD_COMMAND_MARGIN = 30;
+
+export async function getTopLiveCommands(guildId, liveNames, limit = 10) {
+  const rows = await getTopCommands(guildId, limit + DEAD_COMMAND_MARGIN);
+  if (!liveNames || liveNames.size === 0) return rows.slice(0, limit);
+  return rows.filter((row) => liveNames.has(row.command_name)).slice(0, limit);
+}
+
 export async function getTotalUsage(guildId) {
   const { data, error } = await supabase.from('command_usage').select('uses').eq('guild_id', guildId);
   if (error) throw error;

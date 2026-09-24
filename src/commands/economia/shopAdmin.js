@@ -67,6 +67,8 @@ async function handleAgregar(interaction) {
   if (wasUsingDefaults) {
     content += '\nℹ️ Tu servidor estaba usando el catálogo de ejemplo — a partir de ahora `/shop` muestra solo tus propios ítems.';
   }
+  const typeWarning = buildSavedWithoutTypeWarning(name, tipo);
+  if (typeWarning) content += `\n${typeWarning}`;
 
   await interaction.editReply({ content });
 }
@@ -233,6 +235,34 @@ const TIPO_OPTIONS = [
   { label: 'Escudo anti-robo (protege de /rob por 2hs)', value: 'rob_shield' },
 ];
 
+// Un nombre que "suena" a tipo especial pero guardado sin tipo deja el ítem inerte:
+// buy.js despacha el efecto SOLO por item.type, y el tipo no se puede cambiar después
+// (updateShopItem no acepta esa columna) — la única salida es borrar y recrear. Pasó en
+// producción (auditoría 2026-09-23): un ítem "rob_shield" sin tipo, 2000 monedas, que
+// además reemplazó todo el catálogo de ejemplo en /shop por ser el primer ítem propio.
+const SPECIAL_TYPE_KEYWORDS = [
+  { type: 'rob_shield', label: 'escudo anti-robo', words: ['escudo', 'shield', 'antirrobo', 'antirobo', 'anti robo'] },
+  { type: 'mystery_box', label: 'caja misteriosa', words: ['misteriosa', 'mystery'] },
+  { type: 'xp_boost', label: 'impulso de XP', words: ['impulso', 'boost'] },
+];
+
+export function suggestSpecialType(name) {
+  const normalized = (name || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ');
+  return SPECIAL_TYPE_KEYWORDS.find((k) => k.words.some((w) => normalized.includes(w))) || null;
+}
+
+// Aviso para DESPUÉS de guardar (el subcomando no tiene vista previa). null si no aplica.
+export function buildSavedWithoutTypeWarning(name, tipo) {
+  if (tipo) return null;
+  const match = suggestSpecialType(name);
+  if (!match) return null;
+  return `⚠️ **${name}** se guardó como ítem normal: al comprarlo solo se suma al inventario, sin ningún efecto. Si querías un ${match.label}, borralo con \`/shop-admin quitar\` y crealo de nuevo eligiendo el \`tipo\` — no se puede cambiar después.`;
+}
+
 // Misma línea de detalle que ya arma buildListarEmbed para un ítem real — la vista
 // previa del builder tiene que verse EXACTAMENTE como se va a ver una vez guardado,
 // nunca un resumen aparte que puede divergir.
@@ -263,6 +293,15 @@ function buildBuilderPayload(draft, mode) {
       name: '🔒 No editable acá',
       value: 'El comportamiento especial y la entrega manual no se pueden cambiar después de creado — quedan como estaban.',
     });
+  } else {
+    const hasTipo = draft.tipo && draft.tipo !== 'none';
+    const match = hasTipo ? null : suggestSpecialType(draft.name);
+    if (match) {
+      embed.addFields({
+        name: `⚠️ ¿Querías un ${match.label}?`,
+        value: 'El nombre lo sugiere, pero el comportamiento especial está en **Ítem normal**: así se guarda sin ningún efecto al comprarlo. Elegilo en el menú de abajo — después de guardar ya no se puede cambiar.',
+      });
+    }
   }
 
   const fieldsRow = new ActionRowBuilder().addComponents(
@@ -487,6 +526,8 @@ registerButtonPrefix('shopadmin_builder_save', async (i) => {
     if (wasUsingDefaults) {
       content += '\nℹ️ Tu servidor estaba usando el catálogo de ejemplo — a partir de ahora `/shop` muestra solo tus propios ítems.';
     }
+    const typeWarning = buildSavedWithoutTypeWarning(draft.name, tipo);
+    if (typeWarning) content += `\n${typeWarning}`;
     await i.editReply({ content, embeds: [], components: [] });
     return;
   }

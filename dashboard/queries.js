@@ -3,7 +3,8 @@
 // tablas, mismo cliente, corriendo en un proceso Node separado del bot pero contra la
 // misma base de Supabase.
 import { supabase } from '../src/supabaseClient.js';
-import { getTopCommands, getTotalUsage } from '../src/utils/commandUsageStore.js';
+import { getTopLiveCommands, getTotalUsage } from '../src/utils/commandUsageStore.js';
+import { COMMANDS } from '../website/data/commands.js';
 import { getUnlockedGuildAchievementIds } from '../src/utils/guildAchievements.js';
 import { getGuildGiveawaysForAutocomplete } from '../src/utils/giveawaysStore.js';
 import { getGuildTrivia } from '../src/utils/triviaStore.js';
@@ -15,6 +16,11 @@ import { getLastAnnouncedPatchUrl, getLolPatchMonitorState } from '../src/utils/
 import { fetchGuild, fetchGuildMember, fetchGuildMembersWithRole, fetchGuildChannels, fetchGuildRoles, fetchBotGuilds, mapWithConcurrency } from './discordApi.js';
 import { isStaffFromRoles } from './permissions.js';
 import { getGuildVoiceConfig } from '../src/utils/voiceConfigStore.js';
+
+// Nombres de los comandos que existen hoy, para no mostrar comandos eliminados en
+// "Comando más usado". Si el JSON del catálogo no está, queda vacío y
+// getTopLiveCommands no filtra (nunca un ranking vacío por un archivo faltante).
+const LIVE_COMMAND_NAMES = new Set(COMMANDS.map((command) => command.name));
 
 // Caché de metadata de guild (nombre/ícono/dueño) para la LISTA de servidores en la
 // home — reduce el N+1 real de listManagedGuilds (una llamada REST por cada guild_config
@@ -204,7 +210,11 @@ export async function loadGuildDashboardData(guildId) {
     reactionRolePanelCount,
   ] = await allWithConcurrency(
     [
-      () => getTopCommands(guildId, 5),
+      // Solo comandos que existen hoy — mismo filtro que /metricas (getTopLiveCommands).
+      // El dashboard no tiene client.commands (sin gateway), así que usa el catálogo que
+      // ya genera el sitio desde los SlashCommandBuilder reales; websiteData.test.js
+      // falla si ese JSON se desincroniza de los archivos de comando.
+      () => getTopLiveCommands(guildId, LIVE_COMMAND_NAMES, 5),
       () => getTotalUsage(guildId),
       () => getUnlockedGuildAchievementIds(guildId),
       () => fetchTopBalances(guildId),

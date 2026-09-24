@@ -20,6 +20,15 @@ vi.mock('../src/utils/warnsStore.js', () => ({ addWarn, getUserWarns, removeWarn
 const getGuildLogChannel = vi.fn();
 vi.mock('../src/utils/guildLogChannels.js', () => ({ getGuildLogChannel }));
 
+// Sin este mock, recordModerationAction corría de verdad: cada test de ban/kick
+// insertaba una fila en moderation_actions de la Supabase de PRODUCCIÓN (990 filas de
+// guild-1/mod-1 acumuladas hasta 2026-09-23), y el round-trip real de red era lo que
+// hacía vencer el timeout de 5000ms en la suite completa.
+const recordModerationAction = vi.fn().mockResolvedValue(undefined);
+const getUserModerationActions = vi.fn().mockResolvedValue([]);
+const getGuildFrequentReasons = vi.fn().mockResolvedValue([]);
+vi.mock('../src/utils/moderationActionsStore.js', () => ({ recordModerationAction, getUserModerationActions, getGuildFrequentReasons }));
+
 const { execute: warnExecute } = await import('../src/commands/moderacion/warn.js');
 const { execute: kickExecute } = await import('../src/commands/moderacion/kick.js');
 const { execute: banExecute } = await import('../src/commands/moderacion/ban.js');

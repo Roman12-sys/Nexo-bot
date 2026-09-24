@@ -185,8 +185,8 @@ precio de un ítem de vuelta, pero nunca de ítems con `roleId` (el rol ya se en
 
 ## Gotchas ya pisados (además del de las columnas de cooldown, arriba)
 
-**Emoji dentro de un canvas.** `@napi-rs/canvas` (usado en `welcomeImage.js` y
-`rankCardImage.js`) no tiene ninguna fuente de emoji de color disponible en el
+**Emoji dentro de un canvas.** `@napi-rs/canvas` (usado hoy solo en `rankCardImage.js`;
+antes también en `welcomeImage.js`, borrado el 2026-09-23) no tiene ninguna fuente de emoji de color disponible en el
 contenedor de Railway — cualquier emoji dibujado con `ctx.fillText()` se ve como un
 cuadrado vacío, sin ningún error que lo avise. Pasó dos veces en la misma sesión (una
 vez arreglado en `rankCardImage.js`, después repetido sin querer en la tarjeta de
@@ -811,8 +811,15 @@ documentan `/report` tal como existió; quedan como historial, no como estado ac
 
 `npm test` corre los tests de `tests/`. Todo lo que toca Supabase se mockea con
 `tests/helpers/supabaseMock.js` (un builder encadenable y a la vez "thenable", para
-cubrir tanto `select().eq().maybeSingle()` como `update().eq()` sin terminal explícito) —
-ningún test le pega a la base real. Prioriza lo que rompe en silencio si falla: params
+cubrir tanto `select().eq().maybeSingle()` como `update().eq()` sin terminal explícito).
+**Que ningún test le pegue a la base real no depende de que cada archivo mockee bien:**
+lo garantiza `tests/setup/noLiveSupabase.js` (`setupFiles` de `vitest.config.js`), que
+apunta `SUPABASE_URL` a un puerto local cerrado antes de que cargue `src/config.js`
+(`dotenv` nunca pisa una variable ya definida). Hasta el 2026-09-23 esa garantía era solo
+de palabra: `moderation.test.js` no mockeaba `moderationActionsStore.js`, y cada corrida
+insertaba filas de ban/kick en `moderation_actions` de PRODUCCIÓN con la service_role key
+del `.env` local (990 filas de `guild-1`/`mod-1` acumuladas desde el 2026-08-23). Un mock
+faltante ahora falla en local con `ECONNREFUSED`, nunca llega a la base. Prioriza lo que rompe en silencio si falla: params
 exactos a los RPCs atómicos de economía (`increment_balance`, `transfer_balance`, etc.),
 mapeo de `insufficient_funds` a `.code`, los 3 filtros anti-farm de `grantMessageXp`, el
 cache de 30s + aislamiento entre guilds de `guildConfigStore`, y la matriz de roles de
@@ -855,13 +862,13 @@ estado en memoria keyeado por string (`${guildId}:${userId}`), no solo una query
 filtrada. `guildDelete.test.js` dejó de mantener una lista manual de tablas: compara
 contra `GUILD_SCOPED_TABLES`, la constante real exportada por el propio módulo.
 
-Estado al 2026-09-19: **125 archivos / 1253 tests**. **Flaky conocido, no relacionado con
-lo que se esté tocando:** `tests/moderation.test.js` — los tests de confirmación de `/kick`
-y `/ban` a veces vencen el timeout de 5000ms al correr la suite COMPLETA (pasó en 3 de 4
-corridas completas de la sesión del 2026-09-19, todas con cambios que no tocaban moderación),
-y pasan 25/25 en aislamiento (`npx vitest run tests/moderation.test.js`, ~2s). Antes
-de investigar un fallo ahí, re-correr ese archivo solo; la causa raíz no se investigó (parece
-carga de la suite, no un bug del comando). Cuando se agrega un export nuevo a un módulo que
+Estado al 2026-09-23: **128 archivos / 1316 tests**. **El "flaky" de `moderation.test.js`
+tenía causa real, ya cerrada (2026-09-23):** los tests de confirmación de `/kick`/`/ban`
+vencían a veces el timeout de 5000ms en la suite completa porque hacían un INSERT real de
+red a Supabase de producción (ver arriba) — la latencia de red, no la carga de la suite.
+Con el mock agregado el archivo corre en ~34ms de tests. Si vuelve a aparecer un timeout
+intermitente en cualquier archivo, sospechar primero de una llamada de red real que el
+guard ahora convierte en `ECONNREFUSED`. Cuando se agrega un export nuevo a un módulo que
 un test mockea entero con `vi.mock(...)` (ej. `dashboard/discordApi.js` en
 `dashboardQueries.test.js`), hay que sumarlo al mock: sin él el import a nivel de módulo
 devuelve `undefined` y rompe todos los tests del archivo, no solo los del cambio.
@@ -1307,9 +1314,15 @@ describa lo que el código realmente hace.
 `report` (6) y `volume` (6) — 74 usos de 4 comandos eliminados en Fase 3B/3C y en la
 baja de `/report`. `guildDelete.js` borra por `guild_id`, nunca por comando, y no existe
 ningún barrido que compare la tabla contra `src/commands/**`. No es un bug (el histórico
-es real, esos comandos se usaron de verdad), pero `/metricas` y cualquier lectura de
-"top comandos" incluyen comandos muertos — tenerlo en cuenta antes de sacar una
-conclusión de producto de ese ranking. Al chequear si un comando sigue vivo, grepear
+es real, esos comandos se usaron de verdad). Desde el 2026-09-23 los dos rankings que
+se muestran (`/metricas` y "Comando más usado" del dashboard) pasan por
+`getTopLiveCommands(guildId, liveNames, limit)` de `commandUsageStore.js` — una sola
+implementación, con 30 filas de margen para que los descartados no dejen el top corto.
+El bot le pasa `client.commands`; el dashboard (sin gateway) el catálogo de
+`website/data/commands.generated.json`, que ya se versiona y que `websiteData.test.js`
+mantiene sincronizado con los archivos de comando. Catálogo vacío = no filtra. El total
+("comandos ejecutados") queda histórico a propósito. Cualquier lectura directa nueva de
+la tabla SÍ incluye comandos muertos — usar esa función. Al chequear si un comando sigue vivo, grepear
 `setName('x')`, NUNCA el nombre de archivo: `/xp` vive en `moderacion/xpStaff.js`.
 
 **`/buy` — rol borrado de Discord ya no cobra sin entregar nada.** Dos capas: (1) chequeo
@@ -2273,8 +2286,10 @@ dashboard que todavía no la reflejaba.** Los 4 reales, arreglados el mismo día
   constructor nuevo") apenas se abre uno nuevo, vía un `ownerInteraction` guardado en la
   sesión. `MAX_ROLES_PER_PANEL` (antes duplicado como el literal `5` a mano en
   `rolreacciones.js`) ahora se importa de `reactionRolePanels.js`. CHECK constraints
-  para las 12 columnas de tuning (`migration_2026_09_18_economy_tuning_checks.sql`,
-  preparada — **no corrida todavía**, defensa en profundidad barata pero sin ningún
+  para las 12 columnas de tuning (`migration_2026_09_18_economy_tuning_checks.sql` —
+  **ya corrida en producción**, verificado 2026-09-23 provocando a propósito la violación
+  de `economy_daily_range_check` y revirtiendo; esta línea decía "no corrida todavía",
+  información vieja), defensa en profundidad barata pero sin ningún
   bypass real hoy: el único escritor, `/config economia`, ya valida `min<=max` y
   Discord acota 1-100 en la opción).
 
@@ -2935,6 +2950,14 @@ catálogo de ejemplo (la tienda funciona igual).
 Lógica pura en `src/utils/` (`setupState.js`, `setupRoleTiers.js`, `setupDiagnostics.js`,
 `welcomeEmbed.js`, `memberCounterEngine.js`), toda la UI de Discord en `setup.js`.
 
+**Todo botón/select/modal de `setup.js` se registra con `registerSetupButton`/
+`registerSetupSelect`/`registerSetupModal`, nunca con los `register*Prefix` genéricos.**
+Esos wrappers (`guardSetup`) revalidan el mismo gate que `execute()` (dueño o
+`Administrator`) en cada click. Hasta el 2026-09-23 ninguno de los 26 registros lo hacía
+— se apoyaban en que el panel es ephemeral, un supuesto del cliente y no una garantía del
+código (mismo criterio que `/staff`). `tests/setupComponentGate.test.js` recorre las 26
+superficies con un miembro común; un handler nuevo hay que sumarlo ahí.
+
 - **Roles**: matriz de 6 tiers (Administrador/Co-Founder/Coordinador/Moderador/Ayudante/
   Staff), nombre y color editables (por hex, sin selector visual). Nunca incluyen el bit
   nativo `Administrator`. **Permisos nativos de Discord ≠ tier de NEXO**: crear un rol de la
@@ -2953,10 +2976,13 @@ Lógica pura en `src/utils/` (`setupState.js`, `setupRoleTiers.js`, `setupDiagno
 - **Bienvenida**: embed en vez de la imagen de canvas (`welcomeEmbed.js`). Título/
   descripción/color/footer en 4 columnas nullable, `null` = texto de ejemplo. El trailer
   con el hint de `/help` se agrega SIEMPRE en el mensaje real (`buildWelcomeEmbed`) y NUNCA
-  en la vista previa del editor. `welcomeImage.js` quedó **sin ningún import real** (solo
-  comentarios) — código muerto, candidato a borrar.
+  en la vista previa del editor. `welcomeImage.js` quedó sin ningún import real y **se
+  borró el 2026-09-23** (nunca tuvo tests propios, pese a lo que decía un comentario).
 - **Contador**: canal de voz con Connect denegado, barrido cada 15 min
-  (`startMemberCounterLoop` en `ready.js`), **solo renombra si el conteo cambió** (Discord
+  (`startMemberCounterLoop` en `ready.js`) sobre UNA consulta filtrada
+  (`getGuildsWithMemberCounter`, desde 2026-09-23 — antes pedía `getGuildConfig` por cada
+  guild del bot en cada tick, y el cache de 30s nunca servía con un tick de 15 min),
+  **solo renombra si el conteo cambió** (Discord
   limita los renames a ~2 cada 10 min por canal). "Desactivar" limpia la columna, no borra
   el canal.
 
@@ -3000,10 +3026,15 @@ necesitan `.id` como propiedad, no solo como key del Map.
 - **Creación real de roles** (`roles.create({permissions:[...]})`, `setPositions`),
   **Diagnóstico → Corregir**, **crear el contador** y el **scan ampliado**: solo probados
   con mocks. Únicamente el editor de bienvenida se probó de verdad en Discord.
-- **`/rolreacciones crear` sigue mostrando en Discord las opciones viejas** (`rol1`-`rol5`,
-  `canal`, `titulo`, `descripcion`). El código ya no las tiene desde el 2026-09-15 (`crear`
-  no tiene ninguna opción): es un registro de comandos desactualizado, falta `node
-  src/deploy-commands.js dev` (o el global). No es un bug de código.
+- ~~`/rolreacciones crear` sigue mostrando las opciones viejas~~ — **cerrado**: verificado
+  contra la API de Discord el 2026-09-23, el registro global ya tiene `crear` sin opciones
+  (91 comandos globales = 91 archivos). **Pero** el servidor de pruebas ("Prueba bot",
+  `GUILD_ID_DEV`) tiene además 89 comandos registrados a nivel servidor, una foto vieja
+  (22-ago a 11-sep) que Discord mostraba DUPLICADA junto a la global. **Limpiado el
+  2026-09-23** (PUT vacío a `applicationGuildCommands(CLIENT_ID, GUILD_ID_DEV)`: 89 → 0,
+  global intacto en 91). Ojo: cada `node src/deploy-commands.js dev` la vuelve a llenar —
+  sirve para probar un comando nuevo al instante (el global tarda hasta 1h), pero
+  después de desplegar el global conviene vaciarla de nuevo o se repiten los duplicados.
 - Decisión de producto abierta: el flujo rápido crea UN rol "Staff" y el wizard hasta 6 —
   un admin puede correr los dos y terminar con roles redundantes; el panel principal no
   dice cuál es el camino recomendado.

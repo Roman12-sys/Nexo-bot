@@ -167,9 +167,9 @@ export async function execute(member, client) {
     // anterior basado en imagen (@napi-rs/canvas, welcomeImage.js) — texto + color +
     // footer 100% personalizables desde /setup (welcome_title/welcome_description/
     // welcome_color/welcome_footer en guild_config, todos nullable: null = el texto de
-    // ejemplo de siempre). welcomeImage.js no se borró — rankCardImage.js sigue
-    // dependiendo de la misma infraestructura de canvas/fuentes — solo dejó de ser el
-    // camino por defecto acá.
+    // ejemplo de siempre). welcomeImage.js quedó sin ningún import y se borró el
+    // 2026-09-23; @napi-rs/canvas y las fuentes siguen porque rankCardImage.js (/nivel)
+    // los usa por su cuenta.
     const embed = buildWelcomeEmbed(cfg, contextFromMember(member));
 
     // El menú de roles autoasignables es opcional a propósito: si el server no

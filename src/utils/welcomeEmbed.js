@@ -1,8 +1,7 @@
 // Embed de bienvenida personalizable (NEXO Setup Inteligente, Bloques 11-12) —
 // reemplaza el enfoque basado en imagen (welcomeImage.js, @napi-rs/canvas) como
-// respuesta por defecto de guildMemberAdd.js. welcomeImage.js NO se borra (rankCardImage.js
-// sigue dependiendo de la misma infraestructura de canvas/fuentes, y es una utilidad
-// propia con sus propios tests) — solo deja de ser el camino por defecto.
+// respuesta de guildMemberAdd.js. welcomeImage.js quedó sin imports y se borró el
+// 2026-09-23 (nunca tuvo tests propios); el canvas y las fuentes siguen para /nivel.
 //
 // 4 columnas nuevas y nullable en guild_config (welcome_title/welcome_description/
 // welcome_color/welcome_footer): null en cualquiera de ellas = usar el default de acá

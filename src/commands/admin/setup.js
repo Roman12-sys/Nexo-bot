@@ -150,9 +150,28 @@ export const data = new SlashCommandBuilder()
 function canRunSetup(interaction) {
   return (
     interaction.guild.ownerId === interaction.user.id ||
-    interaction.member.permissions.has(PermissionFlagsBits.Administrator)
+    Boolean(interaction.member?.permissions?.has(PermissionFlagsBits.Administrator))
   );
 }
+
+// Cada botón/select/modal del panel revalida el MISMO gate que execute(). Que el panel
+// sea ephemeral (hoy nadie más lo ve) es un supuesto del cliente de Discord, no una
+// garantía del código — mismo criterio que /staff, que revalida en cada superficie.
+// Registrar siempre con estos wrappers (nunca con registerButtonPrefix & cía. directo)
+// hace que un handler nuevo de /setup nazca protegido. Auditoría 2026-09-23: antes de
+// esto, 0 de los 26 registros de este archivo revalidaban el permiso.
+const SETUP_DENIED = '❌ Solo el dueño del servidor o un administrador puede usar /setup.';
+
+function guardSetup(handler) {
+  return async (i) => {
+    if (!canRunSetup(i)) return i.reply({ content: SETUP_DENIED, flags: MessageFlags.Ephemeral });
+    return handler(i);
+  };
+}
+
+const registerSetupButton = (prefix, handler) => registerButtonPrefix(prefix, guardSetup(handler));
+const registerSetupSelect = (prefix, handler) => registerSelectPrefix(prefix, guardSetup(handler));
+const registerSetupModal = (prefix, handler) => registerModalPrefix(prefix, guardSetup(handler));
 
 // ---------- Selección de plantilla (paso previo al panel) ----------
 
@@ -586,7 +605,7 @@ const SESSION_EXPIRED = '❌ Esta sesión de /setup expiró. Iniciá de nuevo co
 // explícito, ninguna plantilla los prende por vos.
 const EXTRAS_DEFAULT_STATE = Object.fromEntries(Object.values(EXTRAS).map((e) => [e.stateKey, false]));
 
-registerButtonPrefix('setup_template_', async (i) => {
+registerSetupButton('setup_template_', async (i) => {
   const key = i.customId.replace('setup_template_', '');
   const template = TEMPLATES[key];
   if (!template) return i.reply({ content: '❌ Plantilla inválida.', flags: MessageFlags.Ephemeral });
@@ -599,7 +618,7 @@ registerButtonPrefix('setup_template_', async (i) => {
 // Un solo handler genérico para los 7 toggles del panel (3 módulos + 4 extras) en vez
 // de repetir el mismo bloque de 6 líneas siete veces.
 function registerToggle(customId, stateKey) {
-  registerButtonPrefix(customId, async (i) => {
+  registerSetupButton(customId, async (i) => {
     const session = requireSession(i);
     if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
     session.state[stateKey] = !session.state[stateKey];
@@ -614,7 +633,7 @@ for (const extra of Object.values(EXTRAS)) {
   registerToggle(`setup_toggle_${extra.stateKey}`, extra.stateKey);
 }
 
-registerSelectPrefix('setup_role_select', async (i) => {
+registerSetupSelect('setup_role_select', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   session.state.roleId = i.values[0] || null;
@@ -622,7 +641,7 @@ registerSelectPrefix('setup_role_select', async (i) => {
   await i.update(buildSetupPanel(session.state));
 });
 
-registerButtonPrefix('setup_confirm', async (i) => {
+registerSetupButton('setup_confirm', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
@@ -646,7 +665,7 @@ registerButtonPrefix('setup_confirm', async (i) => {
   }
 });
 
-registerButtonPrefix('setup_cancel', async (i) => {
+registerSetupButton('setup_cancel', async (i) => {
   sessions.delete(sessionKey(i.guildId, i.user.id));
   await i.update({ content: '❌ /setup cancelado.', embeds: [], components: [] });
 });
@@ -699,11 +718,11 @@ const WIZARD_SESSION_EXPIRED = '❌ Esta sesión expiró. Volvé a abrir la secc
 
 // ---------- Navegación genérica ----------
 
-registerButtonPrefix('setuphome_quickstart', async (i) => {
+registerSetupButton('setuphome_quickstart', async (i) => {
   await i.update(buildTemplatePicker());
 });
 
-registerButtonPrefix('setuphome_back', async (i) => {
+registerSetupButton('setuphome_back', async (i) => {
   const payload = await renderHome(i, i.guild, i.guildId);
   await i.update(payload);
 });
@@ -871,12 +890,12 @@ async function createSelectedRoleTiers(interaction, rolesDraft) {
   return { results, createdRoles, fatalError: null };
 }
 
-registerButtonPrefix('setuphome_roles', async (i) => {
+registerSetupButton('setuphome_roles', async (i) => {
   const session = ensureWizardSession(i);
   await i.update(buildRoleWizardPanel(session.draft.rolesDraft));
 });
 
-registerSelectPrefix('setupwizard_roles_select', async (i) => {
+registerSetupSelect('setupwizard_roles_select', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   session.draft.rolesDraft.selectedTiers = i.values;
@@ -884,7 +903,7 @@ registerSelectPrefix('setupwizard_roles_select', async (i) => {
   await i.update(buildRoleWizardPanel(session.draft.rolesDraft));
 });
 
-registerSelectPrefix('setupwizard_roles_edittarget_select', async (i) => {
+registerSetupSelect('setupwizard_roles_edittarget_select', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
@@ -912,7 +931,7 @@ registerSelectPrefix('setupwizard_roles_edittarget_select', async (i) => {
   await i.showModal(modal);
 });
 
-registerModalPrefix('modal_setupwizard_roleedit_', async (i) => {
+registerSetupModal('modal_setupwizard_roleedit_', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
@@ -930,7 +949,7 @@ registerModalPrefix('modal_setupwizard_roleedit_', async (i) => {
   await i.update(buildRoleWizardPanel(session.draft.rolesDraft));
 });
 
-registerButtonPrefix('setupwizard_roles_create', async (i) => {
+registerSetupButton('setupwizard_roles_create', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
@@ -985,7 +1004,7 @@ registerButtonPrefix('setupwizard_roles_create', async (i) => {
   });
 });
 
-registerSelectPrefix('setupwizard_roles_admintier_select', async (i) => {
+registerSetupSelect('setupwizard_roles_admintier_select', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   session.draft.rolesDraft.wiringAdminRoleId = i.values[0] || null;
@@ -993,7 +1012,7 @@ registerSelectPrefix('setupwizard_roles_admintier_select', async (i) => {
   await i.deferUpdate();
 });
 
-registerSelectPrefix('setupwizard_roles_modtier_select', async (i) => {
+registerSetupSelect('setupwizard_roles_modtier_select', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
   session.draft.rolesDraft.wiringModeratorRoleId = i.values[0] || null;
@@ -1001,7 +1020,7 @@ registerSelectPrefix('setupwizard_roles_modtier_select', async (i) => {
   await i.deferUpdate();
 });
 
-registerButtonPrefix('setupwizard_roles_wiring_save', async (i) => {
+registerSetupButton('setupwizard_roles_wiring_save', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
@@ -1097,7 +1116,7 @@ function buildDiagnosticsPanel(findings, cfg) {
   return { embeds: [embed], components: rows };
 }
 
-registerButtonPrefix('setuphome_diagnostics', async (i) => {
+registerSetupButton('setuphome_diagnostics', async (i) => {
   const cfg = await getGuildConfig(i.guildId);
   const findings = [...scanGuildChannels(i.guild, cfg), ...scanGuildRoles(i.guild, cfg)];
   const session = ensureWizardSession(i);
@@ -1106,7 +1125,7 @@ registerButtonPrefix('setuphome_diagnostics', async (i) => {
   await i.update(buildDiagnosticsPanel(findings, cfg));
 });
 
-registerButtonPrefix('setupwizard_diagnostics_fix', async (i) => {
+registerSetupButton('setupwizard_diagnostics_fix', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
@@ -1183,12 +1202,12 @@ function buildCounterPanel(cfg, guild) {
   return { embeds: [embed], components: rows };
 }
 
-registerButtonPrefix('setuphome_counter', async (i) => {
+registerSetupButton('setuphome_counter', async (i) => {
   const cfg = await getGuildConfig(i.guildId);
   await i.update(buildCounterPanel(cfg, i.guild));
 });
 
-registerButtonPrefix('setupwizard_counter_create', async (i) => {
+registerSetupButton('setupwizard_counter_create', async (i) => {
   await withLock(`setup-counter:${i.guildId}:${i.user.id}`, async () => {
     await i.update({ content: '⏳ Configurando el contador...', embeds: [], components: [] });
     const cfg = await getGuildConfig(i.guildId);
@@ -1217,7 +1236,7 @@ registerButtonPrefix('setupwizard_counter_create', async (i) => {
   });
 });
 
-registerButtonPrefix('setupwizard_counter_disable', async (i) => {
+registerSetupButton('setupwizard_counter_disable', async (i) => {
   await setGuildConfig(i.guildId, { member_counter_channel_id: null, member_counter_last_count: null });
   const cfg = await getGuildConfig(i.guildId);
   await i.update(buildCounterPanel(cfg, i.guild));
@@ -1255,7 +1274,7 @@ function buildWelcomeEditorPanel(cfg, welcomeDraft, ctx) {
   return { embeds: [metaEmbed, preview], components: rows };
 }
 
-registerButtonPrefix('setuphome_welcome', async (i) => {
+registerSetupButton('setuphome_welcome', async (i) => {
   const session = ensureWizardSession(i);
   const cfg = await getGuildConfig(i.guildId);
   await i.update(buildWelcomeEditorPanel(cfg, session.draft.welcomeDraft, contextFromInteraction(i)));
@@ -1270,7 +1289,7 @@ registerButtonPrefix('setuphome_welcome', async (i) => {
 // array, no exige un solo estilo), no adivinado. Ocupa la 5ta fila — el máximo real de
 // un modal es 5, así que con los 4 campos de texto de siempre no queda lugar para nada
 // más. minValues 0: dejarlo sin tocar sigue guardando el texto igual que antes.
-registerButtonPrefix('setupwizard_welcome_edit', async (i) => {
+registerSetupButton('setupwizard_welcome_edit', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
@@ -1350,7 +1369,7 @@ registerButtonPrefix('setupwizard_welcome_edit', async (i) => {
   await i.showModal(modal);
 });
 
-registerModalPrefix('modal_setupwizard_welcometext', async (i) => {
+registerSetupModal('modal_setupwizard_welcometext', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
@@ -1385,7 +1404,7 @@ registerModalPrefix('modal_setupwizard_welcometext', async (i) => {
   await i.update(buildWelcomeEditorPanel(cfg, session.draft.welcomeDraft, contextFromInteraction(i)));
 });
 
-registerButtonPrefix('setupwizard_welcome_channel', async (i) => {
+registerSetupButton('setupwizard_welcome_channel', async (i) => {
   await withLock(`setup-welcome-channel:${i.guildId}:${i.user.id}`, async () => {
     const session = requireWizardSession(i);
     if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
@@ -1408,7 +1427,7 @@ registerButtonPrefix('setupwizard_welcome_channel', async (i) => {
   });
 });
 
-registerButtonPrefix('setupwizard_welcome_save', async (i) => {
+registerSetupButton('setupwizard_welcome_save', async (i) => {
   const session = requireWizardSession(i);
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
@@ -1463,6 +1482,6 @@ async function buildEconomyPanel(guildId) {
   return { embeds: [embed], components: rows };
 }
 
-registerButtonPrefix('setuphome_economy', async (i) => {
+registerSetupButton('setuphome_economy', async (i) => {
   await i.update(await buildEconomyPanel(i.guildId));
 });

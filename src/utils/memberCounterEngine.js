@@ -7,7 +7,7 @@
 // el peor caso, y un rename SOLO se dispara si el conteo realmente cambió desde la
 // última vez (member_counter_last_count) — nunca un "touch" sin cambios reales.
 import { reportCriticalError } from './errorReporter.js';
-import { getGuildConfig, setGuildConfig } from './guildConfigStore.js';
+import { getGuildConfig, setGuildConfig, getGuildsWithMemberCounter } from './guildConfigStore.js';
 
 export const MEMBER_COUNTER_TICK_MS = 15 * 60 * 1000;
 
@@ -17,17 +17,14 @@ export function buildCounterChannelName(count) {
   return `👥・Miembros: ${count.toLocaleString('es-ES')}`;
 }
 
-// Exportada aparte de syncMemberCounterForGuild para que /setup pueda armar el nombre
-// inicial exacto al crear el canal, sin duplicar el formato acá y allá.
-export async function syncMemberCounterForGuild(guild) {
-  const cfg = await getGuildConfig(guild.id);
-  if (!cfg.member_counter_channel_id) return { updated: false };
-
-  const channel = guild.channels.cache.get(cfg.member_counter_channel_id) || (await guild.channels.fetch(cfg.member_counter_channel_id).catch(() => null));
+// Núcleo compartido: recibe el canal y el último conteo ya leídos, así el barrido no
+// tiene que pedir la config de cada guild por separado.
+async function syncCounterChannel(guild, { channelId, lastCount }) {
+  const channel = guild.channels.cache.get(channelId) || (await guild.channels.fetch(channelId).catch(() => null));
   if (!channel) return { updated: false, missing: true }; // canal borrado a mano — no se recrea solo, ver setupState.js
 
   const count = guild.memberCount;
-  if (cfg.member_counter_last_count === count) return { updated: false };
+  if (lastCount === count) return { updated: false };
 
   const name = buildCounterChannelName(count);
   if (channel.name === name) {
@@ -40,10 +37,23 @@ export async function syncMemberCounterForGuild(guild) {
   return { updated: true };
 }
 
+// Un solo guild (lo usa /setup justo después de crear/reusar el canal).
+export async function syncMemberCounterForGuild(guild) {
+  const cfg = await getGuildConfig(guild.id);
+  if (!cfg.member_counter_channel_id) return { updated: false };
+  return syncCounterChannel(guild, { channelId: cfg.member_counter_channel_id, lastCount: cfg.member_counter_last_count });
+}
+
+// UNA consulta con los guilds que tienen contador, en vez de getGuildConfig por cada guild
+// del bot (auditoría 2026-09-23 — ver getGuildsWithMemberCounter). Si esa consulta falla,
+// el error sube a startMemberCounterLoop, que lo loguea y manda la alerta operativa.
 export async function runMemberCounterSweep(client) {
-  for (const guild of client.guilds.cache.values()) {
+  const counters = await getGuildsWithMemberCounter();
+  for (const counter of counters) {
+    const guild = client.guilds.cache.get(counter.guildId);
+    if (!guild) continue; // el bot ya no está ahí (guildDelete borra la fila al salir)
     try {
-      await syncMemberCounterForGuild(guild);
+      await syncCounterChannel(guild, counter);
     } catch (error) {
       // Rate limit de Discord u otro error puntual — se reintenta solo en el próximo
       // tick, sin marcar last_count como si el cambio se hubiera aplicado.

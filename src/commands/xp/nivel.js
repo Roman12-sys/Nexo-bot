@@ -5,7 +5,8 @@ import { GOLD_COLOR } from '../../utils/embeds.js';
 
 // Antes esto era un embed con la barra de progreso como texto Unicode. La tarjeta de
 // imagen reusa la infraestructura de canvas que ya existía para el banner de bienvenida
-// (welcomeImage.js) — mismo patrón de fuentes propias, mismo estilo visual de marca.
+// (welcomeImage.js, borrado el 2026-09-23 — la bienvenida ahora es un embed) — mismo
+// patrón de fuentes propias, mismo estilo visual de marca.
 export async function buildNivelPayload(guildId, targetUser) {
   const record = await getUserXp(guildId, targetUser.id);
   const progress = getLevelProgress(record.xp);

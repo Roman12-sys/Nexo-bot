@@ -9,9 +9,9 @@ import { createSupabaseMock } from './helpers/supabaseMock.js';
 const supabaseMock = createSupabaseMock();
 vi.mock('../src/supabaseClient.js', () => ({ get supabase() { return supabaseMock; } }));
 
-const getTopCommands = vi.fn().mockResolvedValue([]);
+const getTopLiveCommands = vi.fn().mockResolvedValue([]);
 const getTotalUsage = vi.fn().mockResolvedValue(0);
-vi.mock('../src/utils/commandUsageStore.js', () => ({ getTopCommands, getTotalUsage }));
+vi.mock('../src/utils/commandUsageStore.js', () => ({ getTopLiveCommands, getTotalUsage }));
 
 const getUnlockedGuildAchievementIds = vi.fn().mockResolvedValue(new Set());
 vi.mock('../src/utils/guildAchievements.js', () => ({ getUnlockedGuildAchievementIds }));
@@ -272,7 +272,7 @@ describe('loadGuildDashboardData — concurrencia acotada (sección 4)', () => {
     // funciones de este mismo archivo, no mocks — incluida fetchGuildConfigSummary,
     // sumada en DASH-1/Fase 4B) para forzar solapamiento real y medirlo, en vez de solo
     // confiar en que Promise.all lo haría de cualquier forma.
-    getTopCommands.mockImplementation(async () => { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight); await new Promise((r) => setTimeout(r, 5)); inFlight -= 1; return []; });
+    getTopLiveCommands.mockImplementation(async () => { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight); await new Promise((r) => setTimeout(r, 5)); inFlight -= 1; return []; });
     getTotalUsage.mockImplementation(async () => { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight); await new Promise((r) => setTimeout(r, 5)); inFlight -= 1; return 0; });
     getUnlockedGuildAchievementIds.mockImplementation(async () => { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight); await new Promise((r) => setTimeout(r, 5)); inFlight -= 1; return new Set(); });
     getGuildGiveawaysForAutocomplete.mockImplementation(async () => { inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight); await new Promise((r) => setTimeout(r, 5)); inFlight -= 1; return []; });
@@ -288,6 +288,23 @@ describe('loadGuildDashboardData — concurrencia acotada (sección 4)', () => {
 
     expect(maxInFlight).toBeLessThanOrEqual(6);
     expect(maxInFlight).toBeGreaterThan(1); // confirma que de verdad corrieron en paralelo, no todo secuencial
+  });
+});
+
+// Auditoría 2026-09-23: "Comando más usado" mostraba /play (música, eliminada) porque
+// command_usage nunca se limpia. El dashboard usa el mismo filtro que /metricas, con el
+// catálogo real de comandos (el que genera el sitio) como lista de vivos.
+describe('loadGuildDashboardData — ranking de comandos solo con comandos vivos', () => {
+  it('pide el top 5 con el catálogo real: incluye comandos que existen, no los eliminados', async () => {
+    mockLoadGuildDashboardDeps();
+
+    await loadGuildDashboardData('guild-1');
+
+    expect(getTopLiveCommands).toHaveBeenCalledWith('guild-1', expect.any(Set), 5);
+    const liveNames = getTopLiveCommands.mock.calls.at(-1)[1];
+    expect(liveNames.has('ruleta')).toBe(true);
+    expect(liveNames.has('setup')).toBe(true);
+    for (const dead of ['play', 'pet', 'report', 'volume']) expect(liveNames.has(dead)).toBe(false);
   });
 });
 
