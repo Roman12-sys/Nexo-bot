@@ -392,6 +392,10 @@ async function runSetup(interaction, state) {
   );
   if (staffMissing.includes(PermissionFlagsBits.ModerateMembers)) {
     summary.push(`⚠️ NEXO no tiene el permiso **Aplicar timeout**, así que ${staffRole} quedó sin él: tu staff no va a ver los comandos de moderación en el menú de "/" hasta que se lo agregues al rol.`);
+  } else if (!staffCreated && staffRole.permissions?.has?.(PermissionFlagsBits.ModerateMembers) === false) {
+    // Un rol reusado nunca se toca (podría ser uno armado a mano por el admin), pero sí
+    // se avisa: sin este permiso nativo, quien lo tenga no ve ningún comando de staff.
+    summary.push(`⚠️ ${staffRole} no tiene el permiso **Aplicar timeout**: quien tenga ese rol no va a ver los comandos de staff en el menú de "/". Agregáselo en *Ajustes del servidor → Roles*.`);
   }
 
   const needsCategory = state.moderacion || state.bienvenida || state.confesiones;

@@ -1050,6 +1050,21 @@ describe('/staff — Fase 4: XP (modo de roles) y Roles (autoasignables)', () =>
     expect(options.map((o) => o.data.value)).toEqual(['role-gaming', 'role-anime']);
   });
 
+  // El rol de castigo/staff que quedó en la lista no se ofrece a los miembros, pero el
+  // admin tiene que verlo marcado y poder sacarlo (pasó en Prueba bot, 2026-09-24).
+  it('un rol de castigo que quedó en la lista se marca ⛔ y se puede quitar', async () => {
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, selfassignable_roles: ['role-gaming', 'role-punish'] });
+    const interaction = makeInteraction({ isAdministrator: true });
+    interaction.guild.roles = { cache: new Map([['role-punish', { id: 'role-punish', name: 'Sancionado' }]]) };
+    await execute(interaction);
+    const roles = await nav(interaction, 'staff_nav_roles');
+    expect(fieldsOf(payloadOf(roles)).find((f) => f.name.startsWith('Autoasignables'))?.value).toContain('<@&role-punish> ⛔');
+
+    const clicked = await nav(interaction, 'staff_selfrole_remove');
+    const options = payloadOf(clicked).components[0].components[0].options;
+    expect(options.map((o) => o.data.label)).toContain('Sancionado (bloqueado)');
+  });
+
   it('quitar un rol autoasignable: se guarda, se audita, y quienes ya lo tenían lo conservan (mensaje lo aclara)', async () => {
     const interaction = makeInteraction({ isAdministrator: true });
     await execute(interaction);

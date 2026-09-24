@@ -250,6 +250,18 @@ describe('/setup — permisos nativos del rol "Staff" recién creado', () => {
     expect(finalEmbed?.data?.description).toMatch(/Aplicar timeout/);
   });
 
+  it('un rol "Staff" reusado sin "Aplicar timeout" genera un aviso; con el permiso, no', async () => {
+    for (const [bits, warns] of [[0n, true], [PermissionFlagsBits.ModerateMembers, false]]) {
+      getGuildConfig.mockResolvedValue({});
+      const interaction = withBotPermissions(makeInteraction({ roles: [makeRole('role-staff-viejo', 'Staff', { permissionBits: bits })] }), () => true);
+
+      await runSetupFlow(interaction, { extras: [] });
+
+      const description = interaction.editReply.mock.calls.at(-1)?.[0]?.embeds?.[0]?.data?.description ?? '';
+      expect(description.includes('no tiene el permiso **Aplicar timeout**')).toBe(warns);
+    }
+  });
+
   it('un rol "Staff" que ya existía se reusa sin tocarle los permisos', async () => {
     const existing = makeRole('role-staff-viejo', 'Staff');
     getGuildConfig.mockResolvedValue({});

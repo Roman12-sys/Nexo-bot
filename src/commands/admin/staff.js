@@ -649,8 +649,13 @@ function buildRolesScreen(cfg, interaction) {
   const selfRoles = cfg.selfassignable_roles || [];
   const levelRolesCount = Object.keys(cfg.level_roles || {}).length;
   const canEdit = isOwnerOrAdmin(interaction);
+  const hasBlocked = selfRoles.some((id) => getReservedSelfRoleReason(cfg, id));
+  const selfRolesValue = selfRoles.length
+    ? selfRoles.map((id) => (getReservedSelfRoleReason(cfg, id) ? `<@&${id}> ⛔` : `<@&${id}>`)).join(', ').slice(0, 850) +
+      (hasBlocked ? '\n⛔ No se ofrece a los miembros: es el rol de castigo o de staff de NEXO. Sacalo con ➖.' : '')
+    : '❌ Ninguno configurado';
   const embed = baseEmbed('roles').addFields(
-    { name: `Autoasignables (${selfRoles.length})`, value: selfRoles.length ? selfRoles.map((id) => `<@&${id}>`).join(', ').slice(0, 1000) : '❌ Ninguno configurado' },
+    { name: `Autoasignables (${selfRoles.length})`, value: selfRolesValue },
     { name: 'Por nivel', value: `${levelRolesCount} configurado(s)`, inline: true },
     { name: 'Rol automático', value: cfg.auto_role_id ? `<@&${cfg.auto_role_id}>` : '❌ Sin configurar', inline: true },
   );
@@ -679,9 +684,16 @@ function buildSelfRoleAddView() {
 // crudos de guild_config tal cual — revalida contra el servidor real (roles borrados,
 // que se volvieron peligrosos, o que quedaron por encima del bot) antes de mostrar la
 // lista para quitar.
+// Excepción: el rol de castigo/staff que quedó en la lista sí se ofrece para quitar
+// (marcado "bloqueado") — resolveLiveSelfRoles lo filtra para los miembros, pero sin
+// esto el admin lo veía listado en la pantalla de Roles y no tenía cómo sacarlo.
 async function buildSelfRoleRemoveView(guild, cfg) {
   const liveRoles = await resolveLiveSelfRoles(guild, cfg);
-  if (liveRoles.length === 0) {
+  const blockedRoles = (cfg.selfassignable_roles || [])
+    .filter((id) => getReservedSelfRoleReason(cfg, id))
+    .map((id) => guild.roles.cache.get(id))
+    .filter(Boolean);
+  if (liveRoles.length === 0 && blockedRoles.length === 0) {
     const embed = baseEmbed('roles').setDescription('Ya no queda ningún rol autoasignable válido para quitar (puede que se hayan borrado o hayan dejado de ser seguros).');
     const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
     return { embeds: [embed], components: [backRow] };
@@ -691,7 +703,10 @@ async function buildSelfRoleRemoveView(guild, cfg) {
     new StringSelectMenuBuilder()
       .setCustomId('staff_selfrole_remove_select')
       .setPlaceholder('Elegí un rol para quitar')
-      .addOptions(liveRoles.map((r) => new StringSelectMenuOptionBuilder().setLabel(r.name.slice(0, 100)).setValue(r.id))),
+      .addOptions([
+        ...liveRoles.map((r) => new StringSelectMenuOptionBuilder().setLabel(r.name.slice(0, 100)).setValue(r.id)),
+        ...blockedRoles.map((r) => new StringSelectMenuOptionBuilder().setLabel(`${r.name.slice(0, 85)} (bloqueado)`).setValue(r.id)),
+      ]),
   );
   const backRow = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('staff_edit_cancel').setLabel('Volver').setEmoji('↩️').setStyle(ButtonStyle.Secondary));
   return { embeds: [embed], components: [selectRow, backRow] };
