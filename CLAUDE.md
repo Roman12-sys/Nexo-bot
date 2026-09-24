@@ -206,6 +206,23 @@ pueden no tener ninguno). `getReservedSelfRoleReason` (`selfRoles.js`) rechaza a
 (`/config`, `/staff`) y `resolveLiveSelfRoles` los filtra en vivo, por si el rol se vuelve
 de castigo/staff después de entrar a la lista. En Prueba bot el caso de la captura era
 inofensivo: su "Sancionado" no era el `punish_role_id` ("nuevo rol") ni restringía nada.
+Minutos después sí lo fue: "Sancionado" pasó a ser el `punish_role_id` y seguía en la
+lista, con un miembro sancionado — el filtro en vivo ya desplegado fue lo único que lo
+frenó. **Regresión propia del mismo fix, corregida (`0b03baf`):** la vista "Quitar
+autoasignable" de `/staff` reusaba `resolveLiveSelfRoles` (el filtro pensado para
+miembros), así que el rol bloqueado seguía listado en la pantalla de Roles pero no se
+podía quitar. Ahora se marca ⛔ y se ofrece como "(bloqueado)". Una vista de ADMIN que
+gestiona una lista opera sobre la lista cruda, nunca sobre el filtro para miembros.
+
+Otro aviso que faltaba, en el mismo commit: `/setup` rápido que REUSA un rol de staff
+sin "Aplicar timeout" lo dice en el resumen (antes decía solo "♻️ Reusado rol de staff").
+El rol reusado nunca se toca.
+
+**Estado de producción al cierre (2026-09-24):** commits `7b2d33d`, `e8dbe97`, `0b03baf`
+pusheados y desplegados (deploy limpio en Railway, 02:17 y 02:32). `node
+src/deploy-commands.js` global corrido por el usuario y verificado por API: 90 globales
+sin `/owner-metricas`, que quedó solo en Prueba bot; permisos nativos = los de
+`commandVisibility.test.js`.
 
 ## Gotcha real ya pisado: columnas de cooldown
 
@@ -572,7 +589,13 @@ cambios ahí.
   branch sin releer el diff.
 - `node src/deploy-commands.js` (sin `dev`) registra los comandos **globalmente** —
   correrlo solo cuando se confirma explícitamente, porque afecta a cualquier server que
-  tenga el bot invitado (no solo el de test) y tarda hasta 1h en propagar.
+  tenga el bot invitado (no solo el de test) y tarda hasta 1h en propagar. Desde
+  2026-09-24 también reemplaza la lista del server de test (`GUILD_ID_DEV`) por los
+  comandos `ownerGuildOnly` (hoy solo `/owner-metricas`) — de paso borra los duplicados
+  que deja un `dev` anterior. Hace falta cada vez que cambia la FORMA de un comando
+  (opciones, descripción, `setDefaultMemberPermissions`), no con cada cambio de lógica.
+  Verificarlo después por API (`GET /applications/{CLIENT_ID}/commands`, solo lectura),
+  no por el mensaje de la consola.
 - **Cambios visuales en `dashboard/`/`website/`:** no levantar el server real (pide login
   de Discord + sesión + Supabase real). Importar `layout()`/las funciones `render*` por
   `file:///` desde un script de una sola vez y embeber el HTML resultante en un
@@ -946,7 +969,7 @@ estado en memoria keyeado por string (`${guildId}:${userId}`), no solo una query
 filtrada. `guildDelete.test.js` dejó de mantener una lista manual de tablas: compara
 contra `GUILD_SCOPED_TABLES`, la constante real exportada por el propio módulo.
 
-Estado al 2026-09-23: **128 archivos / 1316 tests**. **El "flaky" de `moderation.test.js`
+Estado al 2026-09-24: **130 archivos / 1335 tests**. **El "flaky" de `moderation.test.js`
 tenía causa real, ya cerrada (2026-09-23):** los tests de confirmación de `/kick`/`/ban`
 vencían a veces el timeout de 5000ms en la suite completa porque hacían un INSERT real de
 red a Supabase de producción (ver arriba) — la latencia de red, no la carga de la suite.
@@ -3117,8 +3140,9 @@ necesitan `.id` como propiedad, no solo como key del Map.
   (22-ago a 11-sep) que Discord mostraba DUPLICADA junto a la global. **Limpiado el
   2026-09-23** (PUT vacío a `applicationGuildCommands(CLIENT_ID, GUILD_ID_DEV)`: 89 → 0,
   global intacto en 91). Ojo: cada `node src/deploy-commands.js dev` la vuelve a llenar —
-  sirve para probar un comando nuevo al instante (el global tarda hasta 1h), pero
-  después de desplegar el global conviene vaciarla de nuevo o se repiten los duplicados.
+  sirve para probar un comando nuevo al instante (el global tarda hasta 1h). Desde
+  2026-09-24 el deploy global la vacía solo (deja únicamente `/owner-metricas`), ya no
+  hace falta el PUT vacío a mano.
 - Decisión de producto abierta: el flujo rápido crea UN rol "Staff" y el wizard hasta 6 —
   un admin puede correr los dos y terminar con roles redundantes; el panel principal no
   dice cuál es el camino recomendado.
