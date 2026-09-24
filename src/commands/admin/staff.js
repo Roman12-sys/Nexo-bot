@@ -123,7 +123,7 @@ import {
 } from '../../utils/economyTuning.js';
 import { getGuildCirculatingBalance, getTopBalances } from '../../utils/economyStore.js';
 import { isStaff, isAdmin, getDangerousRolePermission } from '../../utils/permissions.js';
-import { resolveLiveSelfRoles } from '../../utils/selfRoles.js';
+import { resolveLiveSelfRoles, getReservedSelfRoleReason } from '../../utils/selfRoles.js';
 import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
 import { getGuildAnnouncementTemplates } from '../../utils/announcementTemplatesStore.js';
 import { getGuildDailyStats } from '../../utils/guildDailyStatsStore.js';
@@ -1397,6 +1397,10 @@ registerSelectPrefix('staff_selfrole_add_select', async (i) => {
   }
 
   const cfg = await getGuildConfig(i.guildId);
+  const reservedReason = getReservedSelfRoleReason(cfg, role.id);
+  if (reservedReason) {
+    return i.reply({ content: `❌ ${role} no se puede ofrecer como autoasignable: ${reservedReason}.`, flags: MessageFlags.Ephemeral });
+  }
   const current = cfg.selfassignable_roles || [];
   if (current.includes(role.id)) {
     return i.reply({ content: `ℹ️ ${role} ya está en la lista de autoasignables.`, flags: MessageFlags.Ephemeral });

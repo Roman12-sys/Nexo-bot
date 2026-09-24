@@ -197,6 +197,16 @@ constructor con la opción ya prendida, el botón, el selector de rol, y el env�
 (autoritativo). Rol mencionable queda libre. Sin efecto en servers que nunca separaron
 los tiers (`admin_role_id == moderator_role_id`, lo que deja `/setup`).
 
+**Roles autoasignables nunca pueden ser el de castigo ni uno de staff** (mismo día,
+visto en una captura de "Mis roles" en Prueba bot). El castigo lo aplica
+`messageCreate` borrando mensajes de quien tiene `punish_role_id`: si ese rol estuviera
+en la lista, un sancionado se lo sacaba solo. Con un rol de staff, cualquiera pasaba
+`isStaff`. `getDangerousRolePermission` no lo cubría (mira permisos nativos, y estos roles
+pueden no tener ninguno). `getReservedSelfRoleReason` (`selfRoles.js`) rechaza al agregar
+(`/config`, `/staff`) y `resolveLiveSelfRoles` los filtra en vivo, por si el rol se vuelve
+de castigo/staff después de entrar a la lista. En Prueba bot el caso de la captura era
+inofensivo: su "Sancionado" no era el `punish_role_id` ("nuevo rol") ni restringía nada.
+
 ## Gotcha real ya pisado: columnas de cooldown
 
 Las columnas tipo "última vez que pasó X" (`last_daily`, `last_work`, `last_xp_ts`,

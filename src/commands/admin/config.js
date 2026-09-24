@@ -2,6 +2,7 @@ import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, At
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getDangerousRolePermission } from '../../utils/permissions.js';
+import { getReservedSelfRoleReason } from '../../utils/selfRoles.js';
 import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import {
@@ -402,6 +403,11 @@ export async function execute(interaction) {
     }
 
     const cfg = await getGuildConfig(guildId);
+    const reservedReason = getReservedSelfRoleReason(cfg, rol.id);
+    if (reservedReason) {
+      await interaction.reply({ content: `❌ ${rol} no se puede ofrecer como autoasignable: ${reservedReason}.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
     const current = cfg.selfassignable_roles || [];
     if (current.includes(rol.id)) {
       await interaction.reply({ content: `ℹ️ ${rol} ya está en la lista de autoasignables.`, flags: MessageFlags.Ephemeral });

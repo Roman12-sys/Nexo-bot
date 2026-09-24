@@ -55,6 +55,23 @@ describe('resolveLiveSelfRoles', () => {
     expect(roles).toEqual([]);
   });
 
+  // 2026-09-24: messageCreate borra los mensajes de quien tiene el rol de castigo — si
+  // estuviera en "Mis roles", un sancionado se lo sacaría solo. Filtrado en vivo: el rol
+  // pudo volverse de castigo/staff después de entrar a la lista.
+  it('filtra el rol de castigo y los roles de staff aunque estén en la lista y no tengan permisos', async () => {
+    const roles = ['role-castigo', 'role-mod', 'role-admin', 'role-gaming'].map((id) => makeRole(id));
+    getGuildConfig.mockResolvedValue({
+      selfassignable_roles: roles.map((r) => r.id),
+      punish_role_id: 'role-castigo',
+      moderator_role_id: 'role-mod',
+      admin_role_id: 'role-admin',
+    });
+
+    const live = await resolveLiveSelfRoles(makeGuild({ roles }));
+
+    expect(live.map((r) => r.id)).toEqual(['role-gaming']);
+  });
+
   it('filtra un rol con un permiso peligroso (defensa en profundidad)', async () => {
     const dangerous = makeRole('role-admin', { permissionBits: PermissionFlagsBits.Administrator });
     getGuildConfig.mockResolvedValue({ selfassignable_roles: ['role-admin'] });

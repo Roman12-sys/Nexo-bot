@@ -43,7 +43,7 @@ vi.mock('../src/utils/economyStore.js', () => ({ getGuildCirculatingBalance, get
 // del bot); acá solo importa que /staff LA LLAME y construya el select con lo que
 // devuelve, no reimplementar esa revalidación.
 const resolveLiveSelfRoles = vi.fn();
-vi.mock('../src/utils/selfRoles.js', () => ({ resolveLiveSelfRoles }));
+vi.mock('../src/utils/selfRoles.js', async (importOriginal) => ({ ...(await importOriginal()), resolveLiveSelfRoles }));
 
 // Fase 5 (Sorteos/Anuncios) — mismo criterio: getGuildGiveawaysForAutocomplete ya
 // tiene sus propios tests en giveawaysStore/giveawayEngine; acá solo importa que
@@ -996,6 +996,21 @@ describe('/staff — Fase 4: XP (modo de roles) y Roles (autoasignables)', () =>
 
     expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Administrador') }));
     expect(setGuildConfig).not.toHaveBeenCalled();
+  });
+
+  it('agregar el rol de castigo o un rol de staff como autoasignable se rechaza sin guardar nada', async () => {
+    for (const [roleId, reason] of [['role-punish', 'castigo'], ['role-mod', 'staff']]) {
+      setGuildConfig.mockClear();
+      const interaction = makeInteraction({ isAdministrator: true });
+      await execute(interaction);
+      await nav(interaction, 'staff_nav_roles');
+      await nav(interaction, 'staff_selfrole_add');
+
+      const selected = await navSelect(interaction, 'staff_selfrole_add_select', { values: [roleId], role: makeRole(roleId) });
+
+      expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining(reason) }));
+      expect(setGuildConfig).not.toHaveBeenCalled();
+    }
   });
 
   it('agregar un rol que el bot no puede asignar (posición igual/superior) se rechaza sin guardar nada', async () => {

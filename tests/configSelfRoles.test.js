@@ -63,6 +63,19 @@ describe('/config rol-autoasignable-agregar', () => {
     expect(logChannel.send).toHaveBeenCalledTimes(1);
   });
 
+  it('el rol de castigo o un rol de staff de NEXO se rechazan — no se guarda nada', async () => {
+    getGuildConfig.mockResolvedValue({ selfassignable_roles: [], punish_role_id: 'role-castigo', admin_role_id: 'role-admin-nexo' });
+    for (const [roleId, reason] of [['role-castigo', 'castigo'], ['role-admin-nexo', 'staff']]) {
+      setGuildConfig.mockClear();
+      const interaction = makeInteraction({ subcommand: 'rol-autoasignable-agregar', role: makeRole(roleId) });
+
+      await execute(interaction);
+
+      expect(setGuildConfig).not.toHaveBeenCalled();
+      expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining(reason) }));
+    }
+  });
+
   it('un rol con Administrator se rechaza — no se guarda nada', async () => {
     const rol = makeRole('role-admin', { permissionBits: PermissionFlagsBits.Administrator });
     const interaction = makeInteraction({ subcommand: 'rol-autoasignable-agregar', role: rol });

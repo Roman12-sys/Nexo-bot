@@ -25,6 +25,20 @@ const SELECT_CUSTOM_ID = 'selfroles_select';
 // welcome_channel_id de todas formas), lo puede pasar para no repetir el lookup —
 // servido por el cache de 30s de guildConfigStore.js de cualquier forma, así que esto
 // es puramente cosmético (evita un Map.get() de más), nunca cambia el resultado.
+// Roles que NEXO usa para decidir algo y que por eso nunca pueden ser autoasignables
+// (2026-09-24): el de castigo (messageCreate borra los mensajes de quien lo tiene — si
+// se lo pudiera sacar solo desde "Mis roles", la sanción no serviría de nada) y los de
+// staff (isStaff/isAdmin, dashboard, botones de aprobar confesiones — cualquiera se
+// volvería staff). getDangerousRolePermission no alcanza: mira permisos NATIVOS, y
+// estos roles pueden no tener ninguno (el "Staff" de /setup rápido no tenía hasta
+// 2026-09-24). Devuelve una descripción para el mensaje de rechazo, o null.
+export function getReservedSelfRoleReason(cfg, roleId) {
+  if (!cfg || !roleId) return null;
+  if (roleId === cfg.punish_role_id) return 'es el rol de castigo de NEXO — un sancionado se lo podría sacar solo';
+  if (roleId === cfg.admin_role_id || roleId === cfg.moderator_role_id) return 'es un rol de staff de NEXO — cualquiera se volvería staff';
+  return null;
+}
+
 export async function resolveLiveSelfRoles(guild, cfg = null) {
   const resolvedCfg = cfg || (await getGuildConfig(guild.id));
   const ids = resolvedCfg.selfassignable_roles || [];
@@ -35,6 +49,9 @@ export async function resolveLiveSelfRoles(guild, cfg = null) {
 
   const roles = [];
   for (const id of ids) {
+    // Chequeado en vivo, no solo al agregar: el rol pudo volverse de castigo/staff
+    // DESPUÉS de estar en la lista (/config rol-castigo apuntando a uno ya autoasignable).
+    if (getReservedSelfRoleReason(resolvedCfg, id)) continue;
     const role = guild.roles.cache.get(id) || (await guild.roles.fetch(id).catch(() => null));
     if (!role) continue;
     if (getDangerousRolePermission(role)) continue;
