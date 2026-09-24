@@ -14,7 +14,7 @@ import {
   MessageFlags,
 } from 'discord.js';
 import { buildAnuncioEmbed, SKY_COLOR, BRAND_COLOR, LOG_COLOR, GOLD_COLOR, WARN_COLOR, SUCCESS_COLOR } from '../../utils/embeds.js';
-import { isStaff } from '../../utils/permissions.js';
+import { isStaff, isAdmin } from '../../utils/permissions.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
 import { registerModalPrefix } from '../../components/modals.js';
@@ -412,7 +412,32 @@ function buildImportJsonModal() {
 // Llamado por el botón "Enviar" del panel. Publica el embed en el canal donde se
 // invocó /anuncio y limpia la sesión — a diferencia del resto de los handlers, esta
 // interacción termina el flujo en vez de refrescar el panel.
+// Mención masiva = tier Administrador (2026-09-24), mismo criterio que llevó /say ahí
+// (H4): /anuncio es tier Moderador, y /staff → "Crear anuncio" (visible con "Aplicar
+// timeout") dejaba a cualquier moderador arrobar a todo el servidor. Un rol no
+// mencionable cuenta igual: Discord tampoco deja arrobarlo a mano sin el permiso de
+// mencionar a @everyone, y un rol como "Miembro" (que tiene todo el mundo) sería la
+// misma puerta. Un rol mencionable sí queda libre — cualquiera puede arrobarlo a mano.
+// En un server que nunca separó los tiers (admin_role_id == moderator_role_id, lo que
+// deja /setup) esto no cambia nada para el staff.
+const MASS_MENTION_ADMIN_ONLY =
+  '❌ Mencionar a @everyone o a un rol que no es mencionable requiere el rol de Administrador de NEXO (`/config rol-admin`), igual que `/say`.';
+
+function isMassMention(mention) {
+  return Boolean(mention.everyone || (mention.rol && !mention.rol.mentionable));
+}
+
+async function canMassMention(interaction, mention) {
+  return !isMassMention(mention) || (await isAdmin(interaction));
+}
+
 async function sendDraft(interaction, draft) {
+  // Chequeo autoritativo: el botón y el selector ya filtran, pero el draft pudo armarse
+  // antes de que alguien le sacara el rol de Administrador.
+  if (!(await canMassMention(interaction, draft.mention))) {
+    await interaction.reply({ content: MASS_MENTION_ADMIN_ONLY, flags: MessageFlags.Ephemeral });
+    return;
+  }
   if (!draft.title || !draft.description) {
     await interaction.reply({
       content: '❌ Completá el título y la descripción primero (botón 📝 Contenido).',
@@ -457,6 +482,10 @@ async function sendDraft(interaction, draft) {
 export async function startBuilder(interaction, { colorPrefill, imagenPrefill, rol, usuario, everyone, jsonPrefill } = {}) {
   if (!(await isStaff(interaction))) {
     await interaction.reply({ content: '❌ No tenés permisos para usar este comando.', flags: MessageFlags.Ephemeral });
+    return;
+  }
+  if (!(await canMassMention(interaction, { rol, everyone }))) {
+    await interaction.reply({ content: MASS_MENTION_ADMIN_ONLY, flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -812,7 +841,11 @@ registerButtonPrefix('anuncio_edit_mention', async (i) => {
 registerSelectPrefix('anuncio_mention_role_select', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
-  session.draft.mention.rol = i.roles.first() || null;
+  const selectedRole = i.roles.first() || null;
+  if (!(await canMassMention(i, { rol: selectedRole }))) {
+    return i.reply({ content: MASS_MENTION_ADMIN_ONLY, flags: MessageFlags.Ephemeral });
+  }
+  session.draft.mention.rol = selectedRole;
   refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildMentionEditorPayload(session.draft));
 });
@@ -828,6 +861,10 @@ registerSelectPrefix('anuncio_mention_user_select', async (i) => {
 registerButtonPrefix('anuncio_mention_everyone_toggle', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  // Apagarlo siempre se puede; prenderlo exige tier Administrador.
+  if (!session.draft.mention.everyone && !(await canMassMention(i, { everyone: true }))) {
+    return i.reply({ content: MASS_MENTION_ADMIN_ONLY, flags: MessageFlags.Ephemeral });
+  }
   session.draft.mention.everyone = !session.draft.mention.everyone;
   refreshSession(sessionKey(i.guildId, i.user.id), session.draft);
   await i.update(buildMentionEditorPayload(session.draft));

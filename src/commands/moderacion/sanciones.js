@@ -80,7 +80,7 @@ export const data = new SlashCommandBuilder()
   .setName('sanciones')
   .setDescription('Panel para ver y quitar sanciones activas, o el historial de un usuario puntual.')
   .addUserOption((o) => o.setName('usuario').setDescription('Si lo completás, muestra el historial de sanciones de ese usuario').setRequired(false))
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
 
 export async function execute(interaction) {

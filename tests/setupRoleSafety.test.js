@@ -215,3 +215,49 @@ describe('/setup — configuración final coherente (sin estados parciales)', ()
     expect(staffCall[1].moderator_role_id).toMatch(/^role-nuevo-/);
   });
 });
+
+// 2026-09-24: el rol "Staff" que crea /setup rápido se creaba sin ningún permiso nativo,
+// y los comandos de staff exigen uno para aparecer en el menú de "/" (casi todos "Aplicar
+// timeout") — el staff tenía acceso en NEXO pero no veía ningún comando.
+const { ROLE_TIERS } = await import('../src/utils/setupRoleTiers.js');
+
+describe('/setup — permisos nativos del rol "Staff" recién creado', () => {
+  function withBotPermissions(interaction, has) {
+    interaction.guild.members = { me: { permissions: { has } } };
+    return interaction;
+  }
+
+  it('se crea con los permisos del nivel Moderador de la matriz cuando el bot los tiene', async () => {
+    getGuildConfig.mockResolvedValue({});
+    const interaction = withBotPermissions(makeInteraction({ roles: [] }), () => true);
+
+    await runSetupFlow(interaction, { extras: [] });
+
+    const staffCreate = interaction.guild.roles.create.mock.calls.find(([opts]) => opts.name === 'Staff');
+    expect(staffCreate[0].permissions).toEqual(ROLE_TIERS.moderador.permissions);
+    expect(staffCreate[0].permissions).toContain(PermissionFlagsBits.ModerateMembers);
+  });
+
+  it('nunca pide un permiso que el bot no tiene (Discord rechazaría crear el rol) y avisa si falta "Aplicar timeout"', async () => {
+    getGuildConfig.mockResolvedValue({});
+    const interaction = withBotPermissions(makeInteraction({ roles: [] }), (flag) => flag === PermissionFlagsBits.KickMembers);
+
+    await runSetupFlow(interaction, { extras: [] });
+
+    const staffCreate = interaction.guild.roles.create.mock.calls.find(([opts]) => opts.name === 'Staff');
+    expect(staffCreate[0].permissions).toEqual([PermissionFlagsBits.KickMembers]);
+    const finalEmbed = interaction.editReply.mock.calls.at(-1)?.[0]?.embeds?.[0];
+    expect(finalEmbed?.data?.description).toMatch(/Aplicar timeout/);
+  });
+
+  it('un rol "Staff" que ya existía se reusa sin tocarle los permisos', async () => {
+    const existing = makeRole('role-staff-viejo', 'Staff');
+    getGuildConfig.mockResolvedValue({});
+    const interaction = withBotPermissions(makeInteraction({ roles: [existing] }), () => true);
+
+    await runSetupFlow(interaction, { extras: [] });
+
+    expect(interaction.guild.roles.create.mock.calls.find(([opts]) => opts.name === 'Staff')).toBeUndefined();
+    expect(setGuildConfig.mock.calls.find((c) => 'moderator_role_id' in c[1])[1].moderator_role_id).toBe('role-staff-viejo');
+  });
+});

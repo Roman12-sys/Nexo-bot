@@ -8,7 +8,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 // de A terminaba publicando el contenido de B. El fix compone la key como
 // `${guildId}:${userId}`.
 const isStaff = vi.fn().mockResolvedValue(true);
-vi.mock('../src/utils/permissions.js', () => ({ isStaff }));
+vi.mock('../src/utils/permissions.js', () => ({ isStaff, isAdmin: vi.fn().mockResolvedValue(false) }));
 
 const { startBuilder } = await import('../src/commands/anuncios/anuncio.js');
 const { routeButton } = await import('../src/components/buttons.js');

@@ -1,4 +1,5 @@
 import { vi, describe, it, expect } from 'vitest';
+import { PermissionFlagsBits } from 'discord.js';
 
 // isStaff/isStaffConfigured son el gate que usan TODOS los comandos de moderación y
 // buena parte de los de configuración — a diferencia de getModerationBlockReason (que
@@ -106,5 +107,45 @@ describe('isStaffConfigured — "¿corrieron /setup alguna vez?"', () => {
     getGuildConfig.mockResolvedValue({ admin_role_id: null, moderator_role_id: 'role-mod' });
 
     await expect(isStaffConfigured('guild-1')).resolves.toBe(true);
+  });
+});
+
+// Tier 3 pasa los tiers 1 y 2 (2026-09-24): antes el dueño que acababa de correr /setup
+// rápido no podía abrir /staff (su primer "próximo paso") sin asignarse el rol a mano.
+describe('isStaff/isAdmin — dueño y Administrator nativo pasan sin rol de NEXO', () => {
+  function makeTier3Interaction({ userId = 'user-1', ownerId = 'owner-1', administrator = false } = {}) {
+    return {
+      ...makeInteraction('guild-1', ['role-cualquiera']),
+      user: { id: userId },
+      guild: { ownerId },
+      member: {
+        roles: { cache: new Map([['role-cualquiera', { id: 'role-cualquiera' }]]) },
+        permissions: { has: (flag) => administrator && flag === PermissionFlagsBits.Administrator },
+      },
+    };
+  }
+
+  it('dueño del servidor sin ningún rol de staff → staff y admin, incluso sin guild_config', async () => {
+    getGuildConfig.mockResolvedValue({ admin_role_id: null, moderator_role_id: null });
+    const interaction = makeTier3Interaction({ userId: 'owner-1', ownerId: 'owner-1' });
+
+    await expect(isStaff(interaction)).resolves.toBe(true);
+    await expect(isAdmin(interaction)).resolves.toBe(true);
+  });
+
+  it('permiso nativo Administrator sin rol de staff → staff y admin', async () => {
+    getGuildConfig.mockResolvedValue({ admin_role_id: 'role-admin', moderator_role_id: 'role-mod' });
+    const interaction = makeTier3Interaction({ administrator: true });
+
+    await expect(isStaff(interaction)).resolves.toBe(true);
+    await expect(isAdmin(interaction)).resolves.toBe(true);
+  });
+
+  it('ni dueño ni Administrator, sin rol de staff → sigue rechazado', async () => {
+    getGuildConfig.mockResolvedValue({ admin_role_id: 'role-admin', moderator_role_id: 'role-mod' });
+    const interaction = makeTier3Interaction();
+
+    await expect(isStaff(interaction)).resolves.toBe(false);
+    await expect(isAdmin(interaction)).resolves.toBe(false);
   });
 });

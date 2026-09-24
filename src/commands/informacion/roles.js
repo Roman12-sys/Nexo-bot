@@ -109,7 +109,7 @@ export function buildRolesEmbed(guild) {
 export const data = new SlashCommandBuilder()
   .setName('roles')
   .setDescription('Lista todos los roles del servidor, agrupados por categoría, con su cantidad de miembros.')
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
 
 export async function execute(interaction) {

@@ -79,7 +79,11 @@ export const ROLE_TIERS = {
       ManageEvents, KickMembers, BanMembers, ModerateMembers, MentionEveryone, CreateInstantInvite,
       MoveMembers, MuteMembers, DeafenMembers,
     ],
-    tierHint: 'admin',
+    // null, no 'admin' (2026-09-24): sin ManageGuild ("sin ajustes de servidor", a
+    // propósito) no ve en el menú de "/" ningún comando de tier Administrador
+    // (/economia-staff, /xp, /shop-admin, /say piden ManageGuild). Sugerirlo para
+    // admin_role_id dejaba un "admin" que no encontraba sus propios comandos.
+    tierHint: null,
   },
   coordinador: {
     key: 'coordinador',

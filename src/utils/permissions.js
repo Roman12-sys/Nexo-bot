@@ -20,10 +20,23 @@ export function isStaffFromRoleIds(cfg, roleIds) {
   );
 }
 
+// Tier 3 (dueño real o permiso nativo Administrator) pasa también los tiers 1 y 2
+// (2026-09-24). Antes no: /setup rápido crea el rol "Staff" sin dárselo a nadie, y su
+// primer "próximo paso" es /staff — el dueño lo veía en el menú (Discord le muestra
+// todo) pero isStaff() lo rechazaba hasta que se asignara el rol a mano. No amplía
+// ningún poder real: quien tiene Administrator ya puede darse el rol de staff o
+// apuntar /config rol-admin a un rol suyo. Solo en los wrappers con `interaction`:
+// isStaffFromRoleIds/isAdminFromRoleIds (anti-spam, dashboard) no cambian.
+function isOwnerOrDiscordAdmin(interaction) {
+  if (interaction.guild?.ownerId && interaction.guild.ownerId === interaction.user?.id) return true;
+  return Boolean(interaction.member?.permissions?.has?.(PermissionFlagsBits.Administrator));
+}
+
 // Chequeo de admin/staff compartido por todos los comandos de moderación.
 // A diferencia de gNoX (roles fijos en .env), acá cada servidor configura los
 // suyos con /setup y quedan en guild_config — por eso esto es async.
 export async function isStaff(interaction) {
+  if (isOwnerOrDiscordAdmin(interaction)) return true;
   const cfg = await getGuildConfig(interaction.guildId);
   return isStaffFromRoleIds(cfg, [...interaction.member.roles.cache.keys()]);
 }
@@ -45,6 +58,7 @@ export function isAdminFromRoleIds(cfg, roleIds) {
 }
 
 export async function isAdmin(interaction) {
+  if (isOwnerOrDiscordAdmin(interaction)) return true;
   const cfg = await getGuildConfig(interaction.guildId);
   return isAdminFromRoleIds(cfg, [...interaction.member.roles.cache.keys()]);
 }

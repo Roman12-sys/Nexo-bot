@@ -275,7 +275,12 @@ function buildSetupPanel(state) {
 // nunca un rol peligroso. skippedDangerousPermission (si no es null) le avisa al caller
 // qué pasó, para que el resumen final se lo explique al admin en vez de quedar en
 // silencio.
-async function resolveRole(interaction, cfg, { column, name, color, hoist = false, requestedRole = null, rejectDangerous = false }) {
+//
+// permissions (2026-09-24): bits nativos que se le dan al rol SOLO si se crea acá — un
+// rol reusado nunca se toca. Se filtran por los que el bot tiene: Discord rechaza crear
+// un rol con un permiso que el propio bot no tiene, y eso cortaría /setup a la mitad.
+// missingPermissions devuelve los que quedaron afuera, para avisarlo en el resumen.
+async function resolveRole(interaction, cfg, { column, name, color, hoist = false, requestedRole = null, rejectDangerous = false, permissions = [] }) {
   if (requestedRole) return { role: requestedRole, created: false };
 
   let skippedDangerousPermission = null;
@@ -296,13 +301,17 @@ async function resolveRole(interaction, cfg, { column, name, color, hoist = fals
     skippedDangerousPermission = dangerous;
   }
 
+  const botPermissions = interaction.guild.members?.me?.permissions;
+  const grantable = permissions.filter((flag) => botPermissions?.has(flag));
   const role = await interaction.guild.roles.create({
     name,
     color,
     hoist,
+    ...(grantable.length > 0 ? { permissions: grantable } : {}),
     reason: 'Creado por /setup de Nexo Bot',
   });
-  return { role, created: true, skippedDangerousPermission };
+  const missingPermissions = permissions.filter((flag) => !grantable.includes(flag));
+  return { role, created: true, skippedDangerousPermission, missingPermissions };
 }
 
 async function resolveCategory(interaction, cfg) {
@@ -364,14 +373,26 @@ async function runSetup(interaction, state) {
   const summary = [];
 
   const requestedStaffRole = state.roleId ? await interaction.guild.roles.fetch(state.roleId).catch(() => null) : null;
-  const { role: staffRole, created: staffCreated } = await resolveRole(interaction, cfg, {
+  // Se crea con los permisos nativos del nivel Moderador de la matriz (2026-09-24).
+  // Antes se creaba sin ninguno, y los comandos de staff exigen un permiso nativo para
+  // aparecer en el menú de "/" (casi todos "Aplicar timeout"): el staff con este rol
+  // tenía acceso en NEXO pero no veía ni un comando. Pasó en "Prueba bot": 0 de 27.
+  const { role: staffRole, created: staffCreated, missingPermissions: staffMissing = [] } = await resolveRole(interaction, cfg, {
     column: 'moderator_role_id',
     name: 'Staff',
     color: BRAND_COLOR,
     hoist: true,
     requestedRole: requestedStaffRole,
+    permissions: ROLE_TIERS.moderador.permissions,
   });
-  summary.push(`${staffCreated ? '🆕 Creado' : '♻️ Reusado'} rol de staff: ${staffRole}`);
+  summary.push(
+    staffCreated
+      ? `🆕 Creado rol de staff: ${staffRole} (con permisos de moderación de Discord, para que vea los comandos de staff)`
+      : `♻️ Reusado rol de staff: ${staffRole}`,
+  );
+  if (staffMissing.includes(PermissionFlagsBits.ModerateMembers)) {
+    summary.push(`⚠️ NEXO no tiene el permiso **Aplicar timeout**, así que ${staffRole} quedó sin él: tu staff no va a ver los comandos de moderación en el menú de "/" hasta que se lo agregues al rol.`);
+  }
 
   const needsCategory = state.moderacion || state.bienvenida || state.confesiones;
   let category = null;

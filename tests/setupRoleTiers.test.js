@@ -26,9 +26,9 @@ describe('setupRoleTiers — invariantes de seguridad', () => {
     expect(Object.keys(ROLE_TIERS).sort()).toEqual([...ROLE_TIER_ORDER].sort());
   });
 
-  it('solo administrador/cofounder sugieren el tier admin de NEXO, y solo coordinador/moderador el de moderador', () => {
+  it('solo administrador sugiere el tier admin de NEXO (cofounder no tiene ManageGuild), y solo coordinador/moderador el de moderador', () => {
     expect(ROLE_TIERS.administrador.tierHint).toBe('admin');
-    expect(ROLE_TIERS.cofounder.tierHint).toBe('admin');
+    expect(ROLE_TIERS.cofounder.tierHint).toBeNull();
     expect(ROLE_TIERS.coordinador.tierHint).toBe('moderator');
     expect(ROLE_TIERS.moderador.tierHint).toBe('moderator');
     expect(ROLE_TIERS.ayudante.tierHint).toBeNull();

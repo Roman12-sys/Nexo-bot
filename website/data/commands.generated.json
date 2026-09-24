@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T04:15:05.750Z",
+  "generatedAt": "2026-09-24T05:10:10.289Z",
   "commands": [
     {
       "name": "8ball",
@@ -90,8 +90,8 @@
           "choices": [
             "🟣 Púrpura Nexo (predeterminado)",
             "🔴 Rojo",
-            "🟠 Naranja",
-            "🟡 Dorado",
+            "🟠 Dorado",
+            "🟡 Advertencia",
             "🟢 Verde",
             "🔵 Azul",
             "⚪ Blanco",
@@ -1114,7 +1114,9 @@
       "category": "administracion",
       "folder": "admin",
       "dmAllowed": false,
-      "requiredDiscordPermissions": [],
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
       "options": []
     },
     {
@@ -1213,7 +1215,7 @@
       "folder": "informacion",
       "dmAllowed": false,
       "requiredDiscordPermissions": [
-        "ManageGuild"
+        "ModerateMembers"
       ],
       "options": []
     },
@@ -1433,7 +1435,9 @@
       "category": "administracion",
       "folder": "admin",
       "dmAllowed": false,
-      "requiredDiscordPermissions": [],
+      "requiredDiscordPermissions": [
+        "ModerateMembers"
+      ],
       "options": []
     },
     {
@@ -1711,7 +1715,7 @@
       "folder": "informacion",
       "dmAllowed": false,
       "requiredDiscordPermissions": [
-        "ManageRoles"
+        "ModerateMembers"
       ],
       "options": []
     },
@@ -1817,7 +1821,7 @@
       "folder": "moderacion",
       "dmAllowed": false,
       "requiredDiscordPermissions": [
-        "ManageGuild"
+        "ModerateMembers"
       ],
       "options": [
         {
@@ -2113,7 +2117,7 @@
       "folder": "sorteos",
       "dmAllowed": false,
       "requiredDiscordPermissions": [
-        "ManageGuild"
+        "ModerateMembers"
       ],
       "options": [
         {

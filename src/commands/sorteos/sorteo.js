@@ -61,7 +61,7 @@ export const data = new SlashCommandBuilder()
       .setDescription('Cancela un sorteo activo sin elegir ganadores.')
       .addStringOption((o) => o.setName('mensaje_id').setDescription('ID del mensaje del sorteo (escribí para buscar)').setRequired(true).setAutocomplete(true)),
   )
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
 
 // reroll busca entre sorteos ya finalizados; terminar/cancelar entre los que siguen

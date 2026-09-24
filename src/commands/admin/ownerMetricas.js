@@ -16,6 +16,12 @@ import { GOLD_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Registrado SOLO en GUILD_ID_DEV, nunca global (ver deploy-commands.js). Registrado
+// global aparecía en el menú de "/" de CUALQUIER miembro de CUALQUIER servidor (sin
+// setDefaultMemberPermissions, que igual no puede expresar "solo el dueño del bot").
+// isBotOwner() sigue siendo el gate real: esto solo lo saca del menú de los demás.
+export const ownerGuildOnly = true;
+
 export const data = new SlashCommandBuilder()
   .setName('owner-metricas')
   .setDescription('Métricas cross-servidor del operador del bot.')

@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { isStaff } from '../../utils/permissions.js';
 import { getTopLiveCommands, getTotalUsage } from '../../utils/commandUsageStore.js';
 import { BRAND_COLOR, BRAND_NAME, buildProgressBar } from '../../utils/embeds.js';
@@ -6,6 +6,7 @@ import { BRAND_COLOR, BRAND_NAME, buildProgressBar } from '../../utils/embeds.js
 export const data = new SlashCommandBuilder()
   .setName('metricas')
   .setDescription('Muestra los comandos más usados de este servidor.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
 
 const TOP_N = 10;

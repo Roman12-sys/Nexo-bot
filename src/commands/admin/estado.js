@@ -1,7 +1,7 @@
 // Salud del bot, no popularidad de comandos — eso ya lo cubre /metricas. /estado es
 // para diagnosticar sin tener que ir a mirar Railway: ¿está vivo el gateway?, ¿responde
 // Supabase?, ¿cuántos sistemas en vivo tiene prendidos este server ahora mismo?
-import { SlashCommandBuilder, EmbedBuilder, MessageFlags } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
 import { isStaff } from '../../utils/permissions.js';
 import { pingSupabase } from '../../supabaseClient.js';
 import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
@@ -12,6 +12,7 @@ import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 export const data = new SlashCommandBuilder()
   .setName('estado')
   .setDescription('Estado técnico del bot: latencia, conexión a la base, sistemas activos en este servidor.')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
 
 export async function execute(interaction) {

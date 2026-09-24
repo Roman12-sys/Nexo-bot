@@ -251,7 +251,7 @@ export function buildBotEmbed() {
 export const data = new SlashCommandBuilder()
   .setName('helpstaff')
   .setDescription('Muestra los comandos disponibles para el staff/administración.')
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
   .setDMPermission(false);
 
 export async function execute(interaction) {

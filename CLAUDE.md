@@ -129,7 +129,9 @@ una vez que el bot se instala en servidores de terceros, no solo de gente de con
   dinero sin límite, alcanzable con Tier 1 puro y sin ninguna condición de carrera.
   Defensa en profundidad agregada en el mismo fix: ni siquiera un Tier 2 legítimo puede
   crear/editar una caja misteriosa con precio por debajo de `MAX_MYSTERY` (400 hoy).
-- **Tier 3 — Dueño / Administrator nativo de Discord** (sin cambios): `/setup`, `/config`.
+- **Tier 3 — Dueño / Administrator nativo de Discord**: `/setup`, `/config`,
+  `/rolreacciones`. Desde el 2026-09-24 `isStaff()`/`isAdmin()` también le dan `true`
+  (ver "Qué ve cada rol en el menú de /" abajo).
 
 **Backward-compatible por construcción, no por un caso especial.** `/setup` sigue
 fijando `admin_role_id == moderator_role_id` la primera vez (mismo rol de "Staff" de
@@ -143,6 +145,57 @@ a `/economia-staff`/`/xp` (`admin_role_id` null nunca pasa `isAdmin()`), en vez 
 al comportamiento unificado. Tampoco pasa por `getDangerousRolePermission` — mismo
 criterio que `moderator_role_id` en `/setup`: este rol está pensado para tener
 privilegios reales.
+
+### Qué ve cada rol en el menú de / (2026-09-24)
+
+Usar un comando exige pasar DOS filtros que no se conocen entre sí: Discord decide si
+aparece en el menú de "/" (`setDefaultMemberPermissions`, permiso NATIVO — sin él,
+Discord ni manda la interacción) y NEXO decide si se ejecuta (`isStaff`/`isAdmin`).
+Cada comando había elegido su permiso nativo por su cuenta, y eso dejó tres problemas,
+verificados en vivo contra la API de Discord (registro = código, 0 overrides en
+Integraciones en los 4 servidores):
+- El rol "Staff" de `/setup` rápido se creaba sin permisos nativos → **0 de 27**
+  comandos de staff visibles pese a ser admin+mod en NEXO (pasaba en "Prueba bot").
+  Buenos Angeles y Pedritocai no lo sufrían porque su rol tiene `Administrator` nativo,
+  que saltea el filtro 1 — por eso nunca apareció.
+- `/helpstaff`, `/sanciones`, `/sorteo` pedían `ManageGuild` y `/roles` `ManageRoles`:
+  Moderador/Coordinador de la matriz no los veían. Co-Founder (sugerido como admin) no
+  veía ningún comando del tier Administrador.
+- `/estado`, `/metricas`, `/owner-metricas` no tenían permiso nativo: los veía cualquier
+  miembro (rechazo al ejecutar, sin fuga de datos).
+
+Regla desde entonces, con `tests/commandVisibility.test.js` como contrato: tier
+Moderador → `ModerateMembers`; tier Administrador → `ManageGuild`; Tier 3 →
+`Administrator`. Excepción deliberada: comandos equivalentes 1:1 a una acción nativa
+piden esa misma (`/ban`/`/unban` BanMembers, `/kick` KickMembers, `/clear`
+ManageMessages, `/lock`/`/unlock`/`/voice` ManageChannels) — el bot nunca deja hacer lo
+que Discord no dejaría hacer a mano. **`/anuncio` sigue en `ManageGuild` pese a ser
+tier Moderador:** puede mencionar a @everyone (mismo criterio que llevó `/say` al tier
+Administrador); bajarlo lo abría a moderadores. Con la mención masiva ya gateada aparte
+(ver abajo), bajarlo a `ModerateMembers` sería seguro — no se hizo, queda como decisión
+de producto pendiente.
+
+Además: `/setup` rápido crea "Staff" con los permisos del tier Moderador de la matriz
+(filtrados por los que tiene el bot — Discord rechaza crear un rol con un permiso que el
+bot no tiene; un rol reusado nunca se toca); Co-Founder dejó de sugerirse como admin
+(`tierHint: null`); `/owner-metricas` (`export const ownerGuildOnly = true`) se registra
+solo en `GUILD_ID_DEV`, nunca global (`deploy-commands.js`); y dueño/`Administrator`
+pasan `isStaff`/`isAdmin` sin rol — antes el dueño que recién corría `/setup` no podía
+abrir `/staff`, su primer "próximo paso", sin asignarse el rol a mano. No amplía poder
+real: `Administrator` ya podía darse el rol o apuntar `/config rol-admin` a uno suyo.
+Solo en los wrappers con `interaction` — `isStaffFromRoleIds` (anti-spam, dashboard) no
+cambió, así que el dashboard sigue sin mostrarle un servidor a un Administrator que no
+es dueño ni tiene rol de staff.
+
+**Mención masiva en `/anuncio` = tier Administrador (cerrado el mismo día).** `/staff`
+(tier Moderador) abre el constructor de `/anuncio`, que tenía un toggle de @everyone:
+cualquier moderador podía arrobar a todo el servidor pese a que `/say` ya era tier
+Administrador (H4). Ahora `isAdmin()` se exige para @everyone **o un rol no mencionable**
+(Discord tampoco deja arrobarlo a mano sin "Mencionar @everyone", y un rol que tiene
+todo el mundo, como "Miembro", sería la misma puerta) en 4 lugares: abrir el
+constructor con la opción ya prendida, el botón, el selector de rol, y el envío
+(autoritativo). Rol mencionable queda libre. Sin efecto en servers que nunca separaron
+los tiers (`admin_role_id == moderator_role_id`, lo que deja `/setup`).
 
 ## Gotcha real ya pisado: columnas de cooldown
 
