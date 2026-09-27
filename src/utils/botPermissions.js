@@ -14,7 +14,7 @@
 // (findExecutor en auditLog.js ya devuelve null sin tirar si falta — solo empeora la
 // atribución de "quién hizo esto" en los logs) y MentionEveryone (/anuncio simplemente
 // no llega a notificar un @everyone, el mensaje se manda igual).
-import { PermissionFlagsBits } from 'discord.js';
+import { PermissionFlagsBits, ChannelType, OverwriteType } from 'discord.js';
 
 export const ESSENTIAL_BOT_PERMISSIONS = [
   { flag: PermissionFlagsBits.ViewChannel, label: 'Ver canales', feature: 'Todo el bot' },
@@ -40,6 +40,79 @@ export function getMissingBotPermissions(guild) {
   if (!me) return [];
   return ESSENTIAL_BOT_PERMISSIONS.filter(({ flag }) => !me.permissions.has(flag));
 }
+
+// Canales de texto que el bot puede VER (2026-09-27). getMissingBotPermissions mira los
+// permisos del bot en el servidor ("¿tiene Ver canales?"), pero los permisos por canal
+// pueden negárselo en todos lados: pasó en Cloud6, donde @everyone no ve nada y solo el
+// rol "Cloud6" ve los canales — NEXO tenía "Ver canales" en el servidor y 0 de 16
+// canales visibles, y /estado decía "✅ Todo OK". Sin ver un canal, ahí no hay XP por
+// mensajes, anti-spam, detección de claves ni logs de mensajes.
+// Lee solo el cache de discord.js (sin fetch). null si no se puede calcular.
+//
+// Con `cfg`, no cuenta los canales de NEXO (logs, bienvenida, confesiones y todo lo que
+// está en su categoría): esos los ve siempre porque los crea él, y en Cloud6 después de
+// /setup el conteo habría dicho "ve 3 de 19" cuando no veía ni un canal de la comunidad.
+const TEXT_CHANNEL_TYPES = new Set([ChannelType.GuildText, ChannelType.GuildAnnouncement]);
+
+function nexoChannelIds(cfg) {
+  if (!cfg) return new Set();
+  return new Set(
+    [cfg.log_channel_moderation_id, cfg.log_channel_activity_id, cfg.log_channel_economy_id, cfg.welcome_channel_id, cfg.confession_channel_id].filter(Boolean),
+  );
+}
+
+export function getBotChannelVisibility(guild, cfg = null) {
+  const me = guild?.members?.me;
+  const channels = guild?.channels?.cache;
+  if (!me || typeof channels?.values !== 'function') return null;
+  const ownIds = nexoChannelIds(cfg);
+  const ownCategoryId = cfg?.setup_category_id || null;
+  let total = 0;
+  let visible = 0;
+  for (const channel of channels.values()) {
+    if (!TEXT_CHANNEL_TYPES.has(channel.type)) continue;
+    if (ownIds.has(channel.id) || (ownCategoryId && channel.parentId === ownCategoryId)) continue;
+    total += 1;
+    if (channel.permissionsFor?.(me)?.has(PermissionFlagsBits.ViewChannel)) visible += 1;
+  }
+  return { visible, total };
+}
+
+// Texto para mostrarle al staff (/estado, /staff, /setup). null si no hay nada que decir.
+// No ver ALGUNOS canales es normal (canales privados de staff); no ver NINGUNO no lo es.
+export function describeChannelVisibility(visibility) {
+  if (!visibility || visibility.total === 0) return null;
+  const { visible, total } = visibility;
+  if (visible === 0) {
+    const which = total === 1 ? 'el único canal de texto' : `ninguno de los ${total} canales de texto`;
+    return `🔴 NEXO no puede ver ${which}: no modera, no da XP por mensajes y no registra mensajes. Dale a NEXO el rol que ve los canales, o sumá su rol en los permisos de cada canal.`;
+  }
+  if (visible < total) return `👁️ NEXO ve ${visible} de ${total} canales de texto — en los demás no modera ni da XP (normal si son privados del staff).`;
+  return total === 1 ? '👁️ NEXO ve el único canal de texto.' : `👁️ NEXO ve los ${total} canales de texto.`;
+}
+
+// Overwrite para que NEXO no quede afuera de un canal que él mismo crea o corrige
+// (2026-09-27). Los permisos de un canal también se le aplican al bot: si @everyone
+// tiene "Ver canal" negado y el bot no tiene "Administrador", pierde acceso a su propio
+// canal de logs, o a la sala temporal que acaba de crear (y entonces no puede mover al
+// usuario ni borrarla). En los servidores donde NEXO anda hoy nunca se notó porque el
+// bot tiene "Administrador", que saltea todos los permisos de canal.
+// Solo incluye permisos que el bot ya tiene en el servidor (Discord rechaza un overwrite
+// que otorgue un permiso que el bot no tiene). null si no hay nada que agregar.
+export function buildBotAccessOverwrite(guild, flags) {
+  const me = guild?.members?.me;
+  if (!me?.id) return null;
+  const allow = flags.filter((flag) => me.permissions?.has(flag));
+  if (allow.length === 0) return null;
+  return { id: me.id, type: OverwriteType.Member, allow };
+}
+
+export const BOT_TEXT_CHANNEL_ACCESS = [
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.ReadMessageHistory,
+];
 
 // Bitfield (como string decimal, formato que espera el query param `permissions` de
 // Discord) para pre-tildar estos permisos en la pantalla de consentimiento al invitar el

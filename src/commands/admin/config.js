@@ -1,7 +1,7 @@
 import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, AttachmentBuilder, MessageFlags } from 'discord.js';
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
-import { getDangerousRolePermission } from '../../utils/permissions.js';
+import { getDangerousRolePermission, getRoleConflictReason } from '../../utils/permissions.js';
 import { getReservedSelfRoleReason } from '../../utils/selfRoles.js';
 import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
@@ -332,6 +332,11 @@ export async function execute(interaction) {
   // solo, sin revisión humana caso por caso).
   if (sub === 'rol-admin') {
     const rol = interaction.options.getRole('rol');
+    const conflict = getRoleConflictReason(await getGuildConfig(guildId), rol.id, 'staff');
+    if (conflict) {
+      await interaction.reply({ content: `❌ ${rol} no puede ser el rol de administrador: ${conflict}. Elegí otro rol.`, flags: MessageFlags.Ephemeral });
+      return;
+    }
     await setGuildConfig(guildId, { admin_role_id: rol.id });
     await interaction.reply({ content: `✅ Rol de administrador configurado: ${rol}. Ahora solo ese rol puede usar /economia-staff y /xp.`, flags: MessageFlags.Ephemeral });
     await logConfigChange(interaction, `👮 Rol de administrador → ${rol}`);
@@ -347,6 +352,11 @@ export async function execute(interaction) {
           content: `❌ ${rol} tiene el permiso **${dangerousPermission}**, así que no se puede usar como rol de castigo — el bot se lo agregaría a cualquier usuario sancionado, entregándole ese permiso por error. Elegí (o creá) un rol sin privilegios administrativos.`,
           flags: MessageFlags.Ephemeral,
         });
+        return;
+      }
+      const conflict = getRoleConflictReason(await getGuildConfig(guildId), rol.id, 'punish');
+      if (conflict) {
+        await interaction.reply({ content: `❌ ${rol} no se puede usar como rol de castigo: ${conflict}. Elegí (o creá) otro rol.`, flags: MessageFlags.Ephemeral });
         return;
       }
     }
@@ -365,6 +375,11 @@ export async function execute(interaction) {
           content: `❌ ${rol} tiene el permiso **${dangerousPermission}**, así que no se puede usar como rol automático — el bot se lo daría a CADA miembro nuevo que se una, entregándole ese permiso por error. Elegí (o creá) un rol sin privilegios administrativos.`,
           flags: MessageFlags.Ephemeral,
         });
+        return;
+      }
+      const conflict = getRoleConflictReason(await getGuildConfig(guildId), rol.id, 'auto');
+      if (conflict) {
+        await interaction.reply({ content: `❌ ${rol} no se puede usar como rol automático: ${conflict}. Elegí (o creá) otro rol.`, flags: MessageFlags.Ephemeral });
         return;
       }
     }

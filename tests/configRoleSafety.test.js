@@ -121,3 +121,52 @@ describe.each([
     expect(logChannel.send).not.toHaveBeenCalled();
   });
 });
+
+// 2026-09-27: un mismo rol no puede cumplir dos papeles que se contradicen. En Prueba
+// bot el rol automático era "Staff" (sin permisos nativos, así que el chequeo de arriba
+// no lo frenaba): todo el que entraba pasaba a ser staff de NEXO.
+describe('/config — roles que chocan con otro papel (getRoleConflictReason)', () => {
+  const CFG = { admin_role_id: 'role-staff', moderator_role_id: 'role-staff', punish_role_id: 'role-sancionado', auto_role_id: 'role-miembro' };
+
+  it.each([
+    ['rol-automatico', 'role-staff', /staff/],
+    ['rol-automatico', 'role-sancionado', /castigo/],
+    ['rol-castigo', 'role-staff', /staff/],
+    ['rol-castigo', 'role-miembro', /automático/],
+    ['rol-admin', 'role-miembro', /automático/],
+    ['rol-admin', 'role-sancionado', /castigo/],
+  ])('/config %s con %s: se rechaza y no se guarda ni se loguea nada', async (subcommand, roleId, reason) => {
+    getGuildConfig.mockResolvedValue(CFG);
+    const interaction = makeInteraction({ subcommand, role: makeRole(roleId) });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).not.toHaveBeenCalled();
+    expect(logChannel.send).not.toHaveBeenCalled();
+    const message = interaction.reply.mock.calls[0][0].content;
+    expect(message).toMatch(/^❌/);
+    expect(message).toMatch(reason);
+  });
+
+  it.each([
+    ['rol-automatico', 'auto_role_id'],
+    ['rol-castigo', 'punish_role_id'],
+    ['rol-admin', 'admin_role_id'],
+  ])('control positivo: /config %s con un rol sin otro papel se guarda', async (subcommand, column) => {
+    getGuildConfig.mockResolvedValue(CFG);
+    const interaction = makeInteraction({ subcommand, role: makeRole('role-libre') });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { [column]: 'role-libre' });
+  });
+
+  it('volver a elegir el mismo rol que ya tiene ese papel no es un conflicto', async () => {
+    getGuildConfig.mockResolvedValue(CFG);
+    const interaction = makeInteraction({ subcommand: 'rol-castigo', role: makeRole('role-sancionado') });
+
+    await execute(interaction);
+
+    expect(setGuildConfig).toHaveBeenCalledWith('guild-1', { punish_role_id: 'role-sancionado' });
+  });
+});

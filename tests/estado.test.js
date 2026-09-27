@@ -146,4 +146,66 @@ describe('/estado', () => {
       expect(field('🔐 Permisos del bot')).toBe('✅ Todo OK');
     });
   });
+
+  // 2026-09-27: en Cloud6 NEXO tenía todos los permisos del servidor pero no veía
+  // ningún canal (los permisos de cada canal se lo negaban) — /estado decía "Todo OK".
+  describe('👁️ Canales', () => {
+    const textChannel = (canView) => ({ type: 0, permissionsFor: () => ({ has: () => canView }) });
+    function withChannels(interaction, channels) {
+      interaction.guild.channels = { cache: new Map(channels.map((c, i) => [`c${i}`, c])) };
+      return interaction;
+    }
+    const field = (interaction, name) => interaction.editReply.mock.calls[0][0].embeds[0].data.fields.find((f) => f.name === name)?.value;
+
+    it('no ve ningún canal de texto: lo marca en rojo aunque los permisos del servidor estén bien', async () => {
+      const interaction = withChannels(makeInteraction(), [textChannel(false), textChannel(false)]);
+
+      await execute(interaction);
+
+      expect(field(interaction, '🔐 Permisos del bot')).toBe('✅ Todo OK');
+      expect(field(interaction, '👁️ Canales')).toMatch(/^🔴/);
+      expect(field(interaction, '👁️ Canales')).toContain('ninguno de los 2');
+    });
+
+    it('ve algunos: lo informa sin alarma (canales privados del staff son normales)', async () => {
+      const interaction = withChannels(makeInteraction(), [textChannel(true), textChannel(false), textChannel(true)]);
+
+      await execute(interaction);
+
+      expect(field(interaction, '👁️ Canales')).toMatch(/ve 2 de 3/);
+      expect(field(interaction, '👁️ Canales')).not.toMatch(/🔴/);
+    });
+
+    it('los canales de voz no cuentan como canales de texto', async () => {
+      const voice = { type: 2, permissionsFor: () => ({ has: () => false }) };
+      const interaction = withChannels(makeInteraction(), [textChannel(true), voice]);
+
+      await execute(interaction);
+
+      expect(field(interaction, '👁️ Canales')).toBe('👁️ NEXO ve el único canal de texto.');
+    });
+  });
+
+  describe('⚠️ Roles en conflicto', () => {
+    it('rol automático = rol de staff: aparece el aviso', async () => {
+      getGuildConfig.mockResolvedValue({ admin_role_id: 'role-admin', moderator_role_id: null, auto_role_id: 'role-admin' });
+      const interaction = makeInteraction();
+
+      await execute(interaction);
+
+      const embed = interaction.editReply.mock.calls[0][0].embeds[0];
+      const value = embed.data.fields.find((f) => f.name === '⚠️ Roles en conflicto')?.value;
+      expect(value).toContain('<@&role-admin>');
+      expect(value).toMatch(/staff/);
+    });
+
+    it('config sana: no hay campo de conflictos', async () => {
+      const interaction = makeInteraction();
+
+      await execute(interaction);
+
+      const embed = interaction.editReply.mock.calls[0][0].embeds[0];
+      expect(embed.data.fields.find((f) => f.name === '⚠️ Roles en conflicto')).toBeUndefined();
+    });
+  });
 });

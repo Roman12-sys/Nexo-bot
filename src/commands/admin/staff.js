@@ -122,7 +122,7 @@ import {
   describePercent,
 } from '../../utils/economyTuning.js';
 import { getGuildCirculatingBalance, getTopBalances } from '../../utils/economyStore.js';
-import { isStaff, isAdmin, getDangerousRolePermission } from '../../utils/permissions.js';
+import { isStaff, isAdmin, getDangerousRolePermission, getRoleConflictReason, getConfiguredRoleConflicts } from '../../utils/permissions.js';
 import { resolveLiveSelfRoles, getReservedSelfRoleReason } from '../../utils/selfRoles.js';
 import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
 import { getGuildAnnouncementTemplates } from '../../utils/announcementTemplatesStore.js';
@@ -132,7 +132,7 @@ import { ACHIEVEMENTS } from '../../utils/achievements.js';
 import { joinWithOverflow } from '../../utils/logEmbeds.js';
 import { startBuilder as startAnuncioBuilder } from '../anuncios/anuncio.js';
 import { pingSupabase } from '../../supabaseClient.js';
-import { getMissingBotPermissions } from '../../utils/botPermissions.js';
+import { getMissingBotPermissions, getBotChannelVisibility, describeChannelVisibility } from '../../utils/botPermissions.js';
 import { BRAND_COLOR, BRAND_NAME, GOLD_COLOR, EMERALD_COLOR, INDIGO_COLOR, MAGENTA_COLOR, SKY_COLOR } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
 import { registerSelectPrefix } from '../../components/selects.js';
@@ -848,6 +848,17 @@ async function buildSistemaScreen(interaction) {
       value: missingPermissions.length === 0 ? '✅ Todo OK' : missingPermissions.map((p) => `⚠️ **${p.label}**`).join('\n').slice(0, 1000),
     },
   );
+  // Mismos 2 avisos que /estado (2026-09-27): bot que no ve canales, roles en conflicto.
+  const cfg = await getGuildConfig(interaction.guildId);
+  const visibilityLine = describeChannelVisibility(getBotChannelVisibility(interaction.guild, cfg));
+  if (visibilityLine) embed.addFields({ name: '👁️ Canales', value: visibilityLine });
+  const roleConflicts = getConfiguredRoleConflicts(cfg);
+  if (roleConflicts.length > 0) {
+    embed.addFields({
+      name: '⚠️ Roles en conflicto',
+      value: roleConflicts.map((c) => `**${c.label}** (<@&${c.roleId}>) ${c.reason}. Cambialo con \`/config\`.`).join('\n'),
+    });
+  }
   embed.setFooter({ text: 'Mismos datos que /estado.' });
   return { embeds: [embed], components: [navRow('sistema')] };
 }
@@ -1243,6 +1254,10 @@ registerSelectPrefix('staff_punish_role_select', async (i) => {
         content: `❌ Ese rol tiene el permiso **${dangerousPermission}**, así que no se puede usar como rol de castigo — el bot se lo agregaría a cualquier usuario sancionado, entregándole ese permiso por error. Elegí (o creá) un rol sin privilegios administrativos.`,
         flags: MessageFlags.Ephemeral,
       });
+    }
+    const conflict = getRoleConflictReason(await getGuildConfig(i.guildId), roleId, 'punish');
+    if (conflict) {
+      return i.reply({ content: `❌ <@&${roleId}> no se puede usar como rol de castigo: ${conflict}. Elegí (o creá) otro rol.`, flags: MessageFlags.Ephemeral });
     }
   }
   await setGuildConfig(i.guildId, { punish_role_id: roleId });

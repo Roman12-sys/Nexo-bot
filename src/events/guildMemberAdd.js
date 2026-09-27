@@ -3,7 +3,7 @@ import { createBotAddedLogEmbed, createPunishLogEmbed } from '../utils/logEmbeds
 import { findExecutor } from '../utils/auditLog.js';
 import { getGuildLogChannel } from '../utils/guildLogChannels.js';
 import { getGuildConfig } from '../utils/guildConfigStore.js';
-import { getDangerousRolePermission } from '../utils/permissions.js';
+import { getDangerousRolePermission, getRoleConflictReason } from '../utils/permissions.js';
 import { buildWelcomeEmbed, contextFromMember } from '../utils/welcomeEmbed.js';
 import { buildSelfRolesMessage } from '../utils/selfRoles.js';
 import { LOG_COLOR } from '../utils/embeds.js';
@@ -21,31 +21,66 @@ export const once = false;
 // config derivó a algo riesgoso sin que nadie lo pidiera. Reusado por assignAutoRole y
 // reapplyActivePunishment, para que las dos únicas asignaciones automáticas de rol
 // (sin revisión humana caso por caso) avisen igual.
-async function warnDangerousRoleApply(client, guild, role, dangerousPermission, context) {
-  console.warn(`⚠️ ${context}: el rol "${role.name}" tiene el permiso peligroso "${dangerousPermission}" (revalidado al aplicar) — asignación bloqueada.`);
+async function sendBlockedRoleWarning(client, guild, { title, description, fix }) {
   try {
     const logChannel = await getGuildLogChannel(client, guild.id, 'moderation');
     if (logChannel) {
       const embed = new EmbedBuilder()
         .setColor(LOG_COLOR)
-        .setTitle('⚠️ Rol peligroso — asignación automática bloqueada')
-        .setDescription(`${context}, pero el rol ${role} ahora tiene el permiso **${dangerousPermission}**. NEXO rechazó asignarlo para evitar una escalada de privilegios.`)
-        .addFields({ name: 'Qué hacer', value: 'Quitale ese permiso al rol desde Discord, o reconfigurá el campo correspondiente con `/config`.' })
+        .setTitle(title)
+        .setDescription(description)
+        .addFields({ name: 'Qué hacer', value: fix })
         .setTimestamp();
       await logChannel.send({ embeds: [embed] });
     }
   } catch (logError) {
-    console.error('⚠️ No se pudo registrar el bloqueo de rol peligroso en el canal de logs:', logError);
+    console.error('⚠️ No se pudo registrar el bloqueo de un rol automático en el canal de logs:', logError);
   }
+}
+
+async function warnDangerousRoleApply(client, guild, role, dangerousPermission, context) {
+  console.warn(`⚠️ ${context}: el rol "${role.name}" tiene el permiso peligroso "${dangerousPermission}" (revalidado al aplicar) — asignación bloqueada.`);
+  await sendBlockedRoleWarning(client, guild, {
+    title: '⚠️ Rol peligroso — asignación automática bloqueada',
+    description: `${context}, pero el rol ${role} ahora tiene el permiso **${dangerousPermission}**. NEXO rechazó asignarlo para evitar una escalada de privilegios.`,
+    fix: 'Quitale ese permiso al rol desde Discord, o reconfigurá el campo correspondiente con `/config`.',
+  });
+}
+
+// 2026-09-27: mismo criterio para un rol que choca con otro papel (getRoleConflictReason)
+// — ej. el rol automático es también el de staff. Se revalida al aplicar, no solo al
+// guardar: la config pudo guardarse antes de que existiera el chequeo, o cambiar después
+// (/config rol-admin apuntando al rol automático).
+async function warnConflictingRoleApply(client, guild, roleId, conflictReason, context, fix) {
+  console.warn(`⚠️ ${context}: el rol ${roleId} ${conflictReason} — asignación bloqueada.`);
+  await sendBlockedRoleWarning(client, guild, {
+    title: '⚠️ Rol en conflicto — asignación automática bloqueada',
+    description: `${context}, pero <@&${roleId}> ${conflictReason}. NEXO no lo asignó.`,
+    fix,
+  });
 }
 
 // Le asigna el rol automático configurado (guild_config.auto_role_id, vía /config
 // rol-automatico) a cada miembro nuevo. No corta el flujo de bienvenida si falla: un
 // rol mal configurado no debería impedir el resto de guildMemberAdd (mensaje de bienvenida).
-async function assignAutoRole(member, autoRoleId) {
+async function assignAutoRole(member, cfg) {
+  const autoRoleId = cfg.auto_role_id;
   if (!autoRoleId) return;
 
   try {
+    const conflict = getRoleConflictReason(cfg, autoRoleId, 'auto');
+    if (conflict) {
+      await warnConflictingRoleApply(
+        member.client,
+        member.guild,
+        autoRoleId,
+        conflict,
+        `Se iba a asignar el rol automático a ${member.user.tag}`,
+        'Elegí otro rol con `/config rol-automatico` (o desactivalo).',
+      );
+      return;
+    }
+
     const role = member.guild.roles.cache.get(autoRoleId) || (await member.guild.roles.fetch(autoRoleId).catch(() => null));
     if (!role) {
       console.warn('⚠️ El rol automático configurado ya no existe en el servidor.');
@@ -80,7 +115,7 @@ async function assignAutoRole(member, autoRoleId) {
 // active_punishments guarda SIEMPRE una fila (ver punish.js/punishStore.js), así que
 // acá alcanza con consultarla y, si sigue vigente, reaplicar el rol — mismo criterio
 // que assignAutoRole: nunca corta el resto del flujo de bienvenida si algo falla.
-async function reapplyActivePunishment(member, client) {
+async function reapplyActivePunishment(member, client, cfg) {
   try {
     const punishment = await getActivePunishment(member.guild.id, member.id);
     if (!punishment) return;
@@ -89,6 +124,19 @@ async function reapplyActivePunishment(member, client) {
     // punishEngine.js ya se habrá encargado de borrar la fila en ese caso, pero esto
     // cierra la ventana rara de un timer todavía no disparado justo al reingresar.
     if (punishment.expiresAt != null && punishment.expiresAt <= Date.now()) return;
+
+    const conflict = getRoleConflictReason(cfg, punishment.roleId, 'punish');
+    if (conflict) {
+      await warnConflictingRoleApply(
+        client,
+        member.guild,
+        punishment.roleId,
+        conflict,
+        `Se iba a reaplicar la restricción de /punish a ${member.user.tag} tras reingresar`,
+        'Elegí otro rol con `/config rol-castigo`.',
+      );
+      return;
+    }
 
     const role = member.guild.roles.cache.get(punishment.roleId);
     if (!role) {
@@ -147,8 +195,8 @@ export async function execute(member, client) {
 
   eventBus.emit('MEMBER_JOINED', { guildId: member.guild.id }).catch(() => {});
 
-  await assignAutoRole(member, cfg.auto_role_id);
-  await reapplyActivePunishment(member, client);
+  await assignAutoRole(member, cfg);
+  await reapplyActivePunishment(member, client, cfg);
 
   checkMemberCountAchievements(client, member.guild.id, member.guild.memberCount).catch((error) =>
     console.error('❌ Error chequeando logros de servidor (miembros):', error),

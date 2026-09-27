@@ -155,6 +155,20 @@ describe('/punish', () => {
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Administrador') }));
   });
 
+  // 2026-09-27: un rol de castigo que es también de staff (sin ningún permiso nativo,
+  // así que getDangerousRolePermission no lo ve) volvería staff al sancionado.
+  it('el rol de castigo es también el rol de staff: rechaza sin tocar roles ni persistir nada', async () => {
+    getGuildConfig.mockResolvedValue({ ...STAFF_CFG, moderator_role_id: 'role-sancionado' });
+    const member = targetMember();
+    const interaction = makeInteraction({ targetMember: member, punishRole: { id: 'role-sancionado', position: 1, permissions: { has: () => false } } });
+
+    await punishExecute(interaction);
+
+    expect(member.roles.add).not.toHaveBeenCalled();
+    expect(createActivePunishment).not.toHaveBeenCalled();
+    expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('staff') }));
+  });
+
   it('caso exitoso SIN duración: agrega el rol y persiste la fila igual (expiresAt null), sin programar timer', async () => {
     // MOD-2 (auditoría completa 2026-09-11): antes, sin duración, no se creaba NINGUNA
     // fila — guildMemberAdd.js no tenía forma de reaplicar la restricción si el

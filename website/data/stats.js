@@ -10,12 +10,18 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.join(__dirname, '..', '..');
 
-function countFilesRecursive(dir, extension) {
+// Comandos públicos: sin los que son solo del operador (`export const ownerGuildOnly =
+// true`, hoy /owner-metricas), que Discord registra únicamente en el servidor de
+// pruebas — así el número coincide con los comandos que ve cualquier servidor y con
+// /commands (2026-09-27). Se detecta leyendo el texto, sin importar el archivo.
+const OWNER_ONLY_EXPORT = /export\s+const\s+ownerGuildOnly\s*=\s*true/;
+
+function countPublicCommandFiles(dir) {
   let count = 0;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) count += countFilesRecursive(full, extension);
-    else if (entry.name.endsWith(extension)) count += 1;
+    if (entry.isDirectory()) count += countPublicCommandFiles(full);
+    else if (entry.name.endsWith('.js') && !OWNER_ONLY_EXPORT.test(fs.readFileSync(full, 'utf8'))) count += 1;
   }
   return count;
 }
@@ -43,7 +49,7 @@ function computeStats() {
   const categories = fs.readdirSync(commandsDir, { withFileTypes: true }).filter((d) => d.isDirectory());
 
   return {
-    commands: countFilesRecursive(commandsDir, '.js'),
+    commands: countPublicCommandFiles(commandsDir),
     categories: categories.length,
     events: fs.readdirSync(eventsDir).filter((f) => f.endsWith('.js')).length,
     tests: fs.existsSync(testsDir) ? countTestCases(testsDir) : 0,

@@ -179,6 +179,65 @@ describe('guildMemberAdd — rol automático con permiso peligroso (revalidado a
   });
 });
 
+// 2026-09-27: el rol automático era "Staff" en Prueba bot — todo el que entraba pasaba a
+// ser staff de NEXO. Un rol sin permisos nativos no lo frena getDangerousRolePermission,
+// así que se revalida el papel del rol (getRoleConflictReason) al aplicarlo.
+describe('guildMemberAdd — rol en conflicto con otro papel (revalidado al aplicar)', () => {
+  const safeRole = (id) => ({ id, name: id, position: 1, permissions: { has: () => false } });
+
+  it('rol automático = rol de staff: no lo asigna y avisa al canal de moderación', async () => {
+    getGuildConfig.mockResolvedValue({ auto_role_id: 'role-staff', moderator_role_id: 'role-staff', admin_role_id: 'role-staff', welcome_channel_id: null });
+    const logChannel = { send: vi.fn().mockResolvedValue(undefined) };
+    getGuildLogChannel.mockResolvedValue(logChannel);
+    const member = makeMember();
+    member.guild.roles.cache.set('role-staff', safeRole('role-staff'));
+
+    await execute(member, client);
+
+    expect(member.roles.add).not.toHaveBeenCalled();
+    expect(logChannel.send).toHaveBeenCalledTimes(1);
+    const embed = logChannel.send.mock.calls[0][0].embeds[0].data;
+    expect(embed.title).toMatch(/conflicto/i);
+    expect(embed.description).toContain('<@&role-staff>');
+    expect(embed.description).toMatch(/staff/);
+  });
+
+  it('rol automático = rol de castigo: tampoco lo asigna', async () => {
+    getGuildConfig.mockResolvedValue({ auto_role_id: 'role-x', punish_role_id: 'role-x', welcome_channel_id: null });
+    const member = makeMember();
+    member.guild.roles.cache.set('role-x', safeRole('role-x'));
+
+    await execute(member, client);
+
+    expect(member.roles.add).not.toHaveBeenCalled();
+  });
+
+  it('control positivo: un rol automático sin conflicto se asigna igual que siempre', async () => {
+    getGuildConfig.mockResolvedValue({ auto_role_id: 'role-miembro', moderator_role_id: 'role-staff', admin_role_id: 'role-staff', welcome_channel_id: null });
+    const member = makeMember();
+    member.guild.roles.cache.set('role-miembro', safeRole('role-miembro'));
+
+    await execute(member, client);
+
+    expect(member.roles.add).toHaveBeenCalledWith(member.guild.roles.cache.get('role-miembro'));
+  });
+
+  it('castigo guardado cuyo rol ahora es de staff: no se reaplica al reingresar', async () => {
+    getGuildConfig.mockResolvedValue({ auto_role_id: null, moderator_role_id: 'role-sancionado', welcome_channel_id: null });
+    getActivePunishment.mockResolvedValue({ guildId: 'guild-1', userId: 'user-1', roleId: 'role-sancionado', expiresAt: null });
+    const logChannel = { send: vi.fn().mockResolvedValue(undefined) };
+    getGuildLogChannel.mockResolvedValue(logChannel);
+    const member = makeMember();
+    member.guild.roles.cache.set('role-sancionado', { id: 'role-sancionado' });
+
+    await execute(member, client);
+
+    expect(member.roles.add).not.toHaveBeenCalled();
+    expect(recordModerationAction).not.toHaveBeenCalled();
+    expect(logChannel.send).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('guildMemberAdd — bots', () => {
   it('un bot agregado nunca recibe el embed de bienvenida ni el menú de roles', async () => {
     const member = makeMember({ isBot: true });

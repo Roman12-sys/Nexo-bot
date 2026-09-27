@@ -2,11 +2,12 @@
 // para diagnosticar sin tener que ir a mirar Railway: ¿está vivo el gateway?, ¿responde
 // Supabase?, ¿cuántos sistemas en vivo tiene prendidos este server ahora mismo?
 import { SlashCommandBuilder, EmbedBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
-import { isStaff } from '../../utils/permissions.js';
+import { isStaff, getConfiguredRoleConflicts } from '../../utils/permissions.js';
 import { pingSupabase } from '../../supabaseClient.js';
+import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildGiveawaysForAutocomplete } from '../../utils/giveawaysStore.js';
 import { getAllTempChannels } from '../../utils/tempVoiceStore.js';
-import { getMissingBotPermissions } from '../../utils/botPermissions.js';
+import { getMissingBotPermissions, getBotChannelVisibility, describeChannelVisibility } from '../../utils/botPermissions.js';
 import { BRAND_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 
 export const data = new SlashCommandBuilder()
@@ -74,6 +75,20 @@ export async function execute(interaction) {
         ? '✅ Todo OK'
         : missingPermissions.map((p) => `⚠️ **${p.label}** — afecta: ${p.feature}`).join('\n').slice(0, 1000),
   });
+
+  // 2026-09-27: los permisos del servidor pueden estar bien y los de cada canal
+  // negarle todo al bot (Cloud6) — ver getBotChannelVisibility.
+  const cfg = await getGuildConfig(interaction.guildId);
+  const visibilityLine = describeChannelVisibility(getBotChannelVisibility(interaction.guild, cfg));
+  if (visibilityLine) embed.addFields({ name: '👁️ Canales', value: visibilityLine });
+
+  const roleConflicts = getConfiguredRoleConflicts(cfg);
+  if (roleConflicts.length > 0) {
+    embed.addFields({
+      name: '⚠️ Roles en conflicto',
+      value: roleConflicts.map((c) => `**${c.label}** (<@&${c.roleId}>) ${c.reason}. Cambialo con \`/config\`.`).join('\n'),
+    });
+  }
 
   await interaction.editReply({ embeds: [embed] });
 }

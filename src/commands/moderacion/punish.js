@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, MessageFlags } from 'discord.js';
 import { createPunishLogEmbed } from '../../utils/logEmbeds.js';
-import { isStaff, getModerationBlockReason, getDangerousRolePermission } from '../../utils/permissions.js';
+import { isStaff, getModerationBlockReason, getDangerousRolePermission, getRoleConflictReason } from '../../utils/permissions.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { getGuildConfig } from '../../utils/guildConfigStore.js';
 import { describeError } from '../../utils/errorMessages.js';
@@ -98,6 +98,13 @@ export async function execute(interaction) {
       await interaction.editReply({
         content: `❌ El rol de restricción configurado (${punishRole}) tiene el permiso **${dangerousPermission}** — aplicarlo sería una escalada de privilegios. Quitale ese permiso desde Discord o reconfiguralo con \`/config rol-castigo\`.`,
       });
+      return;
+    }
+    // 2026-09-27: mismo criterio para un rol que choca con otro papel — ej. el rol de
+    // castigo es también el de staff, así que sancionar a alguien lo volvería staff.
+    const conflict = getRoleConflictReason(cfg, punishRole.id, 'punish');
+    if (conflict) {
+      await interaction.editReply({ content: `❌ El rol de restricción configurado (${punishRole}) ${conflict}. Reconfiguralo con \`/config rol-castigo\`.` });
       return;
     }
 

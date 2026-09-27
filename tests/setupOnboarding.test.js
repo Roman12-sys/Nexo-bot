@@ -177,3 +177,46 @@ describe('/setup — onboarding final: "⚠️ Permisos faltantes"', () => {
     expect(warning).toMatch(/afecta:/);
   });
 });
+
+// 2026-09-27 — instalación con permisos justos (sin "Administrador"), el caso Cloud6.
+describe('/setup — NEXO no queda afuera de sus canales ni ciego sin avisar', () => {
+  it('los canales de logs que crea incluyen el acceso del propio bot (ver, escribir, embeds, historial)', async () => {
+    const { PermissionFlagsBits } = await import('discord.js');
+    const interaction = makeInteraction();
+    interaction.guild.members.me.id = 'bot-1';
+
+    await runSetupFlow(interaction, { extras: ['moderacion'] });
+
+    const logCreates = interaction.guild.channels.create.mock.calls.filter(([opts]) => opts.name?.startsWith('registro-'));
+    expect(logCreates).toHaveLength(3);
+    for (const [opts] of logCreates) {
+      const bot = opts.permissionOverwrites.find((o) => o.id === 'bot-1');
+      expect(bot).toMatchObject({ type: 1 });
+      expect(bot.allow).toEqual(expect.arrayContaining([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]));
+      // Sigue siendo privado para @everyone — el acceso del bot se suma, no reemplaza nada.
+      expect(opts.permissionOverwrites).toContainEqual(expect.objectContaining({ id: 'role-everyone', deny: [PermissionFlagsBits.ViewChannel] }));
+    }
+  });
+
+  it('si el bot no ve ninguno de los canales del servidor, el resumen final lo dice', async () => {
+    const interaction = makeInteraction();
+    const blind = { type: 0, permissionsFor: () => ({ has: () => false }) };
+    interaction.guild.channels.cache = new Map([['general', blind], ['memes', blind]]);
+    interaction.guild.channels.cache.find = () => undefined;
+
+    const confirm = await runSetupFlow(interaction);
+
+    expect(fieldValue(finalEmbed(confirm), '⚠️ NEXO no ve tus canales')).toMatch(/ninguno de los 2/);
+  });
+
+  it('si ve los canales, no agrega ningún aviso de visibilidad', async () => {
+    const interaction = makeInteraction();
+    const visible = { type: 0, permissionsFor: () => ({ has: () => true }) };
+    interaction.guild.channels.cache = new Map([['general', visible]]);
+    interaction.guild.channels.cache.find = () => undefined;
+
+    const confirm = await runSetupFlow(interaction);
+
+    expect(fieldValue(finalEmbed(confirm), '⚠️ NEXO no ve tus canales')).toBeUndefined();
+  });
+});

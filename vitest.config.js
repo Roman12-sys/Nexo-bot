@@ -12,5 +12,11 @@ export default defineConfig({
     exclude: [...configDefaults.exclude, '.claude/**'],
     // Corta cualquier conexión real a Supabase desde la suite — ver el archivo.
     setupFiles: ['./tests/setup/noLiveSupabase.js'],
+    // 2026-09-27: con la máquina ocupada, 1 de 5 corridas falló 5 tests y salteó 12 —
+    // todos en el primer `await import()` de un archivo (cargar discord.js y el resto
+    // puede tardar más de los 5s por defecto), nunca por un error de lógica. 15s deja
+    // margen para eso sin esconder un test colgado de verdad.
+    testTimeout: 15_000,
+    hookTimeout: 15_000,
   },
 });

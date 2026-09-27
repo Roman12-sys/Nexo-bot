@@ -9,7 +9,11 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 const isStaff = vi.fn();
 const isAdmin = vi.fn();
 const getDangerousRolePermission = vi.fn(() => null);
-vi.mock('../src/utils/permissions.js', () => ({ isStaff, isAdmin, getDangerousRolePermission }));
+// getRoleConflictReason es pura (solo compara IDs contra guild_config) — se usa la real.
+vi.mock('../src/utils/permissions.js', async (importOriginal) => {
+  const { getRoleConflictReason, getConfiguredRoleConflicts } = await importOriginal();
+  return { isStaff, isAdmin, getDangerousRolePermission, getRoleConflictReason, getConfiguredRoleConflicts };
+});
 
 // Ajuste de balance (hallazgo Importante #8 del Top 20, auditoría UX/UI 2026-09-18) —
 // mismo criterio que anuncio.js más abajo: staff.js llama runBalanceAdjust/runBalanceSet
@@ -27,7 +31,8 @@ const pingSupabase = vi.fn();
 vi.mock('../src/supabaseClient.js', () => ({ pingSupabase }));
 
 const getMissingBotPermissions = vi.fn();
-vi.mock('../src/utils/botPermissions.js', () => ({ getMissingBotPermissions }));
+// El resto de botPermissions.js es puro (lee el cache del guild) — se usa el real.
+vi.mock('../src/utils/botPermissions.js', async (importOriginal) => ({ ...(await importOriginal()), getMissingBotPermissions }));
 
 // Fase 3 (Economía) — economyStore.js real pega a Supabase; se mockea completo acá
 // porque staff.js solo necesita estas 2 lecturas (circulante + top balances), mismo
@@ -443,6 +448,15 @@ describe('/staff — Sistema (datos reales, mismo criterio que /estado)', () => 
     const payload = payloadOf(clicked);
     expect(fieldValue(payload, '🔐 Permisos del bot')).toContain('Gestionar roles');
   });
+
+  it('mismos avisos que /estado: rol automático = rol de staff aparece como conflicto', async () => {
+    getGuildConfig.mockResolvedValue({ ...FULL_CONFIG, auto_role_id: 'role-mod' });
+    const interaction = makeInteraction();
+    await execute(interaction);
+    const clicked = await nav(interaction, 'staff_nav_sistema');
+
+    expect(fieldValue(payloadOf(clicked), '⚠️ Roles en conflicto')).toContain('<@&role-mod>');
+  });
 });
 
 describe('/staff — Fase 2: editar Moderación (primera escritura real)', () => {
@@ -554,6 +568,25 @@ describe('/staff — Fase 2: editar Moderación (primera escritura real)', () =>
     const selected = await navSelect(interaction, 'staff_punish_role_select', { values: ['role-dangerous'], role: { id: 'role-dangerous' } });
 
     expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining('Administrador') }));
+    expect(setGuildConfig).not.toHaveBeenCalled();
+    expect(logConfigChange).not.toHaveBeenCalled();
+  });
+
+  // 2026-09-27: el rol de castigo no puede ser un rol de staff ni el automático
+  // (getRoleConflictReason) — sin permisos nativos, el chequeo de arriba no lo frena.
+  it.each([
+    ['role-mod', /staff/],
+    ['role-auto', /automático/],
+  ])('rol de castigo = %s (otro papel): se rechaza y NUNCA se llega a guardar', async (roleId, reason) => {
+    getGuildConfig.mockResolvedValue(FULL_CONFIG);
+    const interaction = makeInteraction({ isAdministrator: true });
+    await execute(interaction);
+    await nav(interaction, 'staff_nav_moderacion');
+    await nav(interaction, 'staff_edit_punish_role');
+
+    const selected = await navSelect(interaction, 'staff_punish_role_select', { values: [roleId], role: { id: roleId } });
+
+    expect(selected.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringMatching(reason) }));
     expect(setGuildConfig).not.toHaveBeenCalled();
     expect(logConfigChange).not.toHaveBeenCalled();
   });

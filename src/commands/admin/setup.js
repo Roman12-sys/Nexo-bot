@@ -18,8 +18,8 @@ import {
 import { getGuildConfig, setGuildConfig } from '../../utils/guildConfigStore.js';
 import { getGuildLogChannel } from '../../utils/guildLogChannels.js';
 import { createBotConfigLogEmbed } from '../../utils/logEmbeds.js';
-import { getDangerousRolePermission } from '../../utils/permissions.js';
-import { getMissingBotPermissions } from '../../utils/botPermissions.js';
+import { getDangerousRolePermission, getRoleConflictReason } from '../../utils/permissions.js';
+import { getMissingBotPermissions, buildBotAccessOverwrite, BOT_TEXT_CHANNEL_ACCESS, getBotChannelVisibility, describeChannelVisibility } from '../../utils/botPermissions.js';
 import { describeError } from '../../utils/errorMessages.js';
 import { BRAND_COLOR, LOG_COLOR, SUCCESS_COLOR, GOLD_COLOR, NEUTRAL_COLOR, BRAND_NAME } from '../../utils/embeds.js';
 import { registerButtonPrefix } from '../../components/buttons.js';
@@ -280,25 +280,40 @@ function buildSetupPanel(state) {
 // rol reusado nunca se toca. Se filtran por los que el bot tiene: Discord rechaza crear
 // un rol con un permiso que el propio bot no tiene, y eso cortaría /setup a la mitad.
 // missingPermissions devuelve los que quedaron afuera, para avisarlo en el resumen.
-async function resolveRole(interaction, cfg, { column, name, color, hoist = false, requestedRole = null, rejectDangerous = false, permissions = [] }) {
+//
+// conflictField (2026-09-27): 'auto' | 'punish' — un candidato de reuso que ya cumple
+// otro papel que choca con este (getRoleConflictReason, ej. el rol automático guardado
+// es el mismo rol de staff) se descarta igual que uno peligroso, y se crea/reusa otro.
+// `cfg` tiene que traer ya el rol de staff de ESTA corrida (ver runSetup).
+async function resolveRole(interaction, cfg, { column, name, color, hoist = false, requestedRole = null, rejectDangerous = false, conflictField = null, permissions = [] }) {
   if (requestedRole) return { role: requestedRole, created: false };
 
   let skippedDangerousPermission = null;
+  let skippedConflictReason = null;
+  const rejection = (candidate) => {
+    const dangerous = rejectDangerous ? getDangerousRolePermission(candidate) : null;
+    if (dangerous) return { dangerous };
+    const conflict = conflictField ? getRoleConflictReason(cfg, candidate.id, conflictField) : null;
+    if (conflict) return { conflict };
+    return null;
+  };
 
   if (cfg[column]) {
     const existing = await interaction.guild.roles.fetch(cfg[column]).catch(() => null);
     if (existing) {
-      const dangerous = rejectDangerous ? getDangerousRolePermission(existing) : null;
-      if (!dangerous) return { role: existing, created: false };
-      skippedDangerousPermission = dangerous;
+      const rejected = rejection(existing);
+      if (!rejected) return { role: existing, created: false };
+      skippedDangerousPermission = rejected.dangerous ?? skippedDangerousPermission;
+      skippedConflictReason = rejected.conflict ?? skippedConflictReason;
     }
   }
 
   const byName = interaction.guild.roles.cache.find((r) => r.name === name);
   if (byName) {
-    const dangerous = rejectDangerous ? getDangerousRolePermission(byName) : null;
-    if (!dangerous) return { role: byName, created: false };
-    skippedDangerousPermission = dangerous;
+    const rejected = rejection(byName);
+    if (!rejected) return { role: byName, created: false, skippedConflictReason };
+    skippedDangerousPermission = rejected.dangerous ?? skippedDangerousPermission;
+    skippedConflictReason = rejected.conflict ?? skippedConflictReason;
   }
 
   const botPermissions = interaction.guild.members?.me?.permissions;
@@ -311,7 +326,7 @@ async function resolveRole(interaction, cfg, { column, name, color, hoist = fals
     reason: 'Creado por /setup de Nexo Bot',
   });
   const missingPermissions = permissions.filter((flag) => !grantable.includes(flag));
-  return { role, created: true, skippedDangerousPermission, missingPermissions };
+  return { role, created: true, skippedDangerousPermission, skippedConflictReason, missingPermissions };
 }
 
 async function resolveCategory(interaction, cfg) {
@@ -349,11 +364,18 @@ async function resolveChannel(interaction, cfg, category, { column, name, overwr
   );
   if (byName) return { channel: byName, created: false };
 
+  // 2026-09-27: el bot se agrega a sí mismo en los permisos de todo canal que crea — los
+  // de logs niegan "Ver canal" a @everyone, y sin esto un NEXO sin "Administrador" no
+  // podía ni ver ni escribir en sus propios logs (ver buildBotAccessOverwrite).
+  const botAccess = buildBotAccessOverwrite(
+    interaction.guild,
+    type === ChannelType.GuildText ? BOT_TEXT_CHANNEL_ACCESS : [PermissionFlagsBits.ViewChannel],
+  );
   const channel = await interaction.guild.channels.create({
     name,
     type,
     parent: category?.id,
-    permissionOverwrites: overwrites,
+    permissionOverwrites: botAccess ? [...(overwrites || []), botAccess] : overwrites,
     reason: 'Creado por /setup de Nexo Bot',
   });
   return { channel, created: true };
@@ -417,6 +439,9 @@ async function runSetup(interaction, state) {
     features: { moderacion: state.moderacion, xp: state.xp },
     setup_category_id: category?.id ?? cfg.setup_category_id ?? null,
   });
+  // Los roles de esta corrida, para que el automático y el de castigo nunca terminen
+  // siendo el mismo rol de staff (o entre sí) — ver conflictField en resolveRole.
+  const roleCfg = { ...cfg, admin_role_id: cfg.admin_role_id ?? staffRole.id, moderator_role_id: staffRole.id };
 
   // Los 3 logs (moderación/actividad/economía) se crean juntos con `moderacion` — los
   // comandos de economía están siempre activos sin importar ningún toggle, así que no
@@ -464,33 +489,40 @@ async function runSetup(interaction, state) {
   }
 
   if (state.autoRol) {
-    const { role, created, skippedDangerousPermission } = await resolveRole(interaction, cfg, {
+    const { role, created, skippedDangerousPermission, skippedConflictReason } = await resolveRole(interaction, roleCfg, {
       column: 'auto_role_id',
       name: 'Miembro',
       // Auditoría NEXO V (2026-09-18): era el verde obsoleto de Discord pre-2020
       // (#43B581), hardcodeado a mano — ahora el SUCCESS_COLOR oficial del sistema.
       color: SUCCESS_COLOR,
       rejectDangerous: true,
+      conflictField: 'auto',
     });
     summary.push(
       skippedDangerousPermission
         ? `⚠️ Ya existía un rol "Miembro" con el permiso **${skippedDangerousPermission}** — no se reusó (se lo asignaría a CADA miembro nuevo). Se creó ${role} en su lugar.`
-        : `${created ? '🆕 Creado' : '♻️ Reusado'} rol automático: ${role}`,
+        : skippedConflictReason
+          ? `⚠️ El rol automático que estaba guardado no se reusó: ${skippedConflictReason}. Ahora el rol automático es ${role}.`
+          : `${created ? '🆕 Creado' : '♻️ Reusado'} rol automático: ${role}`,
     );
     await setGuildConfig(interaction.guildId, { auto_role_id: role.id });
+    roleCfg.auto_role_id = role.id;
   }
 
   if (state.castigo) {
-    const { role, created, skippedDangerousPermission } = await resolveRole(interaction, cfg, {
+    const { role, created, skippedDangerousPermission, skippedConflictReason } = await resolveRole(interaction, roleCfg, {
       column: 'punish_role_id',
       name: 'Sancionado',
       color: LOG_COLOR,
       rejectDangerous: true,
+      conflictField: 'punish',
     });
     summary.push(
       skippedDangerousPermission
         ? `⚠️ Ya existía un rol "Sancionado" con el permiso **${skippedDangerousPermission}** — no se reusó (el bot se lo agregaría a cualquier usuario sancionado). Se creó ${role} en su lugar.`
-        : `${created ? '🆕 Creado' : '♻️ Reusado'} rol de castigo: ${role}`,
+        : skippedConflictReason
+          ? `⚠️ El rol de castigo que estaba guardado no se reusó: ${skippedConflictReason}. Ahora el rol de castigo es ${role}.`
+          : `${created ? '🆕 Creado' : '♻️ Reusado'} rol de castigo: ${role}`,
     );
     await setGuildConfig(interaction.guildId, { punish_role_id: role.id });
   }
@@ -551,6 +583,13 @@ async function runSetup(interaction, state) {
         missingPermissions.map((p) => `**${p.label}** — afecta: ${p.feature}`).join('\n').slice(0, 1000) +
         '\n\nCorregilo en *Ajustes del servidor → Roles* → el rol de Nexo Bot.',
     });
+  }
+
+  // 2026-09-27: los permisos del servidor pueden estar completos y los de cada canal
+  // negarle todo al bot (Cloud6). Sin contar los canales que NEXO acaba de crear.
+  const visibility = getBotChannelVisibility(interaction.guild, await getGuildConfig(interaction.guildId));
+  if (visibility && visibility.total > 0 && visibility.visible === 0) {
+    summaryEmbed.addFields({ name: '⚠️ NEXO no ve tus canales', value: describeChannelVisibility(visibility) });
   }
 
   return summaryEmbed;
@@ -661,6 +700,10 @@ for (const extra of Object.values(EXTRAS)) {
 registerSetupSelect('setup_role_select', async (i) => {
   const session = requireSession(i);
   if (!session) return i.reply({ content: SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
+  const conflict = i.values[0] ? getRoleConflictReason(await getGuildConfig(i.guildId), i.values[0], 'staff') : null;
+  if (conflict) {
+    return i.reply({ content: `❌ <@&${i.values[0]}> no puede ser el rol de staff: ${conflict}. Elegí otro rol.`, flags: MessageFlags.Ephemeral });
+  }
   session.state.roleId = i.values[0] || null;
   refreshSession(sessionKey(i.guildId, i.user.id), session.state);
   await i.update(buildSetupPanel(session.state));
@@ -1050,6 +1093,13 @@ registerSetupButton('setupwizard_roles_wiring_save', async (i) => {
   if (!session) return i.reply({ content: WIZARD_SESSION_EXPIRED, flags: MessageFlags.Ephemeral });
 
   const { wiringAdminRoleId, wiringModeratorRoleId } = session.draft.rolesDraft;
+  const cfg = await getGuildConfig(i.guildId);
+  for (const [roleId, tier] of [[wiringAdminRoleId, 'Administrador'], [wiringModeratorRoleId, 'Moderador']]) {
+    const conflict = roleId ? getRoleConflictReason(cfg, roleId, 'staff') : null;
+    if (conflict) {
+      return i.reply({ content: `❌ <@&${roleId}> no puede ser el tier ${tier} de NEXO: ${conflict}. Elegí otro rol.`, flags: MessageFlags.Ephemeral });
+    }
+  }
   const patch = {};
   if (wiringAdminRoleId) patch.admin_role_id = wiringAdminRoleId;
   if (wiringModeratorRoleId) patch.moderator_role_id = wiringModeratorRoleId;

@@ -28,9 +28,10 @@
 //
 // Solo lee `guild.channels.cache`/`guild.roles.cache` (ya en memoria, discord.js los
 // mantiene actualizados vía gateway) — cero llamadas extra a la API de Discord.
-import { PermissionFlagsBits, OverwriteType } from 'discord.js';
+import { PermissionFlagsBits, OverwriteType, PermissionsBitField } from 'discord.js';
 import { STATUS } from './setupState.js';
 import { getDangerousRolePermission } from './permissions.js';
+import { buildBotAccessOverwrite, BOT_TEXT_CHANNEL_ACCESS } from './botPermissions.js';
 
 const STAFF_NAME_HINTS = ['staff', 'mod', 'admin', 'log', 'registro', 'interno', 'privado', 'private'];
 
@@ -117,6 +118,7 @@ export function scanGuildChannels(guild, cfg) {
   const everyoneId = guild.roles.everyone.id;
   const staffRoleId = cfg.moderator_role_id || null;
   const managed = managedChannelExpectations(cfg);
+  const me = guild.members?.me || null;
   const findings = [];
 
   for (const channel of guild.channels.cache.values()) {
@@ -132,6 +134,26 @@ export function scanGuildChannels(guild, cfg) {
     findings.push(...scanDangerousOverwrites(channel, staffRoleId, categoryName));
 
     if (expectation) {
+      // 2026-09-27: NEXO tiene que poder ver y escribir en sus propios canales. Sin
+      // "Administrador", los permisos del canal también se le aplican (un canal de logs
+      // que niega "Ver canal" a @everyone se lo niega al bot). Solo se informa: si el bot
+      // no ve el canal, Discord tampoco lo deja editar sus permisos, así que "Corregir"
+      // no serviría.
+      const botPerms = me && typeof channel.permissionsFor === 'function' ? channel.permissionsFor(me) : null;
+      if (botPerms && !(botPerms.has(PermissionFlagsBits.ViewChannel) && botPerms.has(PermissionFlagsBits.SendMessages))) {
+        findings.push({
+          kind: 'channel',
+          channelId: channel.id,
+          channelName: channel.name,
+          categoryName,
+          status: STATUS.ERROR,
+          summary: `NEXO no puede ver o escribir en este ${expectation.label}.`,
+          detail: 'Sumá a NEXO (o su rol) en los permisos de este canal con "Ver canal" y "Enviar mensajes": hasta entonces no puede publicar nada ahí.',
+          correctable: false,
+          correction: null,
+        });
+      }
+
       const everyoneSees = everyoneCanView(channel, everyoneId);
       if (expectation.everyoneShouldSee === false && everyoneSees) {
         findings.push({
@@ -253,6 +275,16 @@ export async function applyChannelCorrection(guild, correction) {
 
   try {
     if (correction.type === 'deny-everyone-view') {
+      // Primero el acceso del propio bot (2026-09-27): sin "Administrador", negarle "Ver
+      // canal" a @everyone también se lo niega a NEXO, y después ya no podría escribir en
+      // su canal de logs ni volver a tocar sus permisos.
+      if (!me.permissions.has(PermissionFlagsBits.Administrator)) {
+        const botAccess = buildBotAccessOverwrite(guild, BOT_TEXT_CHANNEL_ACCESS);
+        if (botAccess) {
+          const options = Object.fromEntries(new PermissionsBitField(botAccess.allow).toArray().map((name) => [name, true]));
+          await channel.permissionOverwrites.edit(botAccess.id, options, { reason: 'Corrección de /setup — acceso de NEXO a su canal', type: OverwriteType.Member });
+        }
+      }
       await channel.permissionOverwrites.edit(guild.roles.everyone, { ViewChannel: false }, { reason: 'Corrección de /setup — diagnóstico de canales' });
     } else if (correction.type === 'allow-staff-view') {
       await channel.permissionOverwrites.edit(correction.roleId, { ViewChannel: true }, { reason: 'Corrección de /setup — diagnóstico de canales' });

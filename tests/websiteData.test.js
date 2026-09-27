@@ -8,6 +8,22 @@ import { stats } from '../website/data/stats.js';
 
 const REPO_ROOT = path.join(import.meta.dirname, '..');
 
+// Archivos de comando públicos: sin los que son solo del operador (`export const
+// ownerGuildOnly = true`, hoy /owner-metricas) — ni el sitio ni el registro global de
+// Discord los incluyen (2026-09-27).
+function countPublicCommandFiles() {
+  let count = 0;
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js') && !/export\s+const\s+ownerGuildOnly\s*=\s*true/.test(fs.readFileSync(full, 'utf8'))) count += 1;
+    }
+  };
+  walk(path.join(REPO_ROOT, 'src', 'commands'));
+  return count;
+}
+
 describe('website/data/commands.js', () => {
   it('el JSON generado tiene comandos (si esto falla, correr npm run website:generate-commands)', () => {
     expect(COMMANDS.length).toBeGreaterThan(0);
@@ -19,18 +35,12 @@ describe('website/data/commands.js', () => {
   // "stats.commands coincide con..." de más abajo, pero contra el explorador público
   // en vez de contra el número de la FAQ — son dos fuentes independientes que antes
   // podían divergir sin que ningún test lo notara.
-  it('COMMANDS.length coincide con la cantidad real de archivos .js en src/commands/ (si esto falla, correr npm run website:generate-commands)', () => {
-    let count = 0;
-    const walk = (dir) => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith('.js')) count += 1;
-      }
-    };
-    walk(path.join(REPO_ROOT, 'src', 'commands'));
+  it('COMMANDS.length coincide con la cantidad real de archivos .js públicos en src/commands/ (si esto falla, correr npm run website:generate-commands)', () => {
+    expect(COMMANDS.length).toBe(countPublicCommandFiles());
+  });
 
-    expect(COMMANDS.length).toBe(count);
+  it('los comandos solo del operador (/owner-metricas) no aparecen en la lista pública', () => {
+    expect(COMMANDS.find((c) => c.name === 'owner-metricas')).toBeUndefined();
   });
 
   it('getCommandsByCategory solo devuelve comandos de esa categoría', () => {
@@ -106,18 +116,12 @@ describe('website/data/features.js', () => {
 });
 
 describe('website/data/stats.js — coherencia contra el filesystem real', () => {
-  it('stats.commands coincide con la cantidad real de archivos .js en src/commands/', () => {
-    let count = 0;
-    const walk = (dir) => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith('.js')) count += 1;
-      }
-    };
-    walk(path.join(REPO_ROOT, 'src', 'commands'));
+  it('stats.commands coincide con la cantidad real de archivos .js públicos en src/commands/', () => {
+    expect(stats.commands).toBe(countPublicCommandFiles());
+  });
 
-    expect(stats.commands).toBe(count);
+  it('stats.commands y /commands dan el mismo número (antes el inicio decía 91 y /commands contaba otra cosa)', () => {
+    expect(stats.commands).toBe(COMMANDS.length);
   });
 
   it('stats.categories coincide con la cantidad real de subcarpetas de src/commands/', () => {

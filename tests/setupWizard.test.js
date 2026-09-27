@@ -1,4 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { PermissionFlagsBits } from 'discord.js';
 
 // NEXO Setup Inteligente — panel principal + wizard de roles + diagnóstico de canales +
 // contador de miembros + editor de bienvenida, ejercitados a través de los routers
@@ -343,6 +344,24 @@ describe('NEXO Setup — wizard de roles: asignación de tiers NEXO', () => {
     expect(finalEmbed.data.title).toMatch(/NEXO Setup|preparar tu servidor/);
   });
 
+  // 2026-09-27: el tier de NEXO no puede ser el rol automático (todo el que entra sería
+  // staff) ni el de castigo (sancionar volvería staff) — getRoleConflictReason.
+  it('elegir como tier el rol automático actual: se rechaza, no se guarda y el panel sigue abierto', async () => {
+    getGuildConfig.mockResolvedValue({ auto_role_id: 'role-auto' });
+    const interaction = makeInteraction();
+    await routeButton(click(interaction, 'setuphome_roles'));
+    await routeSelect(click(interaction, 'setupwizard_roles_select', { values: [] }));
+    await routeButton(click(interaction, 'setupwizard_roles_create'));
+    await routeSelect(click(interaction, 'setupwizard_roles_modtier_select', { values: ['role-auto'] }));
+
+    const saveClick = click(interaction, 'setupwizard_roles_wiring_save');
+    await routeButton(saveClick);
+
+    expect(setGuildConfig).not.toHaveBeenCalled();
+    expect(saveClick.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringMatching(/Moderador.*automático/s) }));
+    expect(saveClick.update).not.toHaveBeenCalled();
+  });
+
   it('sin elegir ningún rol para wirear: no llama setGuildConfig con columnas de rol', async () => {
     const interaction = makeInteraction();
     await routeButton(click(interaction, 'setuphome_roles'));
@@ -405,6 +424,20 @@ describe('NEXO Setup — contador de miembros', () => {
       expect.objectContaining({ name: expect.stringContaining('77'), type: 2 /* GuildVoice */ }),
     );
     expect(setGuildConfig).toHaveBeenCalledWith(guild.id, expect.objectContaining({ member_counter_channel_id: expect.any(String), member_counter_last_count: 77 }));
+  });
+
+  // 2026-09-27: todo canal que crea /setup incluye un permiso para el propio bot — sin
+  // "Administrador", los permisos del canal también se le aplican (ver
+  // buildBotAccessOverwrite). En un canal de voz alcanza con "Ver canal".
+  it('el canal del contador incluye el acceso del propio bot', async () => {
+    const guild = makeGuild({ memberCount: 12 });
+    guild.members.me.id = 'bot-1';
+    const interaction = makeInteraction({ guild });
+
+    await routeButton(click(interaction, 'setupwizard_counter_create'));
+
+    const [counterCreate] = guild.channels.create.mock.calls.find(([opts]) => opts.type === 2 /* GuildVoice */);
+    expect(counterCreate.permissionOverwrites).toContainEqual(expect.objectContaining({ id: 'bot-1', type: 1, allow: [PermissionFlagsBits.ViewChannel] }));
   });
 
   it('desactivar: limpia la columna sin borrar el canal de Discord', async () => {

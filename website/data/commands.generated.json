@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-24T05:10:10.289Z",
+  "generatedAt": "2026-09-27T07:44:44.894Z",
   "commands": [
     {
       "name": "8ball",
@@ -1466,15 +1466,6 @@
           "choices": []
         }
       ]
-    },
-    {
-      "name": "owner-metricas",
-      "description": "Métricas cross-servidor del operador del bot.",
-      "category": "administracion",
-      "folder": "admin",
-      "dmAllowed": false,
-      "requiredDiscordPermissions": [],
-      "options": []
     },
     {
       "name": "pat",

@@ -21,6 +21,7 @@ import {
   buildAdminTransferSelect,
 } from './tempVoicePanel.js';
 import { isStaff } from './permissions.js';
+import { buildBotAccessOverwrite } from './botPermissions.js';
 import { withLock } from './asyncLock.js';
 import { eventBus } from './eventBus.js'; // Event Engine — auditoría 2026-08-29, Parte 7
 import { registerButtonPrefix } from '../components/buttons.js';
@@ -152,10 +153,22 @@ async function applyRoomPermissions(channel, guildId, { type, locked }) {
   await channel.permissionOverwrites.edit(guildId, { ViewChannel: everyoneView, Connect: everyoneConnect });
 }
 
+// El bot se agrega a sí mismo (2026-09-27): la sala nace privada (@everyone sin "Ver
+// canal" ni "Conectar"), y sin esto un NEXO sin "Administrador" no veía la sala que
+// acababa de crear — Discord no lo dejaba mover al usuario adentro (exige poder
+// conectarse al canal destino) ni borrarla después, y quedaba una sala huérfana por
+// intento. Ver buildBotAccessOverwrite.
 function buildInitialOverwrites(guild, ownerId) {
+  const botAccess = buildBotAccessOverwrite(guild, [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.Connect,
+    PermissionFlagsBits.SendMessages,
+    PermissionFlagsBits.EmbedLinks,
+  ]);
   return [
     { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] },
     { id: ownerId, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak] },
+    ...(botAccess ? [botAccess] : []),
   ];
 }
 

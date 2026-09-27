@@ -68,3 +68,54 @@ describe('getModerationBlockReason', () => {
     expect(getModerationBlockReason(interaction, ownerAsTarget)).toMatch(/dueño del servidor/);
   });
 });
+
+describe('getRoleConflictReason / getConfiguredRoleConflicts (2026-09-27)', () => {
+  const CFG = { admin_role_id: 'admin', moderator_role_id: 'mod', punish_role_id: 'castigo', auto_role_id: 'auto' };
+
+  it('rol automático: choca con cualquier rol de staff y con el de castigo', async () => {
+    const { getRoleConflictReason } = await import('../src/utils/permissions.js');
+    expect(getRoleConflictReason(CFG, 'admin', 'auto')).toMatch(/staff/);
+    expect(getRoleConflictReason(CFG, 'mod', 'auto')).toMatch(/staff/);
+    expect(getRoleConflictReason(CFG, 'castigo', 'auto')).toMatch(/castigo/);
+    expect(getRoleConflictReason(CFG, 'otro', 'auto')).toBeNull();
+    expect(getRoleConflictReason(CFG, 'auto', 'auto')).toBeNull();
+  });
+
+  it('rol de castigo: choca con staff y con el automático', async () => {
+    const { getRoleConflictReason } = await import('../src/utils/permissions.js');
+    expect(getRoleConflictReason(CFG, 'mod', 'punish')).toMatch(/staff/);
+    expect(getRoleConflictReason(CFG, 'auto', 'punish')).toMatch(/automático/);
+    expect(getRoleConflictReason(CFG, 'castigo', 'punish')).toBeNull();
+  });
+
+  it('rol de staff: choca con el automático y el de castigo, pero admin y moderador pueden ser el mismo', async () => {
+    const { getRoleConflictReason } = await import('../src/utils/permissions.js');
+    expect(getRoleConflictReason(CFG, 'auto', 'staff')).toMatch(/automático/);
+    expect(getRoleConflictReason(CFG, 'castigo', 'staff')).toMatch(/castigo/);
+    expect(getRoleConflictReason(CFG, 'mod', 'staff')).toBeNull();
+    expect(getRoleConflictReason(CFG, 'admin', 'staff')).toBeNull();
+  });
+
+  it('sin config o sin rol: nunca hay conflicto (campos vacíos no chocan entre sí)', async () => {
+    const { getRoleConflictReason } = await import('../src/utils/permissions.js');
+    expect(getRoleConflictReason(null, 'x', 'auto')).toBeNull();
+    expect(getRoleConflictReason(CFG, null, 'auto')).toBeNull();
+    expect(getRoleConflictReason({ auto_role_id: null, punish_role_id: null }, 'x', 'staff')).toBeNull();
+  });
+
+  it('getConfiguredRoleConflicts: reporta el caso de Prueba bot (automático = staff) y nada en una config sana', async () => {
+    const { getConfiguredRoleConflicts } = await import('../src/utils/permissions.js');
+    expect(getConfiguredRoleConflicts(CFG)).toEqual([]);
+
+    const pruebaBot = { admin_role_id: 'staff', moderator_role_id: 'staff', auto_role_id: 'staff', punish_role_id: 'sancionado' };
+    const conflicts = getConfiguredRoleConflicts(pruebaBot);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({ label: 'Rol automático', roleId: 'staff' });
+  });
+
+  it('getConfiguredRoleConflicts: automático = castigo se reporta una sola vez', async () => {
+    const { getConfiguredRoleConflicts } = await import('../src/utils/permissions.js');
+    const conflicts = getConfiguredRoleConflicts({ auto_role_id: 'x', punish_role_id: 'x' });
+    expect(conflicts).toHaveLength(1);
+  });
+});

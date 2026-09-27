@@ -224,6 +224,61 @@ src/deploy-commands.js` global corrido por el usuario y verificado por API: 90 g
 sin `/owner-metricas`, que quedó solo en Prueba bot; permisos nativos = los de
 `commandVisibility.test.js`.
 
+### Un rol, un solo papel (2026-09-27)
+
+El mismo agujero que se cerró para los autoasignables seguía abierto en los otros roles
+que el bot asigna solo. En Prueba bot el rol automático era "Staff": todo el que entraba
+pasaba a ser staff de NEXO y podía abrir el dashboard de ese servidor. `/config
+rol-automatico` solo miraba permisos nativos (`getDangerousRolePermission`), y "Staff" no
+tenía ninguno. `getRoleConflictReason(cfg, roleId, field)` (`permissions.js`) es la regla
+única: el rol automático no puede ser de staff ni el de castigo; el de castigo no puede
+ser de staff ni el automático; un rol de staff no puede ser el automático ni el de
+castigo (admin y moderador sí pueden ser el mismo rol, así lo deja `/setup`). Se aplica
+en dos momentos, igual que el chequeo de permisos peligrosos:
+- **Al guardar:** `/config rol-automatico`/`rol-castigo`/`rol-admin`, `/staff` (rol de
+  castigo), `/setup` (rol de staff de la configuración rápida y el paso "Asignar tiers" del
+  asistente). En la configuración rápida, un rol automático o de castigo guardado que choca
+  se descarta y se crea otro, igual que uno peligroso ("/setup siempre termina").
+- **Al usar:** `guildMemberAdd.js` (rol automático y castigo reaplicado al reingresar, con
+  aviso al log de moderación) y `/punish`. Así una config vieja o cambiada por otro camino
+  nunca se aplica.
+`getConfiguredRoleConflicts(cfg)` muestra los conflictos ya guardados en `/estado`, en
+`/staff` → Sistema y en la sección Roles del panel de `/setup` (🔴).
+
+### Instalación sin "Administrador" (2026-09-27)
+
+En los 3 servidores donde NEXO andaba, el bot tenía "Administrador", que saltea todos los
+permisos de canal, así que nunca se probó la instalación normal (el link del sitio pide
+12 permisos, sin "Administrador"). La primera instalación así fue Cloud6 (77 miembros,
+19/09): todos sus canales están ocultos para @everyone y solo los ve el rol "Cloud6".
+NEXO no veía ninguno (0 de 16 de texto), nadie corrió `/setup` y nada lo avisaba:
+`/estado` decía "✅ Todo OK" porque mira permisos del servidor, no de cada canal. Además,
+leyendo el código salieron tres fallas de la misma clase que ese servidor todavía no
+había pisado: los canales de logs y de confesiones que crea `/setup` le negaban el acceso
+al propio bot, las salas de Join to Create nacían privadas sin el bot (no podía mover al
+usuario ni borrarlas: sala huérfana por intento), y "Corregir" del diagnóstico ocultaba el
+canal a @everyone sin darle acceso al bot antes. Cambios:
+- `buildBotAccessOverwrite(guild, flags)` (`botPermissions.js`): permiso de canal para el
+  propio bot (solo con permisos que el bot ya tiene: Discord rechaza otorgar uno que no
+  tiene). Lo usan `resolveChannel` de `/setup` (todo canal que crea), las salas
+  temporales (`buildInitialOverwrites`) y "Corregir" (primero el bot, después @everyone).
+  Canales que ya existían no se tocan.
+- `getBotChannelVisibility(guild, cfg)`: cuántos canales de texto ve el bot, **sin contar
+  los de NEXO** (sus logs, bienvenida, confesiones y todo lo de su categoría). Sin esa
+  exclusión, en Cloud6 después de `/setup` habría dicho "ve 3 de 19". Se muestra en
+  `/estado` y `/staff` → Sistema, pone en 🔴 los permisos del bot en el panel de `/setup`
+  si ve 0, y avisa en el resumen de la configuración rápida y en el mensaje de bienvenida
+  al servidor. No ver ALGUNOS canales es normal (privados del staff) y no alarma.
+- `guildCreate.js`: si el canal de sistema rechaza el mensaje de bienvenida, va por MD al
+  dueño (antes se perdía).
+- El diagnóstico suma un hallazgo informativo si NEXO no puede ver o escribir en un canal
+  que gestiona. No se ofrece "Corregir": si el bot no ve el canal, Discord tampoco lo deja
+  editar sus permisos.
+Pendiente, no hecho: `/lock` también le quita "Enviar mensajes" al bot en ese canal si no
+es Administrador (un `/anuncio` ahí falla mientras está bloqueado).
+**Regla para probar permisos:** usar siempre un bot SIN "Administrador". Con él, ningún
+problema de permisos de canal aparece.
+
 ## Gotcha real ya pisado: columnas de cooldown
 
 Las columnas tipo "última vez que pasó X" (`last_daily`, `last_work`, `last_xp_ts`,
@@ -238,8 +293,13 @@ código hace aritmética cruda tipo `Date.now() - economy.lastDaily`, nunca
 
 `economy.balance` ("wallet") y `economy.bank` son deliberadamente dos columnas
 separadas, no una sola. `/rob` solo puede tocar el wallet — el banco es el lugar donde
-"guardar y estar a salvo", y encima rinde un interés simple (2%/día, tope de 14 días
-acumulados) que se calcula lazy (sin cron) cuando el usuario mira `/bank ver`. El interés
+"guardar y estar a salvo", y encima rinde 2%/día (tope de 14 días acumulados) que se
+calcula lazy (sin cron) cuando el usuario mira `/bank ver`. **Es interés compuesto, no
+simple** (corregido 2026-09-27 — esto decía "simple"): el interés se suma al propio banco
+y el reloj vuelve a arrancar en cada `/bank ver`, así que mirando una vez por día la plata
+se duplica cada ~35 días (×1377 en un año). Pagarlo a la billetera no lo volvería simple:
+el usuario lo puede volver a depositar. La palanca real es la tasa, y bajarla es una
+decisión de producto pendiente (al 2026-09-27 nadie tenía plata en el banco). El interés
 se reinicia en CADA depósito/retiro (columna `last_interest_ts`, ver
 `deposit_to_bank`/`withdraw_from_bank` en `schema.sql`) — sin ese reset hay un bug real
 que pisamos una vez: vaciar la cuenta y depositar de nuevo mucho después cobraba interés
@@ -470,7 +530,12 @@ mismo problema que tenía a mano el Artifact de landing viejo ("70+ comandos" cu
 eran 88, corregido acá de raíz). `website/data/features.js` (el grid de la landing)
 deriva `commandCount`/`sampleCommands` de ESE MISMO JSON en vez de tener sus propios
 números a mano — cierra el loop "código → fuente de verdad → web" en las dos
-superficies a la vez, no solo en una.
+superficies a la vez, no solo en una. **Los comandos solo del operador
+(`ownerGuildOnly`, hoy `/owner-metricas`) no entran al JSON ni al conteo de
+`website/data/stats.js`** (2026-09-27): el sitio los listaba en público pese a que no se
+mencionan en `/help`, y el inicio decía "91 comandos" cuando Discord registra 90. El
+dashboard filtra su ranking "Comando más usado" con esta misma lista, así que tampoco lo
+muestra ahí.
 
 **Categoría de "voz temporal" existe en la landing pero no en el filtro de `/commands`**
 — es una feature 100% automática (Join to Create), sin comando propio (0 en el JSON
@@ -624,10 +689,12 @@ cambios ahí.
 
 ## Anunciador de patch notes de League of Legends
 
-`src/utils/lolPatchEngine.js` manda un embed a un canal fijo (`1542041482918109235`, un
-solo servidor) cada vez que sale un patch nuevo de LoL. A propósito **no** es una
-feature de `guild_config`: el pedido fue "este canal, este server", no "cualquier
-servidor pueda configurar esto" — mismo criterio que la presencia fija de `ready.js`.
+`src/utils/lolPatchEngine.js` manda un embed cada vez que sale un patch nuevo de LoL a
+cada servidor que lo activó con `/config` (columna `guild_config.lol_announce_channel_id`,
+opt-in, `getGuildsWithLolAnnounceChannel`). **Corregido 2026-09-27:** esto decía que era
+un canal fijo de un solo servidor, a propósito fuera de `guild_config` — así nació, pero
+pasó a opt-in por servidor hace tiempo (al 2026-09-27 lo tienen activado Buenos Angeles y
+Prueba bot).
 
 Riot no tiene API pública de patch notes. Se lee el JSON `__NEXT_DATA__` embebido en
 `leagueoflegends.com/en-us/news/tags/patch-notes/` (el mismo dato que renderiza la
@@ -665,17 +732,19 @@ criterio que `last_daily`/`last_work`, ver el gotcha de columnas de cooldown má
 y arranca de cero la ventana de tolerancia. Si pasan más de
 `DDRAGON_PATCH_WARNING_DELAY_HOURS` (24h, constante en el propio archivo) sin que
 `lol_patch_state.updated_at` (que el scraper ya toca solo cuando encuentra un artículo
-nuevo — no hizo falta una columna nueva para eso) se haya movido **en una ventana
-simétrica** alrededor de ese momento, deja el warning una sola vez (`ddragon_warning_sent_at`,
-se resetea a null cada vez que la versión de Data Dragon vuelve a cambiar).
+nuevo — no hizo falta una columna nueva para eso) se haya movido entre
+`ARTICLE_LOOKBACK_HOURS` (72h) antes de ese momento y ahora, deja el warning una sola vez
+(`ddragon_warning_sent_at`, se resetea a null cada vez que la versión de Data Dragon
+vuelve a cambiar).
 
-La ventana es simétrica (hacia atrás Y hacia adelante) a propósito: en el orden real
-más común el artículo de patch notes se publica ANTES de que Data Dragon se actualice
-(por la demora manual de arriba), así que exigir progreso del scraper *después* del
-cambio de versión generaría un falso positivo en casi todos los parches. Limitación
-conocida y aceptada: si el atraso real de Data Dragon supera esas 24h hacia atrás,
-puede saltar un falso positivo igual — es un heurístico de "avisale al staff para que
-mire", no una garantía.
+La ventana mira hacia atrás a propósito: en el orden real más común el artículo de
+patch notes se publica ANTES de que Data Dragon se actualice (por la demora manual de
+arriba), así que exigir progreso del scraper *después* del cambio de versión generaría un
+falso positivo en casi todos los parches. **Hasta el 2026-09-27 eran 24h hacia atrás y
+dio una falsa alarma real:** el artículo del 26.19 salió el 22/09 18:02 UTC y Data Dragon
+pasó a 16.19.1 el 23/09 21:26 — 27h después, en el orden normal. Ahora son 72h, muy lejos
+del artículo del parche anterior (salen cada ~2 semanas). Ojo: Data Dragon numera TODOS
+los parches normales con ".1" (16.18.1, 16.19.1…) — "x.y.1" no es un hotfix.
 
 ## Timers en memoria: qué persiste y qué no
 
@@ -969,7 +1038,12 @@ estado en memoria keyeado por string (`${guildId}:${userId}`), no solo una query
 filtrada. `guildDelete.test.js` dejó de mantener una lista manual de tablas: compara
 contra `GUILD_SCOPED_TABLES`, la constante real exportada por el propio módulo.
 
-Estado al 2026-09-24: **130 archivos / 1335 tests**. **El "flaky" de `moderation.test.js`
+Estado al 2026-09-27: **134 archivos / 1427 tests**, con `testTimeout`/`hookTimeout` de
+15s en `vitest.config.js` (ese día 1 de 5 corridas con la máquina ocupada falló 5 tests
+por tiempo agotado en el primer `await import()` de un archivo — carga de módulos, no
+lógica). Desde ese día también tienen tests directos `messageCreate.js`,
+`interactionCreate.js` y las tablas de pago del casino (`casinoPaytables.test.js` fija
+cuánto devuelve cada juego: si cambiás una tabla, cambiá el número ahí). **El "flaky" de `moderation.test.js`
 tenía causa real, ya cerrada (2026-09-23):** los tests de confirmación de `/kick`/`/ban`
 vencían a veces el timeout de 5000ms en la suite completa porque hacían un INSERT real de
 red a Supabase de producción (ver arriba) — la latencia de red, no la carga de la suite.

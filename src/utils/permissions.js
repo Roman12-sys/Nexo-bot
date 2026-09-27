@@ -137,3 +137,46 @@ export function getDangerousRolePermission(role) {
   }
   return null;
 }
+
+// Un mismo rol no puede cumplir dos papeles que se contradicen (2026-09-27). El rol
+// automático lo recibe todo el que entra, el de castigo cualquier sancionado, y los de
+// staff dan acceso a NEXO (isStaff/isAdmin, dashboard). Si el automático fuera de staff,
+// todo el que entra sería staff; si el de castigo fuera de staff, sancionar a alguien lo
+// volvería staff; si el automático fuera el de castigo, todo el que entra quedaría
+// sancionado. getDangerousRolePermission no lo ve: mira permisos NATIVOS, y estos roles
+// pueden no tener ninguno. Pasó en Prueba bot: el rol automático era "Staff". Misma idea
+// que getReservedSelfRoleReason (selfRoles.js) para los autoasignables.
+//
+// `field` es el papel que se le quiere dar al rol: 'auto' | 'punish' | 'staff'
+// (admin_role_id o moderator_role_id — esos dos sí pueden ser el mismo rol, así lo deja
+// /setup). Devuelve el motivo para el mensaje de rechazo, o null. Puro.
+export function getRoleConflictReason(cfg, roleId, field) {
+  if (!cfg || !roleId) return null;
+  const isStaffRole = roleId === cfg.admin_role_id || roleId === cfg.moderator_role_id;
+  if (field === 'auto') {
+    if (isStaffRole) return 'es un rol de staff de NEXO — todo el que entre al servidor se volvería staff';
+    if (roleId === cfg.punish_role_id) return 'es el rol de castigo — todo el que entre al servidor quedaría sancionado';
+  }
+  if (field === 'punish') {
+    if (isStaffRole) return 'es un rol de staff de NEXO — sancionar a alguien lo volvería staff';
+    if (roleId === cfg.auto_role_id) return 'es el rol automático — lo recibe todo el que entra, así que todos quedarían sancionados';
+  }
+  if (field === 'staff') {
+    if (roleId === cfg.auto_role_id) return 'es el rol automático — todo el que entre al servidor se volvería staff';
+    if (roleId === cfg.punish_role_id) return 'es el rol de castigo — sancionar a alguien lo volvería staff';
+  }
+  return null;
+}
+
+// Los conflictos que YA existen en la configuración guardada (para /estado y el panel
+// de /setup) — no se pueden prevenir si se guardaron antes de 2026-09-27. Un par
+// automático = castigo se reporta una sola vez.
+export function getConfiguredRoleConflicts(cfg) {
+  if (!cfg) return [];
+  const conflicts = [];
+  const autoReason = getRoleConflictReason(cfg, cfg.auto_role_id, 'auto');
+  if (autoReason) conflicts.push({ label: 'Rol automático', roleId: cfg.auto_role_id, reason: autoReason });
+  const punishReason = cfg.punish_role_id !== cfg.auto_role_id ? getRoleConflictReason(cfg, cfg.punish_role_id, 'punish') : null;
+  if (punishReason) conflicts.push({ label: 'Rol de castigo', roleId: cfg.punish_role_id, reason: punishReason });
+  return conflicts;
+}

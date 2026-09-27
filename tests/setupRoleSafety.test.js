@@ -273,3 +273,59 @@ describe('/setup — permisos nativos del rol "Staff" recién creado', () => {
     expect(setGuildConfig.mock.calls.find((c) => 'moderator_role_id' in c[1])[1].moderator_role_id).toBe('role-staff-viejo');
   });
 });
+
+// 2026-09-27: en Prueba bot el rol automático guardado era el mismo rol "Staff" — todo
+// el que entraba pasaba a ser staff de NEXO. Volver a correr /setup rápido lo reusaba
+// tal cual (no tiene permisos peligrosos). Ahora un candidato que choca con otro papel
+// (getRoleConflictReason) se descarta igual que uno peligroso.
+describe('/setup — el rol automático y el de castigo nunca terminan siendo el de staff', () => {
+  it('rol automático guardado = rol de staff: no se reusa, se crea "Miembro" y el resumen lo explica', async () => {
+    const staff = makeRole('role-staff', 'Staff');
+    getGuildConfig.mockResolvedValue({ admin_role_id: 'role-staff', moderator_role_id: 'role-staff', auto_role_id: 'role-staff' });
+    const interaction = makeInteraction({ roles: [staff] });
+
+    await runSetupFlow(interaction, { extras: ['autoRol'] });
+
+    const autoCall = setGuildConfig.mock.calls.find((c) => 'auto_role_id' in c[1]);
+    expect(autoCall[1].auto_role_id).toMatch(/^role-nuevo-/);
+    expect(interaction.guild.roles.create).toHaveBeenCalledWith(expect.objectContaining({ name: 'Miembro' }));
+    const description = interaction.editReply.mock.calls.at(-1)?.[0]?.embeds?.[0]?.data?.description ?? '';
+    expect(description).toMatch(/no se reusó/);
+  });
+
+  it('rol de castigo guardado = rol de staff: no se reusa, se crea "Sancionado"', async () => {
+    const staff = makeRole('role-staff', 'Staff');
+    getGuildConfig.mockResolvedValue({ admin_role_id: 'role-staff', moderator_role_id: 'role-staff', punish_role_id: 'role-staff' });
+    const interaction = makeInteraction({ roles: [staff] });
+
+    await runSetupFlow(interaction, { extras: ['castigo'] });
+
+    const punishCall = setGuildConfig.mock.calls.find((c) => 'punish_role_id' in c[1]);
+    expect(punishCall[1].punish_role_id).toMatch(/^role-nuevo-/);
+  });
+
+  it('automático y castigo en la misma corrida: si "Miembro" es el rol de castigo guardado, no se usa para los dos', async () => {
+    const miembro = makeRole('role-miembro', 'Miembro');
+    getGuildConfig.mockResolvedValue({ punish_role_id: 'role-miembro' });
+    const interaction = makeInteraction({ roles: [miembro] });
+
+    await runSetupFlow(interaction, { extras: ['autoRol', 'castigo'] });
+
+    const autoId = setGuildConfig.mock.calls.find((c) => 'auto_role_id' in c[1])[1].auto_role_id;
+    const punishId = setGuildConfig.mock.calls.find((c) => 'punish_role_id' in c[1])[1].punish_role_id;
+    expect(autoId).not.toBe(punishId);
+  });
+
+  it('elegir como rol de staff el rol automático actual: se rechaza y el panel no lo toma', async () => {
+    const { routeSelect } = await import('../src/components/selects.js');
+    getGuildConfig.mockResolvedValue({ auto_role_id: 'role-miembro' });
+    const interaction = makeInteraction({ roles: [makeRole('role-miembro', 'Miembro')] });
+    await routeButton(makeFollowUp(interaction, 'setup_template_personalizado'));
+
+    const select = { ...makeFollowUp(interaction, 'setup_role_select'), values: ['role-miembro'], isAnySelectMenu: () => true };
+    await routeSelect(select);
+
+    expect(select.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringMatching(/automático/) }));
+    expect(select.update).not.toHaveBeenCalled();
+  });
+});

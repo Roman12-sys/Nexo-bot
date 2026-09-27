@@ -28,6 +28,14 @@ const FETCH_TIMEOUT_MS = 10 * 1000; // ARCH-2, auditoría completa 2026-09-11 �
 const DDRAGON_PATCH_WARNING_DELAY_HOURS = 24;
 const DDRAGON_PATCH_WARNING_DELAY_MS = DDRAGON_PATCH_WARNING_DELAY_HOURS * 60 * 60 * 1000;
 
+// Hacia atrás la tolerancia es más amplia (2026-09-27): con 24h hubo una falsa alarma
+// real. El artículo del parche 26.19 salió el 22/09 18:02 UTC y Data Dragon pasó a
+// 16.19.1 el 23/09 21:26 — 27h después, el orden normal, y el monitor avisó "¿se rompió
+// el scraper?" el 24/09. 72h sigue muy lejos del artículo del parche anterior (salen
+// cada ~2 semanas), así que nunca confunde uno con otro.
+const ARTICLE_LOOKBACK_HOURS = 72;
+const ARTICLE_LOOKBACK_MS = ARTICLE_LOOKBACK_HOURS * 60 * 60 * 1000;
+
 async function fetchLatestDdragonVersion() {
   // ARCH-2 (auditoría completa 2026-09-11): mismo motivo que lolPatchEngine.js — un
   // stall de red sin timeout podía dejar este fetch colgado indefinidamente.
@@ -72,7 +80,7 @@ export async function checkDdragonVersion() {
   const elapsedSinceDetected = now - state.ddragonVersionDetectedAt;
   if (elapsedSinceDetected < DDRAGON_PATCH_WARNING_DELAY_MS) return;
 
-  const windowStart = state.ddragonVersionDetectedAt - DDRAGON_PATCH_WARNING_DELAY_MS;
+  const windowStart = state.ddragonVersionDetectedAt - ARTICLE_LOOKBACK_MS;
   const patchEngineProgressed = state.patchEngineUpdatedAt !== null && state.patchEngineUpdatedAt >= windowStart;
   if (patchEngineProgressed) return;
 

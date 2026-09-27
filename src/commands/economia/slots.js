@@ -3,7 +3,8 @@ import { playCasinoGame, weightedRandom } from '../../utils/casinoHelpers.js';
 
 // Símbolos más comunes pagan menos, los raros pagan más — mismo criterio que cualquier
 // tragamonedas real. Pesos suman 100 (son porcentajes directos).
-const SYMBOLS = [
+// Exportada para tests/casinoPaytables.test.js, que fija cuánto devuelve el juego.
+export const SYMBOLS = [
   { emoji: '🍒', weight: 30, payout: 3 },
   { emoji: '🍋', weight: 25, payout: 3 },
   { emoji: '🍊', weight: 20, payout: 4 },

@@ -347,3 +347,47 @@ describe('setupDiagnostics — applyChannelCorrection', () => {
     expect(result.reason).toBe('rate limited');
   });
 });
+
+// 2026-09-27: sin "Administrador", los permisos del canal también se le aplican a NEXO.
+describe('setupDiagnostics — acceso del propio bot a sus canales', () => {
+  const privateLogOverwrites = [['role-everyone', { deny: [PermissionFlagsBits.ViewChannel] }], ['role-staff', { allow: [PermissionFlagsBits.ViewChannel] }]];
+
+  it('canal de logs que NEXO no puede ver: hallazgo 🔴, informativo (sin "Corregir")', () => {
+    const channel = makeChannel({ id: 'chan-log', name: 'registro-moderacion', overwrites: privateLogOverwrites });
+    channel.permissionsFor = () => ({ has: () => false });
+    const guild = makeGuild({ channels: [channel] });
+    const cfg = { log_channel_moderation_id: 'chan-log', moderator_role_id: 'role-staff' };
+
+    const findings = scanGuildChannels(guild, cfg);
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ status: STATUS.ERROR, correctable: false });
+    expect(findings[0].summary).toMatch(/NEXO no puede ver o escribir/);
+  });
+
+  it('control positivo: si NEXO ve y escribe en el canal, no hay hallazgo', () => {
+    const channel = makeChannel({ id: 'chan-log', name: 'registro-moderacion', overwrites: privateLogOverwrites });
+    channel.permissionsFor = () => ({ has: () => true });
+    const guild = makeGuild({ channels: [channel] });
+
+    expect(scanGuildChannels(guild, { log_channel_moderation_id: 'chan-log', moderator_role_id: 'role-staff' })).toEqual([]);
+  });
+
+  it('"Corregir" (ocultar a @everyone) con un bot sin Administrador: primero se da acceso a sí mismo, después oculta', async () => {
+    const channel = makeChannel({ id: 'chan-log', name: 'registro-moderacion', overwrites: [] });
+    channel.permissionOverwrites.edit = vi.fn().mockResolvedValue(undefined);
+    const guild = makeGuild({ channels: [channel] });
+    guild.members.me.id = 'bot-1';
+    guild.members.me.permissions = { has: (flag) => flag !== PermissionFlagsBits.Administrator };
+
+    const result = await applyChannelCorrection(guild, { type: 'deny-everyone-view', channelId: 'chan-log' });
+
+    expect(result).toEqual({ ok: true });
+    const calls = channel.permissionOverwrites.edit.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0][0]).toBe('bot-1');
+    expect(calls[0][1]).toMatchObject({ ViewChannel: true, SendMessages: true });
+    expect(calls[0][2]).toMatchObject({ type: OverwriteType.Member });
+    expect(calls[1][0]).toBe(guild.roles.everyone);
+  });
+});

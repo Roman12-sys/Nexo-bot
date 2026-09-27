@@ -65,6 +65,40 @@ describe('setupState — getSetupStatus', () => {
     expect(statusMissing.permisosBot.missing.length).toBeGreaterThan(0);
   });
 
+  // 2026-09-27 — el caso Cloud6: permisos del servidor completos y 0 canales visibles.
+  it('permisos del bot: con todos los permisos pero sin ver ningún canal de texto, es rojo', async () => {
+    hasCustomShopItems.mockResolvedValue(true);
+    const blind = { type: 0, permissionsFor: () => ({ has: () => false }) };
+    const guild = { ...makeGuild(), channels: { cache: new Map([['a', blind], ['b', blind]]) } };
+
+    const status = await getSetupStatus(guild, {});
+
+    expect(status.permisosBot.status).toBe(STATUS.ERROR);
+    expect(status.permisosBot.detail).toMatch(/ningún canal/);
+  });
+
+  it('permisos del bot: si ve aunque sea un canal, sigue en verde (canales privados del staff son normales)', async () => {
+    hasCustomShopItems.mockResolvedValue(true);
+    const guild = {
+      ...makeGuild(),
+      channels: { cache: new Map([['a', { type: 0, permissionsFor: () => ({ has: () => true }) }], ['b', { type: 0, permissionsFor: () => ({ has: () => false }) }]]) },
+    };
+
+    const status = await getSetupStatus(guild, {});
+
+    expect(status.permisosBot.status).toBe(STATUS.OK);
+  });
+
+  // 2026-09-27 — el caso Prueba bot: el rol automático era el mismo rol de staff.
+  it('roles: un rol automático que es también de staff pone la sección en rojo aunque haya rol de staff', async () => {
+    hasCustomShopItems.mockResolvedValue(true);
+    const status = await getSetupStatus(makeGuild(), { moderator_role_id: 'role-staff', admin_role_id: 'role-staff', auto_role_id: 'role-staff' });
+
+    expect(status.roles.status).toBe(STATUS.ERROR);
+    expect(status.roles.detail).toContain('<@&role-staff>');
+    expect(status.roles.detail).toMatch(/staff/);
+  });
+
   it('economía: usa hasCustomShopItems(guild.id), no un guildId hardcodeado', async () => {
     hasCustomShopItems.mockResolvedValue(true);
     await getSetupStatus(makeGuild({ guildId: 'guild-especifico' }), {});

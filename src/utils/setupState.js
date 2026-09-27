@@ -10,7 +10,8 @@
 // gatear — casinoHelpers.js es 100% constantes globales); "economía lista" es una
 // advertencia 🟡 (nunca bloqueo 🔴) cuando el servidor usa el catálogo de ejemplo en vez
 // de ítems propios, porque /shop funciona igual en los dos casos.
-import { getMissingBotPermissions } from './botPermissions.js';
+import { getMissingBotPermissions, getBotChannelVisibility } from './botPermissions.js';
+import { getConfiguredRoleConflicts } from './permissions.js';
 import { hasCustomShopItems } from './shopStore.js';
 import { isCustomWelcomeConfigured } from './welcomeEmbed.js';
 
@@ -19,6 +20,13 @@ export const STATUS = { OK: 'ok', WARN: 'warn', ERROR: 'error' };
 export const STATUS_EMOJI = { [STATUS.OK]: '🟢', [STATUS.WARN]: '🟡', [STATUS.ERROR]: '🔴' };
 
 function rolesStatus(cfg) {
+  // 2026-09-27: un rol que cumple dos papeles que chocan (ej. el automático es el de
+  // staff) — guardado antes de que existiera el chequeo, o por otro camino. NEXO ya no
+  // lo aplica (guildMemberAdd/punish lo revalidan), pero el admin tiene que enterarse.
+  const [conflict] = getConfiguredRoleConflicts(cfg);
+  if (conflict) {
+    return { status: STATUS.ERROR, detail: `${conflict.label} (<@&${conflict.roleId}>) ${conflict.reason}. Cambialo con \`/config\`.` };
+  }
   if (cfg.moderator_role_id) {
     return { status: STATUS.OK, detail: 'Rol de staff configurado.' };
   }
@@ -62,9 +70,19 @@ function casinoStatus() {
   };
 }
 
-function botPermissionsStatus(guild) {
+function botPermissionsStatus(guild, cfg) {
   const missing = getMissingBotPermissions(guild);
   if (missing.length === 0) {
+    // 2026-09-27: tener "Ver canales" en el servidor no alcanza si los permisos de cada
+    // canal se lo niegan (Cloud6: 0 de 16 canales visibles). Ver getBotChannelVisibility.
+    const visibility = getBotChannelVisibility(guild, cfg);
+    if (visibility && visibility.total > 0 && visibility.visible === 0) {
+      return {
+        status: STATUS.ERROR,
+        detail: 'NEXO no puede ver ningún canal de texto — sin eso no modera ni da XP. Dale el rol que ve los canales, o sumá su rol en los permisos de cada canal.',
+        missing: [],
+      };
+    }
     return { status: STATUS.OK, detail: 'NEXO tiene todos los permisos esenciales.', missing: [] };
   }
   return {
@@ -86,7 +104,7 @@ export async function getSetupStatus(guild, cfg) {
     bienvenida: welcomeStatus(cfg),
     economia,
     casino: casinoStatus(),
-    permisosBot: botPermissionsStatus(guild),
+    permisosBot: botPermissionsStatus(guild, cfg),
   };
 }
 

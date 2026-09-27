@@ -95,6 +95,10 @@ async function main() {
       const filePath = path.join(categoryPath, file);
       const mod = await import(pathToFileURL(filePath).href);
       if (!('data' in mod)) continue;
+      // Comandos solo del operador (hoy /owner-metricas): se registran únicamente en el
+      // servidor de pruebas y a propósito no se mencionan en /help (2026-09-27) —
+      // listarlos en el sitio público contradecía eso.
+      if (mod.ownerGuildOnly) continue;
 
       const json = mod.data.toJSON();
       commands.push({

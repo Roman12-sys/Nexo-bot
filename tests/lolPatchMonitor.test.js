@@ -16,6 +16,7 @@ const { checkDdragonVersion, startLolDdragonMonitorLoop } = await import('../src
 
 const HOUR_MS = 60 * 60 * 1000;
 const TOLERANCE_MS = 24 * HOUR_MS; // debe coincidir con DDRAGON_PATCH_WARNING_DELAY_MS del módulo
+const LOOKBACK_MS = 72 * HOUR_MS; // debe coincidir con ARTICLE_LOOKBACK_MS del módulo
 
 function mockVersionsResponse(version, { ok = true, status = 200 } = {}) {
   vi.stubGlobal(
@@ -109,12 +110,35 @@ describe('checkDdragonVersion', () => {
     expect(setLolDdragonWarningSent).not.toHaveBeenCalled();
   });
 
+  // El caso real del 24/09/2026: artículo del 26.19 el 22/09 18:02 UTC, Data Dragon
+  // 16.19.1 el 23/09 21:26 — 27h de diferencia en el orden normal. Con la ventana vieja
+  // de 24h hacia atrás esto avisaba "¿se rompió el scraper?" sin que nada estuviera roto.
+  it('Data Dragon se actualiza 27h después del artículo (caso real 26.19): no genera falso positivo', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockVersionsResponse('16.19.1');
+    const detectedAt = Date.parse('2026-09-23T21:26:23Z');
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse('2026-09-24T21:44:10Z'));
+    getLolPatchMonitorState.mockResolvedValue({
+      patchEngineUpdatedAt: Date.parse('2026-09-22T18:02:05Z'),
+      lastDdragonVersion: '16.19.1',
+      ddragonVersionDetectedAt: detectedAt,
+      ddragonWarningSentAt: null,
+    });
+
+    await checkDdragonVersion();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(setLolDdragonWarningSent).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it('venció la ventana de tolerancia y el patch engine nunca progresó: genera warning', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     mockVersionsResponse('16.17.1');
     const detectedAt = Date.now() - (TOLERANCE_MS + HOUR_MS);
     getLolPatchMonitorState.mockResolvedValue({
-      patchEngineUpdatedAt: detectedAt - (TOLERANCE_MS + HOUR_MS), // último artículo, bien afuera de la ventana de tolerancia
+      patchEngineUpdatedAt: detectedAt - (LOOKBACK_MS + HOUR_MS), // último artículo, bien afuera de la ventana hacia atrás
       lastDdragonVersion: '16.17.1',
       ddragonVersionDetectedAt: detectedAt,
       ddragonWarningSentAt: null,
