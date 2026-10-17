@@ -93,6 +93,8 @@ async function loadEvents() {
 
 await loadCommands();
 await loadEvents();
+// Botones sin comando propio (se autorregistran al importarse, igual que los de src/commands/**).
+await import('./utils/readReceipts.js');
 
 // SIGTERM es lo que manda Railway en cada redeploy/restart antes de matar el proceso
 // con SIGKILL si no respondió a tiempo; SIGINT es Ctrl+C en desarrollo. client.destroy()
